@@ -31,13 +31,14 @@ def state_report_paths(repo_path: Path, scan_date: date) -> tuple[Path, Path]:
     stem = f"{slug}-state-report-{scan_date.isoformat()}"
     md = out_dir / f"{stem}.md"
     js = out_dir / f"{stem}.json"
-    if md.exists():
-        # Pitfall 4: same-day re-run; append -2, -3, ... until free.
+    if md.exists() or js.exists():
+        # Pitfall 4 + 01-REVIEW Finding 1: same-day re-run; append -2, -3, ...
+        # check BOTH .md and .json so we never silently overwrite a sibling sidecar.
         n = 2
         while True:
             cand_md = out_dir / f"{stem}-{n}.md"
             cand_js = out_dir / f"{stem}-{n}.json"
-            if not cand_md.exists():
+            if not (cand_md.exists() or cand_js.exists()):
                 return cand_md, cand_js
             n += 1
     return md, js

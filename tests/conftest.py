@@ -118,3 +118,61 @@ def empty_repo(tmp_path) -> Path:
         tmp_path / "empty-repo",
         {"README.md": "# empty\n"},
     )
+
+
+# --- Phase 2 additions: multi-commit factory for COLL-01 cadence tests ---
+import datetime as _dt2  # re-aliased to avoid colliding with the existing _dt import
+from typing import Optional
+
+
+@pytest.fixture
+def fake_repo_with_commits(tmp_path):
+    """Factory: build a pygit2-seeded fake repo with N commits, controllable authors + timestamps.
+
+    Usage:
+        def test_cadence(fake_repo_with_commits):
+            repo = fake_repo_with_commits(
+                n_commits=5,
+                authors=["a@x.com", "a@x.com", "b@x.com", "b@x.com", "a@x.com"],
+                days_ago_list=[0, 1, 2, 8, 35],  # for 7d/30d/60d/90d bucketing
+                name="cadence-test",
+            )
+    """
+    def _factory(
+        *,
+        n_commits: int = 1,
+        authors: Optional[list[str]] = None,
+        days_ago_list: Optional[list[int]] = None,
+        name: str = "fake-repo-multi",
+        manifests: Optional[dict[str, str]] = None,
+    ) -> Path:
+        authors = authors or [f"author{i}@example.com" for i in range(n_commits)]
+        assert len(authors) == n_commits, "authors length must equal n_commits"
+        days_ago_list = days_ago_list or [i for i in range(n_commits)]
+        assert len(days_ago_list) == n_commits, "days_ago_list length must equal n_commits"
+        repo_path = tmp_path / name
+        repo_path.mkdir(parents=True, exist_ok=True)
+        repo = pygit2.init_repository(str(repo_path), bare=False)
+        # Seed initial manifest set (optional)
+        for rel_path, contents in (manifests or {}).items():
+            f = repo_path / rel_path
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(contents, encoding="utf-8")
+        today = _dt2.datetime(2026, 5, 28, 12, 0, 0)
+        parents: list[str] = []
+        for i in range(n_commits):
+            # Create a unique file per commit so the tree changes
+            marker = repo_path / f"_commit_marker_{i}.txt"
+            marker.write_text(f"commit {i}\n", encoding="utf-8")
+            repo.index.add_all()
+            repo.index.write()
+            tree = repo.index.write_tree()
+            ts = int((today - _dt2.timedelta(days=days_ago_list[i])).timestamp())
+            sig = pygit2.Signature(authors[i].split("@")[0], authors[i], ts, 0)
+            oid = repo.create_commit(
+                "HEAD", sig, sig, f"commit {i}", tree, parents,
+            )
+            parents = [str(oid)]
+        return repo_path
+
+    return _factory
