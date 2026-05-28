@@ -23,3 +23,16 @@ reports/
 .DS_Store
 .idea/
 .vscode/
+
+# Python
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# uv
+uv.lock
+
