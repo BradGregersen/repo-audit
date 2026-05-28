@@ -68,11 +68,22 @@ class Finding(BaseModel):
 
     SAFE-01 (D-17) — critical+static requires a confidence_caveat (enforced below).
     SAFE-03 (D-19) — presence_only findings must have severity='info' (enforced below).
+    SCH-04 / D-51' (Plan 03-01a, Decision B) — confidence='candidate' REJECTS
+        severity in {critical, blocker} (widened rule; 'major'/'minor'/'info'
+        are PERMITTED at candidate). Phase 2's secret_detection finding
+        (severity='major', confidence='candidate') stays valid without a
+        per-collector patch under this widened rule.
+    EvidenceType Literal extended (Plan 03-01a, Decision C) with 'failed' for
+        runner-failure findings (D-41' refresh path). NOTE: SCH-03 (D-17)
+        critical+static caveat does NOT trigger for evidence_type='failed'
+        because the gate is `evidence_type == 'static'`; 'failed' is a
+        distinct semantic from 'static' (tool ran but produced no usable
+        result vs. analysis of source artifacts).
 
     Validator decorator declaration order is not load-bearing —
-    _enforce_critical_static_caveat and _enforce_presence_only_severity_ceiling
-    raise on independent invariants. Future additions should preserve
-    independence rather than relying on ordering.
+    _enforce_critical_static_caveat, _enforce_presence_only_severity_ceiling,
+    and _enforce_candidate_rung_cap raise on independent invariants. Future
+    additions should preserve independence rather than relying on ordering.
     """
 
     model_config = ConfigDict(extra="forbid")  # D-03
@@ -116,5 +127,30 @@ class Finding(BaseModel):
                 f"SAFE-03: parsed_value.presence_only=True requires severity='info'; "
                 f"got severity={self.severity!r}. Presence-only findings cannot promote "
                 f"without an additional semantic-check signal."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _enforce_candidate_rung_cap(self) -> "Finding":
+        """SCH-04 (D-51' widened rule): confidence='candidate' forbids severity in {critical, blocker}.
+
+        Per Decision B (Plan 03-01a, 2026-05-28), the SCH-04 rung-cap permits
+        {major, minor, info} at candidate confidence and rejects ONLY
+        {critical, blocker}. This deliberately widens the originally-proposed
+        rule (which capped at minor/info) so that legitimate candidate findings
+        (e.g., the Phase 2 secret-detection finding at severity='major',
+        confidence='candidate') stay valid without per-collector patches.
+
+        The knip parser's own internal cap (severity='info' only, see D-50)
+        is the structural guard for knip findings specifically, applied at
+        the parser layer, NOT here.
+        """
+        if self.confidence == "candidate" and self.severity in {"critical", "blocker"}:
+            raise ValueError(
+                f"SCH-04 (D-51' widened): confidence='candidate' forbids "
+                f"severity={self.severity!r}. Findings must be corroborated "
+                "(confidence='corroborated' or 'confirmed') before promotion "
+                "to 'critical' or 'blocker'. ('major', 'minor', 'info' are "
+                "allowed at candidate.)"
             )
         return self
