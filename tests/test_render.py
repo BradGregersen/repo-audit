@@ -3,8 +3,6 @@ import json
 from datetime import date
 import pytest
 
-pytestmark = pytest.mark.xfail(strict=False, reason="Plan 04 implements renderer")
-
 
 ALL_SECTION_HEADINGS = [
     "## 1. Executive summary",
@@ -67,6 +65,7 @@ def test_scope_ledger_pending_marker():
     assert "scanned: nothing yet — no collectors registered for any dimension" in md
 
 
+@pytest.mark.xfail(reason="needs CLI from Plan 06")
 def test_header_has_repo_slug_commit_sha_date_version(runner, fake_repo):
     """D-12 — header includes repo name, commit SHA, scan date, tool version, baseline marker."""
     from repo_audit.cli import app
@@ -77,6 +76,7 @@ def test_header_has_repo_slug_commit_sha_date_version(runner, fake_repo):
     assert "baseline run" in md.lower()
 
 
+@pytest.mark.xfail(reason="needs CLI from Plan 06")
 def test_scan_writes_report_and_sidecar(runner, fake_repo):
     """SC-3 / SCH-06 — both .md and .json land in docs/state-reports/ with schema_version="1"."""
     from repo_audit.cli import app
@@ -88,6 +88,7 @@ def test_scan_writes_report_and_sidecar(runner, fake_repo):
     assert sidecar["schema_version"] == "1"
 
 
+@pytest.mark.xfail(reason="needs CLI from Plan 06")
 def test_read_only_contract(runner, fake_repo):
     """REP-03 — `repo-audit scan` writes ONLY .md + .json in docs/state-reports/; no other mutations."""
     import subprocess
