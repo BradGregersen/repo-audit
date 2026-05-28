@@ -12,7 +12,6 @@ def test_renderer_refuses_on_synthetic_secret(synthetic_secret, fake_repo, runne
         lint_buffer(buf, buffer_name="markdown")
 
 
-@pytest.mark.xfail(reason="needs render_and_write wiring from Task 2")
 def test_secret_lint_blocks_write_in_render_pipeline(synthetic_secret, fake_repo, tmp_path, monkeypatch):
     """REP-05 — full render_and_write pipeline aborts (exit nonzero, no files on disk) on secret."""
     from repo_audit.render.renderer import render_and_write

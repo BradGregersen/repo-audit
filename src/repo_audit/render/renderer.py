@@ -5,19 +5,30 @@ Two entry points:
         Pure function: produces the markdown buffer. No I/O.
 
     render_and_write(scan_report, md_path, json_path) -> int
-        Build both buffers, auto-create md_path.parent (D-15), write both.
-        Returns 0 on success, non-zero on failure.
+        Build both buffers, lint both (Plan 01-05 D-07 chokepoint),
+        auto-create md_path.parent (D-15), write both. Returns 0 on
+        success, ``2`` if the secret-lint refuses the write (D-06).
 
-Plan 05 interposes the secret-lint chokepoint INSIDE render_and_write
-between buffer-build and disk-write. The function signature is stable.
+The write step is encapsulated in ``_write_outputs(markdown_buf, json_buf,
+md_path, json_path)`` so the secret-lint chokepoint sits cleanly between
+buffer-build and the single ``_write_outputs`` call -- no scattered
+``Path.write_text`` sites to audit (Pitfall 2 mitigation).
 
-The write step is encapsulated in `_write_outputs(markdown_buf, json_buf,
-md_path, json_path)` so Plan 05 can drop `lint_buffer(...)` calls between
-buffer-build and that single chokepoint -- no scattered `Path.write_text`
-calls to track down.
+D-07 ordering invariant (load-bearing):
+    1. Build BOTH buffers in memory.
+    2. Lint BOTH (markdown first, then JSON sidecar).
+    3. Only if both pass: ``_write_outputs(...)`` (which mkdirs the
+       parent and writes the two files).
+
+On secret-lint failure (``SecretsDetected``):
+    - Emit the value-blind diagnostic to stderr.
+    - Return ``2`` (non-zero per D-06).
+    - DO NOT mkdir, DO NOT write -- the target repo stays untouched
+      (Pitfall 8).
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
@@ -26,6 +37,11 @@ from repo_audit.render.filters import (
     evidence_verb,
     provenance,
     severity_emoji,
+)
+from repo_audit.render.secret_lint import (
+    SecretsDetected,
+    format_diagnostic,
+    lint_buffer,
 )
 from repo_audit.schema.report import ScanReport
 
@@ -84,24 +100,36 @@ def render_and_write(
     md_path: Path,
     json_path: Path,
 ) -> int:
-    """Build markdown + JSON buffers, write both. Returns 0 on success.
+    """Build markdown + JSON buffers, lint both, write both. Returns 0 on success.
 
-    Plan 05 will interpose secret-lint between buffer-build and the
-    `_write_outputs` call below by replacing the body between
-    "1. Build buffers" and "2. Write" with `lint_buffer(...)` calls.
-    The function signature here is stable.
+    D-07 ordering (critical, load-bearing):
+        1. Build BOTH buffers in memory.
+        2. Secret-lint BOTH (markdown first, then JSON).
+        3. Only if both pass: ``_write_outputs(...)`` (the single
+           disk-write chokepoint, which mkdirs and writes).
 
-    D-15: directory auto-create is inside `_write_outputs`. A render
-    failure leaves the target repo untouched; a secret-lint failure
-    (Plan 05) leaves it untouched too.
+    If secret-lint fires (``SecretsDetected``):
+        - Print the value-blind diagnostic to stderr (D-06).
+        - Return ``2`` (non-zero per D-06).
+        - DO NOT mkdir, DO NOT write -- the target repo stays untouched
+          (Pitfall 8 mitigation).
+
+    Returns:
+        0 -- both buffers clean and written successfully.
+        2 -- secret-lint refused; nothing written, stderr diagnostic emitted.
     """
     # 1. Build both buffers in memory.
     markdown_buf = render_markdown(scan_report)
     json_buf = scan_report.model_dump_json(indent=2)
 
-    # 2. (Plan 05 will interpose `lint_buffer(markdown_buf)`
-    #     and `lint_buffer(json_buf)` here.)
+    # 2. D-07 chokepoint: lint BOTH before either touches disk.
+    try:
+        lint_buffer(markdown_buf, buffer_name="markdown")
+        lint_buffer(json_buf, buffer_name="json-sidecar")
+    except SecretsDetected as e:
+        print(format_diagnostic(e.hits, e.buffer_name), file=sys.stderr)
+        return 2  # D-06 hard refuse; ``_write_outputs`` is NOT called.
 
-    # 3. Single disk-write chokepoint.
+    # 3. Single disk-write chokepoint (D-15 mkdir lives inside).
     _write_outputs(markdown_buf, json_buf, md_path, json_path)
     return 0
