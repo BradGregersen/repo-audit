@@ -27,13 +27,17 @@ from pathlib import Path
 import typer
 
 from repo_audit import __version__
+from repo_audit.collectors import run_collectors
 from repo_audit.detect.detector import detect_stacks
 from repo_audit.doctor.self_test import run_secret_lint_self_test
 from repo_audit.meta.git import NotAGitRepo, UNCOMMITTED_MARKER, head_sha
+from repo_audit.meta.git_status import diff_git_status, snapshot_git_status
 from repo_audit.meta.paths import state_report_paths
 from repo_audit.meta.slug import repo_slug
+from repo_audit.orchestration import build_scope_ledger
 from repo_audit.render.renderer import render_and_write
 from repo_audit.schema.report import ReportMeta, ScanReport
+from repo_audit.walker import build_repo_index
 
 # D-13: bare ``arch`` prints help (no_args_is_help=True is Typer's idiom).
 # pretty_exceptions_show_locals=False hardens tracebacks against leaking
@@ -87,46 +91,110 @@ def scan(
 ) -> None:
     """Scan a repo and emit a state report + JSON sidecar (CLI-02 / SC-3).
 
-    Writes only to ``{path}/docs/state-reports/{slug}-state-report-{date}.{md,json}``
-    per REP-03. Secret-lint runs on both buffers before either touches disk
-    (REP-05). On secret-lint refusal, the CLI propagates ``render_and_write``'s
-    return code via ``typer.Exit`` -- no silent masking.
+    Phase 2 pipeline:
+        1. snapshot_git_status(repo) — BEFORE collectors (D-33 baseline)
+        2. build_repo_index(repo) — single shared walker (D-26)
+        3. run_collectors(repo, walker.index) — sequential per registry order (D-24)
+        4. build_scope_ledger(walker, results) — REP-04 / D-30
+        5. render_and_write — secret-lint + completion-honesty + write (D-07, D-32)
+        6. snapshot_git_status + diff_git_status — post-flight integrity (D-33)
+           (does NOT fail the scan; emits stderr warning on offenders)
+
+    Exit codes:
+        0 — success
+        2 — secret-lint refused (REP-05 / D-06)
+        3 — completion-honesty refused (SAFE-08 / D-32)
     """
     repo_path = Path(path).resolve()
 
-    # Resolve metadata (D-12).
+    # D-33 pre-flight snapshot (must happen BEFORE any collector reads).
+    pre_status = snapshot_git_status(repo_path)
+
+    # Metadata (D-12).
     slug = repo_slug(repo_path)
     try:
         commit_sha = head_sha(repo_path)
     except NotAGitRepo:
-        # Edge: scanning a non-git directory. Treat as UNCOMMITTED for Phase 1
-        # (Pitfall 3 generalization -- no git context still produces a report).
         commit_sha = UNCOMMITTED_MARKER
     scan_date = _date.today()
     detection = detect_stacks(repo_path)
 
-    # Build the (empty-findings) ScanReport. Phase 1 ships zero collectors;
-    # the renderer's D-09/D-10/D-11 pending markers communicate completion
-    # honesty in the rendered output.
+    # D-26 walker — single in-memory index, fed to every collector.
+    walker_result = build_repo_index(repo_path)
+
+    # D-24 sequential collector orchestration.
+    collector_results = run_collectors(repo_path, walker_result.index)
+
+    # D-30 scope ledger assembly.
+    scope_ledger = build_scope_ledger(
+        walker_result, collector_results, repo_path=repo_path,
+    )
+
+    # D-31 partial-scan determination.
+    partial = (
+        walker_result.status != "ok"
+        or any(r.status != "ok" for r in collector_results)
+    )
+
+    # Aggregate findings across collectors (sequential preserves ledger order).
+    findings = [f for r in collector_results for f in r.findings]
+
+    # Assemble ScanReport.
     meta = ReportMeta(
         repo_slug=slug,
         commit_sha=commit_sha,
         scan_date=scan_date,
         tool_version=__version__,
         detected_stacks=detection.stacks,
-        baseline_run=True,  # Phase 1: always baseline (no prior sidecar)
+        baseline_run=True,  # Phase 1 + 2: always baseline (no prior sidecar)
+        partial=partial,
     )
-    scan_report = ScanReport(schema_version="1", meta=meta, findings=[])
+    scan_report = ScanReport(
+        schema_version="1",
+        meta=meta,
+        findings=findings,
+        scope_ledger=scope_ledger,
+    )
 
-    # Derive output paths (Pitfall 4: same-day collision -> -2/-3/...).
+    # Output paths (Pitfall 4 collision-safe per Plan 02-01a paths.py fix).
     md_path, json_path = state_report_paths(repo_path, scan_date)
 
-    # Render + secret-lint + write. render_and_write handles all of
-    # D-06 (refuse + non-zero), D-07 (lint BOTH buffers before write),
-    # D-15 (mkdir post-lint). On non-zero, surface as the CLI's exit code.
+    # Render + secret-lint + completion-honesty + write.
     rc = render_and_write(scan_report, md_path, json_path)
     if rc != 0:
         raise typer.Exit(code=rc)
+
+    # D-33 post-flight integrity check (does NOT fail the scan).
+    post_status = snapshot_git_status(repo_path)
+    offenders = diff_git_status(pre_status, post_status)
+    if offenders:
+        # Stderr warning (user-facing surface).
+        typer.echo(
+            "INTEGRITY ALERT: repo-audit scan modified files outside docs/state-reports/:",
+            err=True,
+        )
+        for line in offenders:
+            typer.echo(f"  {line}", err=True)
+        typer.echo(
+            "This is a bug; please file an issue with the offending file list above.",
+            err=True,
+        )
+        # D-33 honesty contract: append integrity entry to in-memory
+        # scope_ledger.notes so a follow-up tool inspection of the
+        # ScanReport object surfaces the alert. The on-disk JSON sidecar
+        # was already written before this check (the post-flight is a
+        # tripwire for tool BUGS, not a routine ledger entry); future
+        # Phase 5 can revisit if a "re-render with integrity row" gate
+        # is wanted.
+        integrity_note = (
+            f"Integrity alert: {len(offenders)} unexpected "
+            f"file(s) modified outside docs/state-reports/"
+        )
+        if scan_report.scope_ledger.notes:
+            scan_report.scope_ledger.notes += "; " + integrity_note
+        else:
+            scan_report.scope_ledger.notes = integrity_note
+
     typer.echo(f"Wrote {md_path}")
     typer.echo(f"Wrote {json_path}")
 
