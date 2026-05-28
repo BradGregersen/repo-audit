@@ -1,0 +1,7 @@
+# SHA256 hashes of vendored scc binaries (scc 3.7.0 upstream)
+# Each line:  <hash>  <relative-path-from-vendor/scc>
+# Platforms with `pending vendor` need a Mac-host build before wheel-publish.
+1fde0c8fcd2b31f65d18caa442331eb015171fdb71ba9177df95af0d42e44126  linux-x86_64/scc
+# linux-arm64/scc: pending vendor (download from github.com/boyter/scc v3.7.0 Linux_arm64)
+# macos-x86_64/scc: pending vendor (download from github.com/boyter/scc v3.7.0 Darwin_x86_64)
+# macos-arm64/scc: pending vendor (download from github.com/boyter/scc v3.7.0 Darwin_arm64)

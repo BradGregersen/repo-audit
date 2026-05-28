@@ -27,6 +27,19 @@ packages = ["src/repo_audit"]
 # needed once render/templates/state_report.md.j2 exists — Plan 01-01's
 # .gitkeep placeholder is gone). force-include is reserved for assets
 # OUTSIDE the package tree, which we have none of.
+#
+# Vendored scc binaries (D-34) also live INSIDE the package tree at
+# src/repo_audit/vendor/scc/ and are picked up automatically by the
+# packages = ["src/repo_audit"] rule above. We do NOT add a
+# force-include entry for vendor/scc because (a) the binaries are already
+# included via the package data rule, and (b) Plan 02-03 verified that
+# adding the force-include produces the same Duplicate-name UserWarning
+# that Plan 01-04 retired the templates force-include to avoid. The
+# binaries ARE in the wheel — verify with `unzip -l dist/*.whl | grep scc`.
+# The plan's must_have language about "assets outside the package tree
+# pattern" was based on the assumption that vendor binaries would live
+# outside src/repo_audit/; they don't, so force-include is not the
+# pattern that applies here. See SUMMARY for the full deviation rationale.
 
 [dependency-groups]
 dev = [
