@@ -136,3 +136,168 @@ def test_schema_version_literal():
     from repo_audit.schema.report import ScanReport, ReportMeta
     with pytest.raises(ValidationError):
         ScanReport(schema_version="2", meta=ReportMeta(repo_slug="x", commit_sha="abc", scan_date="2026-05-28", tool_version="0.1.0"))
+
+
+# --- SCH-04 WIDENED rung-cap validator tests (Plan 03-01a, Decision B / D-51') ---
+#
+# The widened rule REJECTS confidence='candidate' + severity in {critical, blocker}
+# ONLY. major/minor/info are PERMITTED at candidate confidence. The widening is
+# deliberate so that the Phase 2 secret-detection finding (severity='major',
+# confidence='candidate') stays valid without per-collector patches.
+
+
+def test_candidate_severity_critical_rejected():
+    """SCH-04 D-51' widened — confidence='candidate' + severity='critical' raises ValidationError."""
+    from pydantic import ValidationError
+    from repo_audit.schema.finding import Finding, Evidence
+    with pytest.raises(ValidationError, match="SCH-04"):
+        Finding(
+            dimension="security",
+            severity="critical",
+            evidence=Evidence(tool="x"),
+            evidence_type="static",
+            confidence="candidate",
+            confidence_caveat="runtime not verified",  # satisfies SAFE-01 so we test SCH-04 in isolation
+        )
+
+
+def test_candidate_severity_blocker_rejected():
+    """SCH-04 D-51' widened — confidence='candidate' + severity='blocker' raises ValidationError."""
+    from pydantic import ValidationError
+    from repo_audit.schema.finding import Finding, Evidence
+    with pytest.raises(ValidationError, match="SCH-04"):
+        Finding(
+            dimension="security",
+            severity="blocker",
+            evidence=Evidence(tool="x"),
+            evidence_type="heuristic",
+            confidence="candidate",
+        )
+
+
+def test_candidate_severity_major_ALLOWED():
+    """SCH-04 D-51' widened — confidence='candidate' + severity='major' is PERMITTED.
+
+    Load-bearing test for the widened rule: this combination is what the Phase 2
+    secret_detection collector emits (SAFE-06). Decision B explicitly preserves
+    that finding without modifying the collector; the schema MUST permit this.
+    """
+    from repo_audit.schema.finding import Finding, Evidence
+    f = Finding(
+        dimension="security",
+        severity="major",
+        evidence=Evidence(tool="x"),
+        evidence_type="heuristic",
+        confidence="candidate",
+    )
+    assert f.severity == "major"
+    assert f.confidence == "candidate"
+
+
+def test_candidate_severity_minor_allowed():
+    """SCH-04 D-51' widened — confidence='candidate' + severity='minor' is PERMITTED."""
+    from repo_audit.schema.finding import Finding, Evidence
+    f = Finding(
+        dimension="quality",
+        severity="minor",
+        evidence=Evidence(tool="x"),
+        evidence_type="heuristic",
+        confidence="candidate",
+    )
+    assert f.severity == "minor"
+
+
+def test_candidate_severity_info_allowed():
+    """SCH-04 D-51' widened — confidence='candidate' + severity='info' is PERMITTED."""
+    from repo_audit.schema.finding import Finding, Evidence
+    f = Finding(
+        dimension="quality",
+        severity="info",
+        evidence=Evidence(tool="x"),
+        evidence_type="heuristic",
+        confidence="candidate",
+    )
+    assert f.severity == "info"
+
+
+def test_corroborated_severity_critical_allowed():
+    """SCH-04 D-51' — the rung-cap fires ONLY at candidate; corroborated+critical is fine."""
+    from repo_audit.schema.finding import Finding, Evidence
+    f = Finding(
+        dimension="security",
+        severity="critical",
+        evidence=Evidence(tool="x"),
+        evidence_type="static",
+        confidence="corroborated",
+        confidence_caveat="runtime not verified",  # SAFE-01
+    )
+    assert f.severity == "critical"
+    assert f.confidence == "corroborated"
+
+
+# --- EvidenceType 'failed' variant tests (Plan 03-01a, Decision C) ---
+#
+# The 5th EvidenceType variant is consumed by plan 03-03's _refresh_failed_finding
+# helper and plan 03-05's CLI failure-synthesis path. SCH-03 critical+static caveat
+# (D-17) MUST NOT trigger for evidence_type='failed' since 'failed' != 'static'.
+
+
+def test_evidence_type_literal_includes_failed_variant():
+    """Decision C structural pin — EvidenceType Literal contains 'failed'.
+
+    Guards against a future regression that removes the 5th variant.
+    """
+    from typing import get_args
+    from repo_audit.schema.enums import EvidenceType
+    assert "failed" in get_args(EvidenceType), (
+        f"EvidenceType must include 'failed' (Decision C); got {get_args(EvidenceType)}"
+    )
+
+
+def test_failed_evidence_type_constructs_cleanly():
+    """Decision C — plan 03-03 _refresh_failed_finding helper shape validates clean.
+
+    Representative of the lcov refresh-failure path: coverage_refresh emits a
+    Finding with evidence_type='failed' when the runner produced no usable result.
+    Neither SCH-03 (D-17 critical+static) nor SCH-04 widened (D-51') should reject
+    this combination.
+    """
+    from repo_audit.schema.finding import Finding, Evidence
+    f = Finding(
+        dimension="test_integrity",
+        severity="major",
+        confidence="medium",
+        evidence_type="failed",
+        source_tool="coverage_refresh",
+        source_collector="lcov",
+        rule_id="coverage_refresh_failed",
+        recommendation="Re-run the coverage refresh.",
+        evidence=Evidence(tool="lcov-parser"),
+    )
+    assert f.evidence_type == "failed"
+    assert f.severity == "major"
+
+
+def test_failed_evidence_type_not_subject_to_critical_static_caveat():
+    """Decision C — SCH-03 (D-17) critical+static caveat does NOT trigger for 'failed'.
+
+    SCH-03 fires only when severity=='critical' AND evidence_type=='static'. Since
+    'failed' != 'static', no confidence_caveat is required even at severity='critical'.
+    Guard against a future schema change that accidentally widens SCH-03's trigger.
+    """
+    from repo_audit.schema.finding import Finding, Evidence
+    f = Finding(
+        dimension="test_integrity",
+        severity="critical",
+        confidence="medium",
+        evidence_type="failed",
+        source_tool="coverage_refresh",
+        source_collector="lcov",
+        rule_id="coverage_refresh_failed_critical",
+        recommendation="Re-run the coverage refresh; surface as a blocking failure.",
+        evidence=Evidence(tool="lcov-parser"),
+        # NO confidence_caveat — proves SCH-03 doesn't fire for evidence_type='failed'.
+    )
+    assert f.evidence_type == "failed"
+    assert f.severity == "critical"
+    assert f.confidence_caveat is None
