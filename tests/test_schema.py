@@ -1,8 +1,6 @@
 """Schema contract tests. Implementation lands in Plan 02 (Wave 1)."""
 import pytest
 
-pytestmark = pytest.mark.xfail(strict=False, reason="Plan 02 implements schema")
-
 
 def test_critical_static_requires_caveat():
     """SC-4a / SCH-03 / SAFE-01 / D-17 — critical+static without caveat raises ValidationError."""
