@@ -31,8 +31,15 @@ def synthetic_secret() -> str:
 
 @pytest.fixture
 def runner() -> CliRunner:
-    """typer.testing.CliRunner instance (in-process invocation, no subprocess)."""
-    return CliRunner(mix_stderr=False)
+    """typer.testing.CliRunner instance (in-process invocation, no subprocess).
+
+    Modern Typer/Click already separates stdout/stderr by default; the
+    historical ``mix_stderr=False`` kwarg was removed (Rule 3 blocking
+    auto-fix during Plan 01-05 -- previously masked by the module-level
+    xfail on tests/test_secret_lint.py and the per-function xfails on
+    tests/test_cli.py).
+    """
+    return CliRunner()
 
 
 def _seed_repo(
