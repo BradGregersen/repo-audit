@@ -1,0 +1,246 @@
+"""Phase 3 adapter-test fixtures.
+
+The Phase 1 conftest fixtures (fake_repo, polyglot_repo, synthetic_secret,
+runner, fake_repo_with_commits) are inherited via pytest's fixture-inheritance
+rules. This module adds adapter-specific fixtures:
+
+- ``recorded_tool_output``  — reads the canned ``(stdout, stderr, returncode)``
+  triple from ``tests/adapters/fixtures/{tool}/{scenario}/``. Lets parser tests
+  feed real-world tool output shapes into the parsers without invoking a live
+  TS toolchain. The shapes were captured live against
+  ``/path/to/example-app/node_modules/.bin/`` during 03-RESEARCH and committed
+  to git (T-03-13 disposition: accept; review of fixture diffs is the safeguard).
+
+- ``ts_fixture_repo`` / ``ts_fixture_repo_no_lcov`` / ``ts_fixture_repo_stale_lcov``
+  — tmp_path git-initialised TypeScript repos with manifests pre-committed.
+  Used by the host-independent SC-6 unit test and the integration test stubs.
+  The three variants differ only in ``coverage/lcov.info`` presence + mtime so
+  the LCOV freshness path (D-43) can be exercised in unit tests.
+
+- ``lcov_path`` — parametrisable fixture returning a path under
+  ``tests/adapters/fixtures/lcov/{request.param}.info``.
+
+- ``mock_ts_tools_subprocess`` — factory that registers canned tsc/eslint/knip
+  subprocess responses via pytest-subprocess (``fp`` fixture). Enables the
+  host-independent SC-6 unit test (checker Blocker 6) — the adapter can run
+  end-to-end without ``/path/to/example-app`` being present.
+"""
+from __future__ import annotations
+
+import datetime as _dt
+import json
+import os
+import time
+from pathlib import Path
+from typing import Callable
+
+import pygit2
+import pytest
+
+
+# --- Module-level constants ------------------------------------------------
+
+FIXTURES_ROOT = Path(__file__).parent / "fixtures"
+
+
+# --- Recorded tool-output helper ------------------------------------------
+
+@pytest.fixture
+def recorded_tool_output() -> Callable[[str, str], tuple[str, str, int]]:
+    """Return ``(stdout, stderr, returncode)`` from a recorded fixture.
+
+    Layout: ``tests/adapters/fixtures/{tool}/{scenario}/{stdout,stderr,returncode}.txt``.
+    The returncode file MUST contain a single integer line.
+
+    Usage::
+
+        def test_x(recorded_tool_output):
+            stdout, stderr, rc = recorded_tool_output("tsc", "errors")
+            result = parse(InvocationResult(stdout=stdout, stderr=stderr, returncode=rc))
+
+    Raises ``FileNotFoundError`` with a clear "fixture missing" message if any
+    of the three files is absent so misnamed scenarios fail loud rather than
+    silently returning empty strings.
+    """
+
+    def _read(tool: str, scenario: str) -> tuple[str, str, int]:
+        base = FIXTURES_ROOT / tool / scenario
+        stdout_p = base / "stdout.txt"
+        stderr_p = base / "stderr.txt"
+        rc_p = base / "returncode.txt"
+        missing = [str(p) for p in (stdout_p, stderr_p, rc_p) if not p.exists()]
+        if missing:
+            raise FileNotFoundError(
+                f"recorded_tool_output({tool!r}, {scenario!r}) — fixture missing: {missing}"
+            )
+        stdout = stdout_p.read_text(encoding="utf-8")
+        stderr = stderr_p.read_text(encoding="utf-8")
+        rc_raw = rc_p.read_text(encoding="utf-8").strip()
+        return stdout, stderr, int(rc_raw)
+
+    return _read
+
+
+# --- Fixture-repo factories ------------------------------------------------
+
+_TS_MANIFESTS: dict[str, str] = {
+    "package.json": json.dumps(
+        {
+            "name": "ts-fixture",
+            "type": "module",
+            "version": "0.0.0",
+            "devDependencies": {"typescript": "^5.0.0"},
+        },
+        indent=2,
+    ),
+    "tsconfig.json": json.dumps(
+        {"compilerOptions": {"strict": True, "noEmit": True}},
+        indent=2,
+    ),
+    # Minimal flat config — eslint 9.x doesn't crash on an empty array.
+    "eslint.config.js": "export default [];\n",
+    # Empty knip config — knip 6.x accepts {}.
+    "knip.json": "{}\n",
+    # A source file so tsc has something to type-check.
+    "src/index.ts": "export const x: number = 1;\n",
+}
+
+
+def _seed_ts_repo(
+    repo_path: Path,
+    *,
+    lcov: str | None,
+    lcov_mtime_offset_seconds: float | None,
+) -> Path:
+    """Build a TypeScript fixture repo with one initial commit.
+
+    Args:
+        repo_path: target directory (must not already exist).
+        lcov: name (without extension) under ``fixtures/lcov/`` to copy as
+            ``coverage/lcov.info`` — or ``None`` to skip lcov entirely.
+        lcov_mtime_offset_seconds: relative-to-now mtime for the lcov file
+            (negative = past). Ignored when ``lcov is None``.
+    """
+    repo_path.mkdir(parents=True, exist_ok=True)
+    repo = pygit2.init_repository(str(repo_path), bare=False)
+    for rel, contents in _TS_MANIFESTS.items():
+        f = repo_path / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(contents, encoding="utf-8")
+    if lcov is not None:
+        src = FIXTURES_ROOT / "lcov" / f"{lcov}.info"
+        dst = repo_path / "coverage" / "lcov.info"
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    # Commit everything currently on disk so a follow-up mtime touch (lcov
+    # staleness) does not show up as an uncommitted change.
+    repo.index.add_all()
+    repo.index.write()
+    tree = repo.index.write_tree()
+    ts = int(_dt.datetime(2026, 5, 28, 12, 0, 0).timestamp())
+    sig = pygit2.Signature("ts-fixture", "ts-fixture@example.com", ts, 0)
+    repo.create_commit("HEAD", sig, sig, "init", tree, [])
+    # Apply the mtime AFTER the commit so the offset is honoured at test time.
+    if lcov is not None and lcov_mtime_offset_seconds is not None:
+        lcov_path = repo_path / "coverage" / "lcov.info"
+        t = time.time() + lcov_mtime_offset_seconds
+        os.utime(lcov_path, (t, t))
+    return repo_path
+
+
+@pytest.fixture
+def ts_fixture_repo(tmp_path) -> Path:
+    """A git-initialised TS repo with a FRESH ``coverage/lcov.info``.
+
+    The lcov mtime is set to ``time.time() - 60`` so the D-43 freshness gate
+    (``> 24h`` ⇒ stale) passes deterministically across slow runners.
+    """
+    return _seed_ts_repo(
+        tmp_path / "ts-fixture",
+        lcov="fresh",
+        lcov_mtime_offset_seconds=-60.0,
+    )
+
+
+@pytest.fixture
+def ts_fixture_repo_no_lcov(tmp_path) -> Path:
+    """A git-initialised TS repo with NO ``coverage/lcov.info``.
+
+    D-44 / COV-04: parser must emit an ``unavailable`` Finding.
+    """
+    return _seed_ts_repo(
+        tmp_path / "ts-fixture-no-lcov",
+        lcov=None,
+        lcov_mtime_offset_seconds=None,
+    )
+
+
+@pytest.fixture
+def ts_fixture_repo_stale_lcov(tmp_path) -> Path:
+    """A git-initialised TS repo whose ``coverage/lcov.info`` is 25h old.
+
+    Drives D-43: staleness threshold is 24h, so 25h ⇒ unavailable.
+    """
+    return _seed_ts_repo(
+        tmp_path / "ts-fixture-stale-lcov",
+        lcov="stale",
+        lcov_mtime_offset_seconds=-(25.0 * 3600.0),
+    )
+
+
+@pytest.fixture
+def lcov_path(request) -> Path:
+    """Return ``FIXTURES_ROOT / 'lcov' / f'{request.param}.info'``.
+
+    Parametrise with one of: ``"fresh"``, ``"stale"``, ``"malformed"``.
+
+    Usage::
+
+        @pytest.mark.parametrize("lcov_path", ["fresh", "malformed"], indirect=True)
+        def test_lcov(lcov_path):
+            ...
+    """
+    name = getattr(request, "param", "fresh")
+    return FIXTURES_ROOT / "lcov" / f"{name}.info"
+
+
+# --- pytest-subprocess factory (checker Blocker 6 enabler) ---------------
+
+@pytest.fixture
+def mock_ts_tools_subprocess(fp, recorded_tool_output):
+    """Register canned subprocess outputs for tsc/eslint/knip via pytest-subprocess.
+
+    Returns a CALLABLE — callers select per-tool scenarios at use time::
+
+        def test_x(tmp_path, mock_ts_tools_subprocess):
+            mock_ts_tools_subprocess(tsc="clean", eslint="clean", knip="clean")
+            # any subsequent subprocess.run(...) inside the adapter under test
+            # is intercepted by pytest-subprocess and returns the canned triple.
+
+    Why ``fp.any()`` matchers + ``occurrences=10``:
+        The adapter (Wave 2) decides its own argv (project-local resolution +
+        cache-redirection env). Pinning exact argv here would couple the
+        fixture to Wave 2 implementation detail. ``fp.any()`` matches any
+        command, and the wildcard registers ONE response per scenario; the
+        ``occurrences=10`` allowance tolerates the adapter calling its tools
+        once per invocation in addition to any defensive double-check.
+
+    Important: each call to the inner ``_register`` registers THREE
+    wildcards in registration order. pytest-subprocess matches first
+    registration first, so we register in the order tsc → eslint → knip and
+    expect the adapter to invoke its tools in that same order. If a Wave 2
+    refactor reorders invocation, this fixture's contract needs updating.
+    """
+
+    def _register(*, tsc: str = "clean", eslint: str = "clean", knip: str = "clean") -> None:
+        for tool, scenario in (("tsc", tsc), ("eslint", eslint), ("knip", knip)):
+            stdout, stderr, returncode = recorded_tool_output(tool, scenario)
+            fp.register(
+                [fp.any()],
+                stdout=stdout,
+                stderr=stderr,
+                returncode=returncode,
+                occurrences=10,
+            )
+
+    return _register
