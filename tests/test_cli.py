@@ -1,7 +1,4 @@
 """CLI integration tests. Implementation lands in Plan 06 (Wave 3)."""
-import pytest
-
-pytestmark = pytest.mark.xfail(strict=False, reason="Plan 06 implements CLI")
 
 
 def test_help_lists_all_subcommands(runner):
