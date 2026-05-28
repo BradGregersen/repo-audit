@@ -18,6 +18,10 @@
 {% if report.meta.baseline_run -%}
 **Lineage:** baseline run — no prior state report to diff against.
 {%- endif %}
+{% if report.meta.partial -%}
+
+**Partial scan** — {{ report.scope_ledger.unavailable | length }} dimension(s) incomplete: {{ report.scope_ledger.unavailable | map(attribute='dimension') | list | unique | join(', ') }}. See §2 Scope ledger.
+{%- endif %}
 
 ---
 
@@ -32,8 +36,46 @@ _(no blocker/critical findings — no collectors invoked yet)_
 ---
 
 ## 2. Scope ledger
+{% if report.scope_ledger.notes %}
 
-scanned: nothing yet — no collectors registered for any dimension
+> {{ report.scope_ledger.notes }}
+{% endif %}
+
+### Scanned
+
+{% if report.scope_ledger.scanned -%}
+| Directory | File count | Collectors |
+|-----------|-----------:|------------|
+{% for s in report.scope_ledger.scanned -%}
+| `{{ s.dir }}` | {{ s.file_count }} | {{ s.collectors | join(", ") }} |
+{% endfor %}
+{%- else -%}
+_(no directories scanned)_
+{%- endif %}
+
+### Skipped
+
+{% if report.scope_ledger.skipped -%}
+| Directory | Reason |
+|-----------|--------|
+{% for s in report.scope_ledger.skipped -%}
+| `{{ s.dir }}` | {{ s.reason }} |
+{% endfor %}
+{%- else -%}
+_(no directories skipped)_
+{%- endif %}
+
+### Unavailable
+
+{% if report.scope_ledger.unavailable -%}
+| Dimension | Collector | Reason |
+|-----------|-----------|--------|
+{% for u in report.scope_ledger.unavailable -%}
+| {{ u.dimension }} | {{ u.collector }} | {{ u.reason }} |
+{% endfor %}
+{%- else -%}
+_(no unavailable dimensions — full scan)_
+{%- endif %}
 
 ---
 
@@ -41,31 +83,94 @@ scanned: nothing yet — no collectors registered for any dimension
 
 ## 3. Security & SAST
 
+{% set findings_here = report.findings | selectattr("dimension", "equalto", "security") | list %}
+{% if findings_here -%}
+| Severity | File:line | Source | Rule | Evidence |
+|----------|-----------|--------|------|----------|
+{% for f in findings_here -%}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% endfor %}
+{%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (universal collectors) and Phase 7 (gitleaks/trivy) where this dimension becomes populated)_
+{%- endif %}
 
 ## 4. Architecture rot
 
+{% set findings_here = report.findings | selectattr("dimension", "equalto", "architecture_rot") | list %}
+{% if findings_here -%}
+| Severity | File:line | Source | Rule | Evidence |
+|----------|-----------|--------|------|----------|
+{% for f in findings_here -%}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% endfor %}
+{%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (universal) and Phase 7 (dead-code) where this dimension becomes populated)_
+{%- endif %}
 
 ## 5. Test integrity
 
+{% set findings_here = report.findings | selectattr("dimension", "equalto", "test_integrity") | list %}
+{% if findings_here -%}
+| Severity | File:line | Source | Rule | Evidence |
+|----------|-----------|--------|------|----------|
+{% for f in findings_here -%}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% endfor %}
+{%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 3 (TypeScript adapter) where this dimension first becomes populated)_
+{%- endif %}
 
 ## 6. Correctness & data/privacy
 
+{% set findings_here = report.findings | selectattr("dimension", "equalto", "correctness") | list %}
+{% if findings_here -%}
+| Severity | File:line | Source | Rule | Evidence |
+|----------|-----------|--------|------|----------|
+{% for f in findings_here -%}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% endfor %}
+{%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 3+ where this dimension becomes populated)_
+{%- endif %}
 
 ## 7. Quality / perf / footprint / docs
 
+{% set findings_here = report.findings | selectattr("dimension", "equalto", "quality") | list %}
+{% if findings_here -%}
+| Severity | File:line | Source | Rule | Evidence |
+|----------|-----------|--------|------|----------|
+{% for f in findings_here -%}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% endfor %}
+{%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (LOC + doc-presence) where this dimension becomes populated)_
+{%- endif %}
 
 ## 8. Process & backlog
 
+{% set findings_here = report.findings | selectattr("dimension", "equalto", "process") | list %}
+{% if findings_here -%}
+| Severity | File:line | Source | Rule | Evidence |
+|----------|-----------|--------|------|----------|
+{% for f in findings_here -%}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% endfor %}
+{%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (git cadence + TODO counts) where this dimension becomes populated)_
+{%- endif %}
 
 ## 9. Observability & runtime
 
+{% set findings_here = report.findings | selectattr("dimension", "equalto", "observability") | list %}
+{% if findings_here -%}
+| Severity | File:line | Source | Rule | Evidence |
+|----------|-----------|--------|------|----------|
+{% for f in findings_here -%}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% endfor %}
+{%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 3+ where this dimension becomes populated)_
+{%- endif %}
 
 {# SAFE-02 (D-18): when observability findings exist in Phase 2+, this section's
    findings will carry a runtime-not-verified caveat. Phase 1 has no findings yet. #}

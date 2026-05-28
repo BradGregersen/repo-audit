@@ -33,6 +33,11 @@ from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
+from repo_audit.render.completion_honesty import (
+    CompletionHonestyViolation,
+    completion_honesty_lint,
+    format_completion_honesty_diagnostic,
+)
 from repo_audit.render.filters import (
     evidence_verb,
     provenance,
@@ -117,18 +122,34 @@ def render_and_write(
     Returns:
         0 -- both buffers clean and written successfully.
         2 -- secret-lint refused; nothing written, stderr diagnostic emitted.
+        3 -- completion-honesty refused (D-32 / SAFE-08); nothing written,
+             stderr diagnostic emitted. Distinct from 2 so CI can disambiguate
+             which guard fired.
     """
     # 1. Build both buffers in memory.
     markdown_buf = render_markdown(scan_report)
     json_buf = scan_report.model_dump_json(indent=2)
 
     # 2. D-07 chokepoint: lint BOTH before either touches disk.
+    #    Phase 1 secret-lint runs first; Phase 2 completion-honesty runs second
+    #    (both raise via distinct exception types so the diagnostic + exit
+    #    code remain disambiguated). Order matters: secret-lint failure on
+    #    markdown short-circuits before completion-honesty even sees the buffer.
+    partial = scan_report.meta.partial
     try:
         lint_buffer(markdown_buf, buffer_name="markdown")
         lint_buffer(json_buf, buffer_name="json-sidecar")
+        completion_honesty_lint(markdown_buf, partial=partial, buffer_name="markdown")
+        completion_honesty_lint(json_buf, partial=partial, buffer_name="json-sidecar")
     except SecretsDetected as e:
         print(format_diagnostic(e.hits, e.buffer_name), file=sys.stderr)
         return 2  # D-06 hard refuse; ``_write_outputs`` is NOT called.
+    except CompletionHonestyViolation as e:
+        print(
+            format_completion_honesty_diagnostic(e.hits, e.buffer_name),
+            file=sys.stderr,
+        )
+        return 3  # D-32 hard refuse; distinct from secret-lint exit code.
 
     # 3. Single disk-write chokepoint (D-15 mkdir lives inside).
     _write_outputs(markdown_buf, json_buf, md_path, json_path)

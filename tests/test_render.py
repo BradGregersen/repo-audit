@@ -58,10 +58,22 @@ def test_executive_summary_pending_marker():
 
 
 def test_scope_ledger_pending_marker():
-    """D-11 — Scope Ledger present with pending marker."""
+    """D-11 / D-30 — Scope Ledger present with three subsections.
+
+    Plan 02-06 replaced the Phase 1 single-line placeholder with the
+    Scanned/Skipped/Unavailable three-table layout (D-30). On an empty
+    ScanReport the empty-marker phrases under each subsection are the
+    new structural pending markers.
+    """
     from repo_audit.render.renderer import render_markdown
     md = render_markdown(_empty_scan_report())
-    assert "scanned: nothing yet — no collectors registered for any dimension" in md
+    assert "### Scanned" in md
+    assert "### Skipped" in md
+    assert "### Unavailable" in md
+    assert "_(no directories scanned)_" in md
+    assert "_(no directories skipped)_" in md
+    # "full scan" is the empty-unavailable-set sentinel
+    assert "_(no unavailable dimensions — full scan)_" in md
 
 
 def test_header_has_repo_slug_commit_sha_date_version(runner, fake_repo):
