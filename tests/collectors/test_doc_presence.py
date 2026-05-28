@@ -1,6 +1,10 @@
-"""COLL-04 tests. STUB — implementation lands in Plan 02-05."""
-import pytest
-pytestmark = pytest.mark.xfail(strict=False, reason="Plan 02-05 implements doc_presence")
+"""COLL-04 doc_presence tests (Plan 02-05).
+
+Strict from this plan forward: doc_presence emits a Finding per target
+(README, LICENSE, CHANGELOG, docs/) regardless of presence; SAFE-03
+ceiling structurally enforced via parsed_value['presence_only']=True;
+British 'LICENCE' spelling tolerated; source_tool is 'in-process'.
+"""
 
 
 def test_doc_presence_finds_all_four_targets(fake_repo):
@@ -36,3 +40,32 @@ def test_doc_presence_uses_in_process_source_tool(fake_repo):
     result = run(repo, wr.index)
     for f in result.findings:
         assert f.source_tool == "in-process"
+
+
+def test_doc_presence_emits_finding_for_each_target_when_absent(fake_repo):
+    from repo_audit.collectors.doc_presence import run
+    from repo_audit.walker import build_repo_index
+    repo = fake_repo({"src.py": "x=1\n"}, name="bare-repo")
+    wr = build_repo_index(repo)
+    result = run(repo, wr.index)
+    # 4 findings always: README + LICENSE + CHANGELOG + docs/
+    assert len(result.findings) == 4
+    labels = {f.evidence.parsed_value["doc"] for f in result.findings}
+    assert labels == {"README", "LICENSE", "CHANGELOG", "docs/"}
+    # All present=False
+    for f in result.findings:
+        assert f.evidence.parsed_value["present"] is False
+        assert f.recommendation.startswith("add ")
+
+
+def test_doc_presence_tolerates_british_licence_spelling(fake_repo):
+    from repo_audit.collectors.doc_presence import run
+    from repo_audit.walker import build_repo_index
+    repo = fake_repo({"LICENCE.md": "MIT\n"}, name="british")
+    wr = build_repo_index(repo)
+    result = run(repo, wr.index)
+    license_finding = next(
+        f for f in result.findings
+        if f.evidence.parsed_value["doc"] == "LICENSE"
+    )
+    assert license_finding.evidence.parsed_value["present"] is True
