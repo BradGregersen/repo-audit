@@ -1,8 +1,6 @@
 """Detector tests. Implementation lands in Plan 03 (Wave 1)."""
 import pytest
 
-pytestmark = pytest.mark.xfail(strict=False, reason="Plan 03 implements detector")
-
 
 def test_detect_polyglot_repo(polyglot_repo):
     """SC-2 / DETECT-01 — typescript-node + supabase both detected, with root_dirs."""
