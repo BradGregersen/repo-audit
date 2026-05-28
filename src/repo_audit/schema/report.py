@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from repo_audit.schema.detection import StackProfile
 from repo_audit.schema.finding import Finding
+from repo_audit.schema.scope_ledger import ScopeLedger
 
 
 class ReportMeta(BaseModel):
@@ -34,6 +35,7 @@ class ReportMeta(BaseModel):
     tool_version: str                                  # D-12; from importlib.metadata
     detected_stacks: list[StackProfile] = Field(default_factory=list)  # D-12
     baseline_run: bool = True                          # D-12; always True in Phase 1
+    partial: bool = False                              # D-31 banner trigger; Phase 1 default False
 
 
 class ScanReport(BaseModel):
@@ -50,3 +52,4 @@ class ScanReport(BaseModel):
     schema_version: Literal["1"] = "1"
     meta: ReportMeta
     findings: list[Finding] = Field(default_factory=list)
+    scope_ledger: ScopeLedger = Field(default_factory=ScopeLedger)  # D-30

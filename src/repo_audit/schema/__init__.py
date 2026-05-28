@@ -8,10 +8,17 @@ from repo_audit.schema.enums import (
 from repo_audit.schema.finding import OUTPUT_SNIPPET_CAP, Evidence, Finding
 from repo_audit.schema.detection import DetectionResult, StackProfile
 from repo_audit.schema.report import ReportMeta, ScanReport
+from repo_audit.schema.scope_ledger import (
+    ScannedEntry,
+    ScopeLedger,
+    SkippedEntry,
+    UnavailableEntry,
+)
 
 __all__ = [
     "Dimension", "Severity", "EvidenceType", "Confidence",
     "Evidence", "Finding", "OUTPUT_SNIPPET_CAP",
     "StackProfile", "DetectionResult",
     "ReportMeta", "ScanReport",
+    "ScopeLedger", "ScannedEntry", "SkippedEntry", "UnavailableEntry",
 ]
