@@ -91,12 +91,17 @@ def test_read_only_contract(runner, fake_repo):
     from repo_audit.cli import app
     repo = fake_repo({"README.md": "# x\n"}, name="read-only-test")
     runner.invoke(app, ["scan", str(repo)])
-    # git status --porcelain in the target repo: every modified path must be under docs/state-reports/
+    # git status --porcelain in the target repo: every modified path must be under docs/state-reports/.
+    # ``--untracked-files=all`` (-uall) expands new directories to their actual file
+    # entries -- without it, git collapses the new ``docs/`` tree to a single
+    # ``?? docs/`` line and the REP-03 contract can't be verified at file granularity.
     out = subprocess.run(
-        ["git", "-C", str(repo), "status", "--porcelain"],
+        ["git", "-C", str(repo), "status", "--porcelain", "-uall"],
         capture_output=True, text=True, check=True,
     )
-    for line in out.stdout.splitlines():
+    lines = [line for line in out.stdout.splitlines() if line.strip()]
+    assert lines, "expected `repo-audit scan` to leave at least one new file in the target repo"
+    for line in lines:
         path = line[3:].strip()
         assert path.startswith("docs/state-reports/"), f"unexpected mutation: {path}"
 
