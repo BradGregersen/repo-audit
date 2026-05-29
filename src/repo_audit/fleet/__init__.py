@@ -20,6 +20,8 @@ __all__ = [
     "build_repo_row",
     "discover_repos",
     "make_failed_row",
+    "render_fleet_dashboard",
+    "run_fleet",
 ]
 
 if TYPE_CHECKING:  # pragma: no cover - typing aid only
@@ -28,7 +30,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing aid only
         build_repo_row,
         make_failed_row,
     )
+    from repo_audit.fleet.dashboard import render_fleet_dashboard
     from repo_audit.fleet.discovery import DiscoveryResult, discover_repos
+    from repo_audit.fleet.sweep import run_fleet
 
 
 # PEP 562 lazy re-export: importing one submodule (e.g. fleet.discovery) must
@@ -41,6 +45,8 @@ _LAZY = {
     "aggregate": "repo_audit.fleet.aggregate",
     "build_repo_row": "repo_audit.fleet.aggregate",
     "make_failed_row": "repo_audit.fleet.aggregate",
+    "run_fleet": "repo_audit.fleet.sweep",
+    "render_fleet_dashboard": "repo_audit.fleet.dashboard",
 }
 
 
