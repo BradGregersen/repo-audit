@@ -153,9 +153,12 @@ def test_scan_post_flight_with_dirty_post_modifications_appends_ledger_note(
     offenders (more reliable than trying to cause a real collector to mutate
     the target repo in a test fixture).
     """
-    from repo_audit import cli as cli_mod
+    # Plan 05-01: the post-flight diff_git_status + ledger-note append moved
+    # into orchestration.scan_runner.run_scan, so patch + source-assert there.
+    # The CLI still owns the user-facing INTEGRITY ALERT stderr block.
+    from repo_audit.orchestration import scan_runner as runner_mod
     monkeypatch.setattr(
-        cli_mod,
+        runner_mod,
         "diff_git_status",
         lambda pre, post: ["?? .eslintcache", "?? .ruff_cache/x"],
     )
@@ -167,13 +170,13 @@ def test_scan_post_flight_with_dirty_post_modifications_appends_ledger_note(
     # The on-disk JSON sidecar was written BEFORE the post-flight check
     # (per D-33 design — see Task 2 behavior block), so the JSON's
     # scope_ledger.notes will NOT contain the integrity note. Instead
-    # we assert that cli.scan APPENDS to the in-memory object;
-    # the simplest robust assertion: the cli source contains the literal
-    # "Integrity alert:" string AND scope_ledger.notes append logic.
+    # we assert that run_scan APPENDS to the in-memory object;
+    # the simplest robust assertion: the scan_runner source contains the
+    # literal "Integrity alert:" string AND scope_ledger.notes append logic.
     from pathlib import Path as _P
-    cli_src = _P("src/repo_audit/cli.py").read_text()
-    assert "Integrity alert:" in cli_src
-    assert "scan_report.scope_ledger.notes" in cli_src
+    runner_src = _P("src/repo_audit/orchestration/scan_runner.py").read_text()
+    assert "Integrity alert:" in runner_src
+    assert "scan_report.scope_ledger.notes" in runner_src
 
 
 # --- Phase 3 / Plan 03-05 CLI integration tests ---
@@ -186,14 +189,17 @@ def test_scan_invokes_run_adapters(monkeypatch, fake_repo, runner):
     EXACTLY ONCE per scan invocation with (repo_path, detection) and that the
     detection bag contains the typescript-node stack.
     """
+    # Plan 05-01: run_adapters now executes inside
+    # orchestration.scan_runner.run_scan; patch it at its new call site.
     from repo_audit import cli as cli_mod
+    from repo_audit.orchestration import scan_runner as runner_mod
     calls: list[tuple] = []
 
     def tracking_run_adapters(repo_path, detection):
         calls.append((repo_path, detection))
         return []  # no AdapterResults; just verifying call shape
 
-    monkeypatch.setattr(cli_mod, "run_adapters", tracking_run_adapters)
+    monkeypatch.setattr(runner_mod, "run_adapters", tracking_run_adapters)
     repo = fake_repo(
         {"tsconfig.json": "{}", "package.json": '{"name":"x"}'},
         name="adapters-call",
@@ -218,7 +224,10 @@ def test_scan_partial_when_any_adapter_status_not_ok(
     banner (verified via the rendered markdown body — same surface
     Phase 2 SC-4 used).
     """
+    # Plan 05-01: run_adapters now executes inside
+    # orchestration.scan_runner.run_scan; patch it at its new call site.
     from repo_audit import cli as cli_mod
+    from repo_audit.orchestration import scan_runner as runner_mod
     from repo_audit.adapters.base import AdapterResult
 
     def fake_run_adapters(repo_path, detection):
@@ -230,7 +239,7 @@ def test_scan_partial_when_any_adapter_status_not_ok(
             dimension="correctness",
         )]
 
-    monkeypatch.setattr(cli_mod, "run_adapters", fake_run_adapters)
+    monkeypatch.setattr(runner_mod, "run_adapters", fake_run_adapters)
     repo = fake_repo(
         {"tsconfig.json": "{}", "package.json": '{"name":"y"}'},
         name="adapter-partial",

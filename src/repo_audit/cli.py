@@ -21,31 +21,13 @@ Read-only contract (REP-03):
 """
 from __future__ import annotations
 
-import asyncio
-import time
-from datetime import date as _date
 from pathlib import Path
 
 import typer
 
-from repo_audit import __version__
-from repo_audit.adapters import run_adapters
-# Phase 3 side-effect import: bringing this module in triggers
-# ``@register_adapter("typescript-node")`` so ``run_adapters`` actually
-# dispatches the TS adapter. Closes DI-03-03-01 (integration test had
-# no registration trigger).
-from repo_audit.adapters import typescript as _ts_adapter  # noqa: F401
-from repo_audit.collectors import run_collectors
 from repo_audit.detect.detector import detect_stacks
 from repo_audit.doctor.self_test import run_secret_lint_self_test
-from repo_audit.meta.git import NotAGitRepo, UNCOMMITTED_MARKER, head_sha
-from repo_audit.meta.git_status import diff_git_status, snapshot_git_status
-from repo_audit.meta.paths import state_report_paths
-from repo_audit.meta.slug import repo_slug
-from repo_audit.orchestration import auto_fill_ledger_gaps, build_scope_ledger
-from repo_audit.render.renderer import render_and_write
-from repo_audit.schema.report import ReportMeta, ScanReport
-from repo_audit.walker import build_repo_index
+from repo_audit.orchestration import run_scan
 
 # D-13: bare ``arch`` prints help (no_args_is_help=True is Typer's idiom).
 # pretty_exceptions_show_locals=False hardens tracebacks against leaking
@@ -88,97 +70,6 @@ def _root(
         )
         raise typer.Exit(code=2)
     # Otherwise fall through; Typer's no_args_is_help handles bare ``arch``.
-
-
-def _maybe_refresh_coverage(repo_path: Path, findings: list) -> list:
-    """Plan 03-05 Decision C sub-steps C + D: refresh-coverage wiring.
-
-    Called when the user passes ``--refresh-coverage`` to ``repo-audit scan``.
-    Inspects the merged findings list for a prior ``coverage_unavailable``
-    Finding emitted by the lcov parser's import-only pass; if found,
-    invokes plan 03-06's ``refresh_coverage`` runner and branches:
-
-      * RefreshResult.status == 'ok' (sub-step C):
-        Re-invokes ``parse_from_repo(repo_path)`` to obtain the fresh
-        aggregate Finding; REPLACES the prior unavailable Finding with the
-        fresh aggregate via a list comprehension that preserves the
-        relative order of all other findings.
-
-      * RefreshResult.status in {'failed', 'timeout'} (sub-step D):
-        Calls plan 03-03's ``_refresh_failed_finding`` helper and APPENDS
-        the returned ``evidence_type='failed'`` Finding to the merged list.
-        Does NOT remove the prior unavailable Finding — the report shows
-        both "no fresh artifact" AND "we tried; here's why it failed."
-
-      * RefreshResult.status == 'skipped' or no prior unavailable Finding:
-        no-op; returns the input list unchanged.
-
-    Imports inside this function (rather than at module top) so the
-    --refresh-coverage flag is the only call site that pulls in the
-    refresh runner + lcov re-invoke helpers. Module-load cost stays
-    bounded by the regular adapter-package import already at the top.
-    """
-    # Locate the previous 'unavailable' Finding emitted by the first lcov
-    # parser pass (plan 03-03 contract: source_tool='lcov' AND
-    # rule_id='coverage_unavailable').
-    prior_unavailable = [
-        f for f in findings
-        if getattr(f, "source_tool", "") == "lcov"
-        and getattr(f, "rule_id", "") == "coverage_unavailable"
-    ]
-    if not prior_unavailable:
-        # Coverage was fresh on the first pass; nothing to refresh.
-        return findings
-
-    import os
-    from repo_audit.adapters.typescript import CONFIG as _TS_CONFIG
-    from repo_audit.adapters.typescript.parsers.lcov import (
-        _refresh_failed_finding,
-        parse_from_repo as _parse_lcov_from_repo,
-    )
-    from repo_audit.adapters.typescript.refresh import (
-        refresh_coverage as _refresh_runner,
-    )
-
-    refresh_cfg = _TS_CONFIG.get("tools", {}).get("coverage_refresh", {})
-    refresh_result = _refresh_runner(
-        repo_root=repo_path,
-        cfg=refresh_cfg,
-        env=dict(os.environ),  # plan 03-06 applies the secret-scrub
-    )
-
-    if refresh_result.status == "ok":
-        # Sub-step C: re-invoke lcov parser; replace the unavailable
-        # Finding with the fresh aggregate (preserve order).
-        fresh_findings = _parse_lcov_from_repo(repo_path)
-        fresh_aggregate = next(
-            (f for f in fresh_findings if getattr(f, "rule_id", "") == "coverage_summary"),
-            None,
-        )
-        if fresh_aggregate is not None:
-            return [
-                fresh_aggregate if (
-                    getattr(f, "source_tool", "") == "lcov"
-                    and getattr(f, "rule_id", "") == "coverage_unavailable"
-                ) else f
-                for f in findings
-            ]
-        # Fresh parse did not produce an aggregate (artifact still missing
-        # despite ok status — unlikely but defensive); fall through and
-        # leave the unavailable Finding in place.
-        return findings
-
-    if refresh_result.status in {"failed", "timeout"}:
-        # Sub-step D: synthesize a 'failed' Finding; do NOT remove the
-        # prior unavailable Finding — both surface in the report.
-        failed_finding = _refresh_failed_finding(
-            refresh_result,
-            runner_command=refresh_result.runner_command,
-        )
-        return findings + [failed_finding]
-
-    # status == 'skipped' → no-op (refresh chose not to run).
-    return findings
 
 
 @app.command()
@@ -259,171 +150,52 @@ def scan(
         2 — secret-lint refused (REP-05 / D-06)
         3 — completion-honesty refused (SAFE-08 / D-32)
     """
-    repo_path = Path(path).resolve()
-    overall_start = time.perf_counter()  # Phase 4 — overall arch-scan wall-clock
-
-    # D-33 pre-flight snapshot (must happen BEFORE any collector reads).
-    pre_status = snapshot_git_status(repo_path)
-
-    # Metadata (D-12).
-    slug = repo_slug(repo_path)
-    try:
-        commit_sha = head_sha(repo_path)
-    except NotAGitRepo:
-        commit_sha = UNCOMMITTED_MARKER
-    scan_date = _date.today()
-    detection = detect_stacks(repo_path)
-
-    # D-26 walker — single in-memory index, fed to every collector.
-    walker_result = build_repo_index(repo_path)
-
-    # D-24 sequential collector orchestration.
-    collector_results = run_collectors(repo_path, walker_result.index)
-
-    # Phase 3 (Plan 03-05): adapter dispatch between collectors and ledger.
-    # The TS adapter package is imported at module-load (above) so
-    # ``@register_adapter("typescript-node")`` has already fired by here.
-    adapter_results = run_adapters(repo_path, detection)
-
-    # Aggregate findings across collectors + adapters (sequential preserves
-    # ledger order). Built BEFORE the refresh sub-steps below so the
-    # sub-steps can rewrite/extend this list in place.
-    findings = (
-        [f for r in collector_results for f in r.findings]
-        + [f for r in adapter_results for f in r.findings]
+    # Plan 05-01: the entire pipeline body now lives in
+    # orchestration.scan_runner.run_scan (single source of truth; repo-audit fleet
+    # reuses the identical pipeline). This command is a thin wrapper that
+    # parses Typer options, delegates, and reproduces the EXACT observable CLI
+    # surface (exit codes, the INTEGRITY ALERT block, the agent-status line,
+    # and the "Wrote ..." messages) from the returned ScanResult. Every
+    # pipeline invariant (D-33, D-65, D-67, Pitfall 5/7) is preserved verbatim
+    # inside run_scan.
+    result = run_scan(
+        Path(path).resolve(),
+        no_agent=no_agent,
+        refresh_coverage=refresh_coverage,
+        agent_budget=agent_budget,
     )
 
-    # Sub-step C + D: --refresh-coverage opt-in wiring (D-41' / Decision A).
-    # Runs BEFORE build_scope_ledger so the ledger reflects the
-    # post-refresh findings state. Sub-step C replaces the lcov
-    # 'coverage_unavailable' Finding with the fresh aggregate on refresh
-    # success; sub-step D appends a 'coverage_refresh_failed' Finding on
-    # refresh failure (does NOT remove the unavailable Finding — both
-    # surface so the reader sees "no fresh artifact" AND "we tried; here's
-    # why it failed").
-    if refresh_coverage:
-        findings = _maybe_refresh_coverage(repo_path, findings)
+    # render refused (secret-lint rc=2 / completion-honesty rc=3) → sidecar
+    # NOT written; propagate the exit code unchanged. No "Wrote" / integrity /
+    # agent-status surfaces on this path (mirrors pre-refactor early raise).
+    if result.rc != 0:
+        raise typer.Exit(code=result.rc)
 
-    # D-30 scope ledger assembly (Phase 3: adapter_results folded).
-    scope_ledger = build_scope_ledger(
-        walker_result, collector_results,
-        repo_path=repo_path,
-        adapter_results=adapter_results,
-    )
-
-    # D-31 partial-scan determination (Phase 3: adapter status considered).
-    partial = (
-        walker_result.status != "ok"
-        or any(r.status != "ok" for r in collector_results)
-        or any(r.status != "ok" for r in adapter_results)
-    )
-
-    # Assemble ScanReport.
-    meta = ReportMeta(
-        repo_slug=slug,
-        commit_sha=commit_sha,
-        scan_date=scan_date,
-        tool_version=__version__,
-        detected_stacks=detection.stacks,
-        baseline_run=True,  # Phase 1 + 2: always baseline (no prior sidecar)
-        partial=partial,
-    )
-
-    # Phase 4 NEW: AGENT-05 budget override (D-65) — one-shot scan override.
-    # Mutates the AGENT_DEFAULTS dict the agent loop reads via get_threshold();
-    # process-local + benign (each Typer invocation is a fresh CLI context).
-    if agent_budget is not None:
-        from repo_audit.agent.constants import AGENT_DEFAULTS
-        AGENT_DEFAULTS["agent.max_tokens_per_scan"] = int(agent_budget)
-
-    # Phase 4 NEW: agent session (D-53, D-65, D-67, D-68).
-    # Skipped under --no-agent for debugging the deterministic pipeline.
-    # Returns (AgentScanReport | None, mutated_meta); on failure agent_output
-    # is None and meta.agent_status carries the reason (D-67 exit-0 contract).
-    # Called via the module attribute so the loop is patchable in tests and
-    # session.py (which imports the SDK) is only pulled in when needed.
-    agent_output = None
-    if not no_agent:
-        from repo_audit.agent import session as _agent_session
-        agent_output, meta = asyncio.run(_agent_session.run_agent_session(
-            findings=findings,
-            scope_ledger=scope_ledger,
-            detection=detection,
-            meta=meta,
-        ))
-
-    # Phase 4 NEW: AGENT-07 post-flight ledger-gap auto-fill (D-60).
-    # Under D-57 read-only tools this is defense in depth — the agent path
-    # cannot create gaps; this catches collector-execution bugs and primes
-    # future action-tool semantics.
-    findings, scope_ledger = auto_fill_ledger_gaps(
-        findings, scope_ledger, detection,
-        repo_path=repo_path,
-        walker_index=walker_result.index,
-    )
-
-    scan_report = ScanReport(
-        schema_version="1",
-        meta=meta,
-        findings=findings,
-        scope_ledger=scope_ledger,
-    )
-
-    # Output paths (Pitfall 4 collision-safe per Plan 02-01a paths.py fix).
-    md_path, json_path = state_report_paths(repo_path, scan_date)
-
-    # Render + secret-lint + completion-honesty + faithfulness + write.
-    # agent_output is None on --no-agent + every D-67 fallback → the renderer
-    # takes the deterministic-only path (Plan 04-08).
-    rc = render_and_write(scan_report, md_path, json_path, agent_output=agent_output)
-    # Phase 4: overwrite wall_clock_seconds with the overall arch-scan duration
-    # (RESEARCH Open Question 2 — caller-overrides-session). This is the
-    # user-facing total; session.py's agent-only measurement is superseded.
-    meta.wall_clock_seconds = time.perf_counter() - overall_start
-    if rc != 0:
-        raise typer.Exit(code=rc)
-
-    # D-33 post-flight integrity check (does NOT fail the scan).
-    post_status = snapshot_git_status(repo_path)
-    offenders = diff_git_status(pre_status, post_status)
-    if offenders:
-        # Stderr warning (user-facing surface).
+    # D-33 post-flight integrity alert (does NOT fail the scan). run_scan
+    # already appended the integrity note to scope_ledger.notes; the CLI owns
+    # the user-facing stderr block.
+    if result.offenders:
         typer.echo(
             "INTEGRITY ALERT: repo-audit scan modified files outside docs/state-reports/:",
             err=True,
         )
-        for line in offenders:
+        for line in result.offenders:
             typer.echo(f"  {line}", err=True)
         typer.echo(
             "This is a bug; please file an issue with the offending file list above.",
             err=True,
         )
-        # D-33 honesty contract: append integrity entry to in-memory
-        # scope_ledger.notes so a follow-up tool inspection of the
-        # ScanReport object surfaces the alert. The on-disk JSON sidecar
-        # was already written before this check (the post-flight is a
-        # tripwire for tool BUGS, not a routine ledger entry); future
-        # Phase 5 can revisit if a "re-render with integrity row" gate
-        # is wanted.
-        integrity_note = (
-            f"Integrity alert: {len(offenders)} unexpected "
-            f"file(s) modified outside docs/state-reports/"
-        )
-        if scan_report.scope_ledger.notes:
-            scan_report.scope_ledger.notes += "; " + integrity_note
-        else:
-            scan_report.scope_ledger.notes = integrity_note
 
     # Phase 4 D-67: surface a non-ok agent fallback on stderr (the report is
     # still a clean deterministic-only report; the scan still exits 0).
-    if meta.agent_status is not None and meta.agent_status != "ok":
+    if result.agent_status is not None and result.agent_status != "ok":
         typer.echo(
-            f"agent: {meta.agent_status} (deterministic-only report shipped per D-67)",
+            f"agent: {result.agent_status} (deterministic-only report shipped per D-67)",
             err=True,
         )
 
-    typer.echo(f"Wrote {md_path}")
-    typer.echo(f"Wrote {json_path}")
+    typer.echo(f"Wrote {result.md_path}")
+    typer.echo(f"Wrote {result.json_path}")
 
 
 @app.command()
