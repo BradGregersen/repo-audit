@@ -134,9 +134,11 @@ def test_deltas_python_computed(fake_repo):
     assert delta.lint_error_delta == -2
     assert delta.coverage_delta is not None
     assert round(delta.coverage_delta, 2) == 13.5
-    # finding-count delta by dimension: quality went 5 → 1 (-4), test_integrity 1 → 1 (0),
-    # process 1 → 1 (0).
-    assert delta.finding_count_delta_by_dimension["quality"] == -4
+    # finding-count delta by dimension. quality findings are the loc aggregate
+    # (1) + the eslint findings: prior=1 loc + 3 eslint = 4; current=1 loc + 1
+    # eslint = 2; delta = -2. test_integrity (lcov) 1 → 1 (0); process
+    # (git_cadence) 1 → 1 (0).
+    assert delta.finding_count_delta_by_dimension["quality"] == -2
     assert delta.finding_count_delta_by_dimension["test_integrity"] == 0
     assert delta.finding_count_delta_by_dimension["process"] == 0
     # All 7 dimensions must be present (exhaustive iteration).

@@ -1,0 +1,69 @@
+"""Trend-delta contracts (TREND-01/02/03).
+
+These models carry the pure-Python-computed deltas between a prior and current
+``ScanReport`` plus the three-way finding classification. The agent never
+computes or invents any of these numbers (TREND-02 / D-05-07) — they are
+produced deterministically by ``trend.delta.compute_trend``.
+
+SAFE-04/08 honesty contract: a delta of ``None`` means "metric unavailable on
+at least one side" (n/a) — NEVER a fabricated ``0``. A real ``0`` (e.g. zero
+lint errors on both scans) is a genuine measured value.
+"""
+from __future__ import annotations
+
+from datetime import date
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+# The three-way classification (RESEARCH Pitfall 2 — the SC-2 contract).
+FindingChangeStatus = Literal[
+    "resolved",  # prior-ref gone from current AND file still present (a genuine fix)
+    "vanished_with_file",  # prior-ref gone AND file deleted (NOT a fix — anti-cheating)
+    "still_present",  # prior-ref present in current
+]
+
+
+class FindingChange(BaseModel):
+    """One prior finding's fate in the current scan.
+
+    The ``finding_ref`` is the shared composite key
+    ``{source_tool}::{rule_id}::{file}:{line}`` (see
+    ``trend.delta.composite_finding_ref``). ``status`` is the Pitfall-2
+    classification.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    finding_ref: str
+    dimension: str
+    severity: str
+    status: FindingChangeStatus
+    file: str | None = None
+
+
+class TrendDelta(BaseModel):
+    """All deltas the trend section of the report needs.
+
+    Every ``*_delta`` is ``int | float | None``: ``None`` when the underlying
+    metric is unavailable on either side (SAFE-04/08), never a fabricated 0.
+    ``finding_count_delta_by_dimension`` always covers the full 7-dimension
+    taxonomy (exhaustive).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    prior_baseline_date: date
+    commits_delta: int | None = None
+    loc_delta: int | None = None
+    lint_error_delta: int | None = None
+    coverage_delta: float | None = None
+    finding_count_delta_by_dimension: dict[str, int] = Field(default_factory=dict)
+    changes: list[FindingChange] = Field(default_factory=list)
+
+
+__all__ = [
+    "FindingChangeStatus",
+    "FindingChange",
+    "TrendDelta",
+]
