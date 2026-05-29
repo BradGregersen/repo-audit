@@ -26,6 +26,12 @@ from repo_audit.agent.schema import (
     FaithfulnessViolation,
     SeverityCall,
 )
+from repo_audit.agent.tools import (
+    ALL_TOOLS,
+    available_tools_for_prompt,
+    build_mcp_server,
+    get_emitted_report,
+)
 
 __all__ = [
     "AgentScanReport",
@@ -36,4 +42,8 @@ __all__ = [
     "UNIVERSAL_TOOL_NAMES",
     "EMIT_REPORT_TOOL_NAME",
     "adapter_tool_names",
+    "ALL_TOOLS",
+    "available_tools_for_prompt",
+    "build_mcp_server",
+    "get_emitted_report",
 ]
