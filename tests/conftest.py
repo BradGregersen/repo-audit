@@ -176,3 +176,124 @@ def fake_repo_with_commits(tmp_path):
         return repo_path
 
     return _factory
+
+
+# ---- Phase 4 Wave 0 fixtures (added by plan 04-01-PLAN.md) ----
+
+
+@pytest.fixture
+def mock_sdk_client():
+    """Factory: returns an AsyncMock-based fake ClaudeSDKClient.
+
+    Usage:
+        client = mock_sdk_client(messages=[
+            AssistantMessage(content=[ToolUseBlock(id='1', name='get_tsc_diagnostics', input={})], model='claude-sonnet-4-5', usage={'input_tokens': 100, 'output_tokens': 50}),
+            ResultMessage(subtype='success', duration_ms=1234, duration_api_ms=1000, is_error=False, num_turns=2, session_id='s1', total_cost_usd=0.01234),
+        ])
+        async with client as c:
+            async for msg in c.receive_messages():
+                ...
+
+    RESEARCH §"Validation Architecture (Nyquist)" -> Test Framework:
+    "for SDK message-stream mocking, use unittest.mock.AsyncMock against
+    ClaudeSDKClient" -- this factory wires that pattern in one place so
+    every test_agent_*.py file does not reinvent it.
+    """
+    from unittest.mock import AsyncMock
+
+    def _factory(messages):
+        client = AsyncMock()
+
+        async def _receive_messages():
+            for m in messages:
+                yield m
+
+        client.receive_messages = _receive_messages
+        client.connect = AsyncMock()
+        client.disconnect = AsyncMock()
+        client.query = AsyncMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        return client
+
+    return _factory
+
+
+@pytest.fixture
+def agent_scan_report_factory():
+    """Factory: returns a minimally-valid AgentScanReport.
+
+    Importorskip-gated so the fixture is only constructed when
+    repo_audit.agent.schema actually lands (Plan 04-02).
+    """
+    pytest.importorskip(
+        "repo_audit.agent.schema",
+        reason="agent.schema lands in Plan 04-02; fixture skipped until then.",
+    )
+    from repo_audit.agent.schema import AgentScanReport
+
+    def _factory(**overrides):
+        base = dict(
+            dimensions=[],
+            executive_summary="Baseline summary.",
+            cross_cutting_notes=None,
+        )
+        base.update(overrides)
+        return AgentScanReport(**base)
+
+    return _factory
+
+
+@pytest.fixture
+def allowed_numbers_factory():
+    """Factory: returns a populated set[float] matching D-62's shape.
+
+    Default seed includes the small-cardinals {0..7} (D-62 narrative-phrasing
+    freedom) plus a sample LCOV-shape number (73.4 -- used by SC-3 sibling
+    cases). Override by passing extra=[...].
+    """
+    def _factory(extra=None):
+        base = {float(i) for i in range(8)}
+        base.add(73.4)
+        base.add(18432.0)
+        base.add(152625.0)
+        if extra:
+            base.update(float(x) for x in extra)
+        return base
+
+    return _factory
+
+
+@pytest.fixture
+def adversarial_narrative_corpus():
+    """Named adversarial prose snippets for faithfulness-gate tests.
+
+    Each key is a test scenario; each value is a string fragment the
+    Wave 3 tests pass to check_faithfulness(...) with a known
+    AllowedNumbers set and assert the stripping behavior.
+
+    Keys (test scenario -> expected behavior):
+        invented_coverage_pct      -> "Coverage is 73% across the suite."
+                                      (no LCOV finding within 5% of 73 -> strip)
+        invented_contributor_count -> "There are 99 contributors active this month."
+                                      (no meta.contributor_count near 99 -> strip)
+        authentic_loc              -> "The repo has 18,432 LOC."
+                                      (AllowedNumbers={18432} -> keep)
+        authentic_semver           -> "Pinned at pygit2 1.19.2."
+                                      (allowlist regex matches -> keep)
+        abbreviation_split         -> "Eg. The agent invented 73. The next sentence is fine."
+                                      (D-63 pre-mask handles 'Eg.' -> only the
+                                       '73' sentence strips; the next stays)
+        every_file_smuggling       -> "Every file passes lint."
+                                      (caught by completion_honesty too;
+                                       faithfulness gate keeps numbers,
+                                       completion_honesty handles 'every')
+    """
+    return {
+        "invented_coverage_pct": "Coverage is 73% across the suite.",
+        "invented_contributor_count": "There are 99 contributors active this month.",
+        "authentic_loc": "The repo has 18,432 LOC.",
+        "authentic_semver": "Pinned at pygit2 1.19.2.",
+        "abbreviation_split": "Eg. The agent invented 73. The next sentence is fine.",
+        "every_file_smuggling": "Every file passes lint.",
+    }
