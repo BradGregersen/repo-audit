@@ -204,6 +204,59 @@ def lcov_path(request) -> Path:
     return FIXTURES_ROOT / "lcov" / f"{name}.info"
 
 
+# --- Plan 03-05 integration-only fixture: symlinked dogfood toolchain ----
+
+
+_DOGFOOD_NODE_MODULES = Path("/path/to/example-app/node_modules")
+
+
+@pytest.fixture
+def ts_fixture_repo_with_tools(tmp_path) -> Path:
+    """Integration-only: tmp_path TS repo + symlinked dogfood node_modules.
+
+    Skips if ``/path/to/example-app/node_modules`` is not present (CI without
+    the dogfood checkout). The symlink makes
+    ``tmp_path/node_modules/.bin/{tsc,eslint,knip}`` resolve transparently
+    so the adapter's ``resolve_tool`` walk-up finds real binaries without
+    the cost of a per-test ``npm install``.
+
+    The symlink also means tests should NOT mutate ``tmp_path/node_modules/``
+    (would write to the dogfood repo). Adapters in this codebase only READ
+    from node_modules, so the contract is naturally honored.
+    """
+    if not _DOGFOOD_NODE_MODULES.is_dir():
+        pytest.skip(
+            f"dogfood node_modules not present at {_DOGFOOD_NODE_MODULES}"
+        )
+    repo = tmp_path / "ts-with-tools"
+    repo.mkdir()
+    (repo / "package.json").write_text(
+        '{"name": "fixture", "type": "module", '
+        '"devDependencies": {"typescript": "*"}}\n',
+        encoding="utf-8",
+    )
+    (repo / "tsconfig.json").write_text(
+        '{"compilerOptions": {"strict": true, "noEmit": true, '
+        '"module": "esnext", "target": "esnext", '
+        '"moduleResolution": "node"}}\n',
+        encoding="utf-8",
+    )
+    (repo / "eslint.config.js").write_text(
+        "export default [];\n", encoding="utf-8",
+    )
+    os.symlink(_DOGFOOD_NODE_MODULES, repo / "node_modules")
+    # Make it a real git repo so post-flight git_status works.
+    pygit2.init_repository(str(repo), bare=False)
+    r = pygit2.Repository(str(repo))
+    r.index.add_all()
+    r.index.write()
+    tree = r.index.write_tree()
+    ts = int(_dt.datetime(2026, 5, 28, 12, 0, 0).timestamp())
+    sig = pygit2.Signature("test", "test@example.com", ts, 0)
+    r.create_commit("HEAD", sig, sig, "init", tree, [])
+    return repo
+
+
 # --- pytest-subprocess factory (checker Blocker 6 enabler) ---------------
 
 @pytest.fixture

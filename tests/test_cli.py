@@ -174,3 +174,70 @@ def test_scan_post_flight_with_dirty_post_modifications_appends_ledger_note(
     cli_src = _P("src/repo_audit/cli.py").read_text()
     assert "Integrity alert:" in cli_src
     assert "scan_report.scope_ledger.notes" in cli_src
+
+
+# --- Phase 3 / Plan 03-05 CLI integration tests ---
+
+
+def test_scan_invokes_run_adapters(monkeypatch, fake_repo, runner):
+    """Phase 3 contract: scan dispatches run_adapters between collectors and ledger.
+
+    Monkey-patches cli.run_adapters to a tracking shim; asserts it is called
+    EXACTLY ONCE per scan invocation with (repo_path, detection) and that the
+    detection bag contains the typescript-node stack.
+    """
+    from repo_audit import cli as cli_mod
+    calls: list[tuple] = []
+
+    def tracking_run_adapters(repo_path, detection):
+        calls.append((repo_path, detection))
+        return []  # no AdapterResults; just verifying call shape
+
+    monkeypatch.setattr(cli_mod, "run_adapters", tracking_run_adapters)
+    repo = fake_repo(
+        {"tsconfig.json": "{}", "package.json": '{"name":"x"}'},
+        name="adapters-call",
+    )
+    result = runner.invoke(cli_mod.app, ["scan", str(repo)])
+    assert result.exit_code == 0, f"scan failed: {result.output}"
+    assert len(calls) == 1, f"run_adapters called {len(calls)} times, expected 1"
+    called_repo, called_detection = calls[0]
+    assert called_repo == repo.resolve()
+    assert any(
+        s.stack == "typescript-node" for s in called_detection.stacks
+    ), f"typescript-node not in detected stacks: {[s.stack for s in called_detection.stacks]}"
+
+
+def test_scan_partial_when_any_adapter_status_not_ok(
+    monkeypatch, fake_repo, runner
+):
+    """Phase 3 contract: meta.partial = True when ANY adapter status != 'ok'.
+
+    Monkey-patches run_adapters to return a single status='unavailable'
+    AdapterResult and asserts the rendered report shows the Partial-scan
+    banner (verified via the rendered markdown body — same surface
+    Phase 2 SC-4 used).
+    """
+    from repo_audit import cli as cli_mod
+    from repo_audit.adapters.base import AdapterResult
+
+    def fake_run_adapters(repo_path, detection):
+        return [AdapterResult(
+            status="unavailable",
+            notes="tsc not found",
+            source_adapter="typescript-node",
+            source_tool="tsc",
+            dimension="correctness",
+        )]
+
+    monkeypatch.setattr(cli_mod, "run_adapters", fake_run_adapters)
+    repo = fake_repo(
+        {"tsconfig.json": "{}", "package.json": '{"name":"y"}'},
+        name="adapter-partial",
+    )
+    result = runner.invoke(cli_mod.app, ["scan", str(repo)])
+    assert result.exit_code == 0
+    md = next((repo / "docs" / "state-reports").glob("*.md")).read_text()
+    assert "Partial scan" in md, (
+        "meta.partial=True should render Partial banner when adapter status != ok"
+    )

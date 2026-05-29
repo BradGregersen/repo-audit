@@ -195,3 +195,226 @@ def test_knip_args_omits_no_cache():
     """Pitfall 1: knip has no ``--no-cache`` flag (would crash with usage error)."""
     knip_args = ADAPTER_CONFIG["tools"]["knip"].get("args", [])
     assert "--no-cache" not in knip_args
+
+
+# --- Plan 03-05 Decision C sub-steps (refresh wiring in cli.py) ----------
+#
+# These two tests live here (not in test_integration_typescript.py) because
+# they mock the refresh runner + lcov parser and therefore do NOT require
+# real binaries. The integration-marker file gates live-binary tests; these
+# mock-based tests must run under the default suite so the contract for
+# sub-step C + sub-step D is enforced on every commit.
+
+
+def test_refresh_ok_replaces_unavailable_with_fresh_finding(
+    monkeypatch, fake_repo, runner
+):
+    """Decision C sub-step C: refresh success → fresh aggregate REPLACES unavailable.
+
+    Mocks ``parse_from_repo`` to return [unavailable_finding] on first call and
+    [fresh_aggregate_finding] on second call. Mocks ``refresh_coverage`` to
+    return ``RefreshResult(status='ok', ...)``. Asserts the rendered sidecar
+    JSON's findings list contains the fresh aggregate (rule_id='coverage_summary')
+    AND does NOT contain the prior unavailable Finding (rule_id='coverage_unavailable').
+    """
+    import json
+    from repo_audit import cli as cli_mod
+    from repo_audit.adapters.typescript.parsers import lcov as lcov_mod
+    from repo_audit.adapters.typescript import refresh as refresh_mod
+    from repo_audit.schema.finding import Evidence, Finding
+
+    unavailable = Finding(
+        dimension="test_integrity",
+        severity="major",
+        evidence_type="unavailable",
+        confidence="medium",
+        source_tool="lcov",
+        source_collector="typescript_adapter",
+        rule_id="coverage_unavailable",
+        recommendation="run coverage",
+        evidence=Evidence(
+            tool="lcov-parser",
+            output_snippet="missing",
+            parsed_value={"reason": "stale_or_missing_coverage_artifact"},
+        ),
+    )
+    fresh = Finding(
+        dimension="test_integrity",
+        severity="major",
+        evidence_type="static",
+        confidence="high",
+        source_tool="lcov",
+        source_collector="typescript_adapter",
+        rule_id="coverage_summary",
+        recommendation="coverage from lcov",
+        confidence_caveat="Static coverage caveat for tests.",
+        evidence=Evidence(
+            tool="lcov-parser",
+            output_snippet="ok",
+            parsed_value={
+                "total_pct": 80.0,
+                "line_pct": 80.0,
+                "branch_pct": 50.0,
+                "function_pct": 100.0,
+                "file_count": 2,
+                "artifact_mtime_iso": "2026-05-28T00:00:00+00:00",
+            },
+        ),
+    )
+
+    call_counter = {"n": 0}
+
+    def fake_parse(repo_path):
+        call_counter["n"] += 1
+        # First pass (the adapter's lcov dispatch) → unavailable.
+        # Second pass (cli's sub-step C re-invoke) → fresh aggregate.
+        return [fresh] if call_counter["n"] >= 2 else [unavailable]
+
+    # Patch the parser at BOTH import sites so the adapter's first call and
+    # cli.py's re-invoke both hit the fake.
+    monkeypatch.setattr(lcov_mod, "parse_from_repo", fake_parse)
+
+    def fake_refresh(repo_root, cfg, env):
+        return refresh_mod.RefreshResult(
+            status="ok",
+            runner_command=["npm", "test"],
+            duration_ms=1234.5,
+            stdout_tail="",
+            stderr_tail="",
+            lcov_produced=True,
+            notes="coverage refreshed",
+            exit_code=0,
+        )
+
+    monkeypatch.setattr(refresh_mod, "refresh_coverage", fake_refresh)
+
+    repo = fake_repo(
+        {"tsconfig.json": "{}", "package.json": '{"name":"x"}'},
+        name="refresh-ok",
+    )
+    result = runner.invoke(
+        cli_mod.app, ["scan", "--refresh-coverage", str(repo)],
+    )
+    assert result.exit_code == 0, f"scan failed: {result.output}"
+    json_files = list((repo / "docs" / "state-reports").glob("*.json"))
+    assert json_files, "JSON sidecar not written"
+    data = json.loads(json_files[0].read_text())
+    rule_ids = [f["rule_id"] for f in data["findings"]]
+    assert "coverage_summary" in rule_ids, (
+        f"sub-step C must REPLACE with fresh aggregate; got rule_ids={rule_ids}"
+    )
+    assert "coverage_unavailable" not in rule_ids, (
+        f"sub-step C must REMOVE coverage_unavailable; got rule_ids={rule_ids}"
+    )
+
+
+def test_refresh_failed_emits_failed_finding_and_keeps_unavailable(
+    monkeypatch, fake_repo, runner
+):
+    """Decision C sub-step D: refresh failure → 'failed' APPENDED; unavailable KEPT.
+
+    Mocks ``parse_from_repo`` to always return [unavailable_finding]. Mocks
+    ``refresh_coverage`` to return ``RefreshResult(status='failed', ...)``.
+    Asserts the rendered sidecar JSON's findings list contains BOTH the
+    unavailable Finding AND a new ``evidence_type='failed'`` Finding with
+    ``rule_id='coverage_refresh_failed'``.
+    """
+    import json
+    from repo_audit import cli as cli_mod
+    from repo_audit.adapters.typescript.parsers import lcov as lcov_mod
+    from repo_audit.adapters.typescript import refresh as refresh_mod
+    from repo_audit.schema.finding import Evidence, Finding
+
+    unavailable = Finding(
+        dimension="test_integrity",
+        severity="major",
+        evidence_type="unavailable",
+        confidence="medium",
+        source_tool="lcov",
+        source_collector="typescript_adapter",
+        rule_id="coverage_unavailable",
+        recommendation="run coverage",
+        evidence=Evidence(
+            tool="lcov-parser",
+            output_snippet="missing",
+            parsed_value={"reason": "stale_or_missing_coverage_artifact"},
+        ),
+    )
+    monkeypatch.setattr(
+        lcov_mod, "parse_from_repo", lambda repo_path: [unavailable],
+    )
+
+    def fake_refresh(repo_root, cfg, env):
+        return refresh_mod.RefreshResult(
+            status="failed",
+            runner_command=["npm", "test"],
+            duration_ms=42.0,
+            stdout_tail="",
+            stderr_tail="runner exited 1\nerr text",
+            lcov_produced=False,
+            notes="coverage_refresh_failed: runner exit 1",
+            exit_code=1,
+        )
+
+    monkeypatch.setattr(refresh_mod, "refresh_coverage", fake_refresh)
+
+    repo = fake_repo(
+        {"tsconfig.json": "{}", "package.json": '{"name":"x"}'},
+        name="refresh-failed",
+    )
+    result = runner.invoke(
+        cli_mod.app, ["scan", "--refresh-coverage", str(repo)],
+    )
+    assert result.exit_code == 0, f"scan failed: {result.output}"
+    json_files = list((repo / "docs" / "state-reports").glob("*.json"))
+    assert json_files, "JSON sidecar not written"
+    data = json.loads(json_files[0].read_text())
+    rule_ids = [f["rule_id"] for f in data["findings"]]
+    evidence_types = [f["evidence_type"] for f in data["findings"]]
+    assert "coverage_unavailable" in rule_ids, (
+        f"sub-step D must KEEP coverage_unavailable; got rule_ids={rule_ids}"
+    )
+    assert "coverage_refresh_failed" in rule_ids, (
+        f"sub-step D must APPEND coverage_refresh_failed; got rule_ids={rule_ids}"
+    )
+    assert "failed" in evidence_types, (
+        f"sub-step D must emit at least one evidence_type='failed'; got {evidence_types}"
+    )
+
+
+# --- Plan 03-05 SC-3 contract: missing tools degrade gracefully ----------
+
+
+def test_scan_emits_adapter_unavailable_rows_for_missing_tools(
+    fake_repo, runner
+):
+    """SC-3: a TS-like repo with no node_modules/.bin → scan completes
+    + ledger surfaces typescript-node:* unavailable rows.
+
+    Does NOT use the integration marker (mock-free; relies on the live
+    adapter's graceful degradation when ``resolve_tool`` exhausts the
+    project-local + PATH walk).
+    """
+    import json
+    from repo_audit.cli import app
+
+    repo = fake_repo(
+        {
+            "package.json": '{"name":"x","type":"module"}',
+            "tsconfig.json": "{}",
+            "eslint.config.js": "export default [];\n",
+        },
+        name="missing-tools",
+    )
+    result = runner.invoke(app, ["scan", str(repo)])
+    assert result.exit_code == 0, f"scan failed: {result.output}"
+    json_files = list((repo / "docs" / "state-reports").glob("*.json"))
+    assert json_files, "JSON sidecar not written"
+    data = json.loads(json_files[0].read_text())
+    unavail_collectors = [
+        u["collector"] for u in data["scope_ledger"]["unavailable"]
+    ]
+    assert any("typescript-node:" in c for c in unavail_collectors), (
+        f"Expected typescript-node:* unavailable rows in scope ledger; "
+        f"got: {unavail_collectors}"
+    )

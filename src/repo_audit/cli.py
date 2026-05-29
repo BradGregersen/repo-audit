@@ -27,6 +27,12 @@ from pathlib import Path
 import typer
 
 from repo_audit import __version__
+from repo_audit.adapters import run_adapters
+# Phase 3 side-effect import: bringing this module in triggers
+# ``@register_adapter("typescript-node")`` so ``run_adapters`` actually
+# dispatches the TS adapter. Closes DI-03-03-01 (integration test had
+# no registration trigger).
+from repo_audit.adapters import typescript as _ts_adapter  # noqa: F401
 from repo_audit.collectors import run_collectors
 from repo_audit.detect.detector import detect_stacks
 from repo_audit.doctor.self_test import run_secret_lint_self_test
@@ -82,23 +88,136 @@ def _root(
     # Otherwise fall through; Typer's no_args_is_help handles bare ``arch``.
 
 
+def _maybe_refresh_coverage(repo_path: Path, findings: list) -> list:
+    """Plan 03-05 Decision C sub-steps C + D: refresh-coverage wiring.
+
+    Called when the user passes ``--refresh-coverage`` to ``repo-audit scan``.
+    Inspects the merged findings list for a prior ``coverage_unavailable``
+    Finding emitted by the lcov parser's import-only pass; if found,
+    invokes plan 03-06's ``refresh_coverage`` runner and branches:
+
+      * RefreshResult.status == 'ok' (sub-step C):
+        Re-invokes ``parse_from_repo(repo_path)`` to obtain the fresh
+        aggregate Finding; REPLACES the prior unavailable Finding with the
+        fresh aggregate via a list comprehension that preserves the
+        relative order of all other findings.
+
+      * RefreshResult.status in {'failed', 'timeout'} (sub-step D):
+        Calls plan 03-03's ``_refresh_failed_finding`` helper and APPENDS
+        the returned ``evidence_type='failed'`` Finding to the merged list.
+        Does NOT remove the prior unavailable Finding — the report shows
+        both "no fresh artifact" AND "we tried; here's why it failed."
+
+      * RefreshResult.status == 'skipped' or no prior unavailable Finding:
+        no-op; returns the input list unchanged.
+
+    Imports inside this function (rather than at module top) so the
+    --refresh-coverage flag is the only call site that pulls in the
+    refresh runner + lcov re-invoke helpers. Module-load cost stays
+    bounded by the regular adapter-package import already at the top.
+    """
+    # Locate the previous 'unavailable' Finding emitted by the first lcov
+    # parser pass (plan 03-03 contract: source_tool='lcov' AND
+    # rule_id='coverage_unavailable').
+    prior_unavailable = [
+        f for f in findings
+        if getattr(f, "source_tool", "") == "lcov"
+        and getattr(f, "rule_id", "") == "coverage_unavailable"
+    ]
+    if not prior_unavailable:
+        # Coverage was fresh on the first pass; nothing to refresh.
+        return findings
+
+    import os
+    from repo_audit.adapters.typescript import CONFIG as _TS_CONFIG
+    from repo_audit.adapters.typescript.parsers.lcov import (
+        _refresh_failed_finding,
+        parse_from_repo as _parse_lcov_from_repo,
+    )
+    from repo_audit.adapters.typescript.refresh import (
+        refresh_coverage as _refresh_runner,
+    )
+
+    refresh_cfg = _TS_CONFIG.get("tools", {}).get("coverage_refresh", {})
+    refresh_result = _refresh_runner(
+        repo_root=repo_path,
+        cfg=refresh_cfg,
+        env=dict(os.environ),  # plan 03-06 applies the secret-scrub
+    )
+
+    if refresh_result.status == "ok":
+        # Sub-step C: re-invoke lcov parser; replace the unavailable
+        # Finding with the fresh aggregate (preserve order).
+        fresh_findings = _parse_lcov_from_repo(repo_path)
+        fresh_aggregate = next(
+            (f for f in fresh_findings if getattr(f, "rule_id", "") == "coverage_summary"),
+            None,
+        )
+        if fresh_aggregate is not None:
+            return [
+                fresh_aggregate if (
+                    getattr(f, "source_tool", "") == "lcov"
+                    and getattr(f, "rule_id", "") == "coverage_unavailable"
+                ) else f
+                for f in findings
+            ]
+        # Fresh parse did not produce an aggregate (artifact still missing
+        # despite ok status — unlikely but defensive); fall through and
+        # leave the unavailable Finding in place.
+        return findings
+
+    if refresh_result.status in {"failed", "timeout"}:
+        # Sub-step D: synthesize a 'failed' Finding; do NOT remove the
+        # prior unavailable Finding — both surface in the report.
+        failed_finding = _refresh_failed_finding(
+            refresh_result,
+            runner_command=refresh_result.runner_command,
+        )
+        return findings + [failed_finding]
+
+    # status == 'skipped' → no-op (refresh chose not to run).
+    return findings
+
+
 @app.command()
 def scan(
     path: Path = typer.Argument(
         Path("."),
         help="Path to the repo to scan (defaults to cwd, D-14).",
     ),
+    refresh_coverage: bool = typer.Option(
+        False,
+        "--refresh-coverage",
+        help=(
+            "Invoke the configured test runner to produce fresh coverage "
+            "when coverage/lcov.info is missing or stale "
+            "(default: off; see adapter.yaml coverage_refresh.mode)."
+        ),
+    ),
 ) -> None:
     """Scan a repo and emit a state report + JSON sidecar (CLI-02 / SC-3).
 
-    Phase 2 pipeline:
+    Phase 3 pipeline:
         1. snapshot_git_status(repo) — BEFORE collectors (D-33 baseline)
         2. build_repo_index(repo) — single shared walker (D-26)
         3. run_collectors(repo, walker.index) — sequential per registry order (D-24)
-        4. build_scope_ledger(walker, results) — REP-04 / D-30
+        3.5 run_adapters(repo, detection) — NEW Phase 3 stack-adapter dispatch
+            (currently TypeScript only; Phase 6 adds Python + Kotlin).
+        4. build_scope_ledger(walker, collectors, adapter_results=adapters) —
+           REP-04 / D-30 extended to fold AdapterResult rows.
         5. render_and_write — secret-lint + completion-honesty + write (D-07, D-32)
         6. snapshot_git_status + diff_git_status — post-flight integrity (D-33)
            (does NOT fail the scan; emits stderr warning on offenders)
+
+    When ``--refresh-coverage`` is set, the TypeScript adapter invokes the
+    test runner declared in adapter.yaml (default: ``npm test``) to produce
+    ``coverage/lcov.info`` when the artifact is missing or stale; default is
+    off (import-only). On success, the previous unavailable coverage Finding
+    is REPLACED by the fresh aggregate Finding (Decision C sub-step C). On
+    runner failure, a separate ``evidence_type='failed'`` Finding is APPENDED
+    alongside the unavailable Finding (Decision C sub-step D). See plan
+    03-06's refresh.py for the runner-invocation contract
+    (T-03-refresh-injection, T-03-refresh-dos, T-03-refresh-env-leak).
 
     Exit codes:
         0 — success
@@ -125,19 +244,43 @@ def scan(
     # D-24 sequential collector orchestration.
     collector_results = run_collectors(repo_path, walker_result.index)
 
-    # D-30 scope ledger assembly.
-    scope_ledger = build_scope_ledger(
-        walker_result, collector_results, repo_path=repo_path,
+    # Phase 3 (Plan 03-05): adapter dispatch between collectors and ledger.
+    # The TS adapter package is imported at module-load (above) so
+    # ``@register_adapter("typescript-node")`` has already fired by here.
+    adapter_results = run_adapters(repo_path, detection)
+
+    # Aggregate findings across collectors + adapters (sequential preserves
+    # ledger order). Built BEFORE the refresh sub-steps below so the
+    # sub-steps can rewrite/extend this list in place.
+    findings = (
+        [f for r in collector_results for f in r.findings]
+        + [f for r in adapter_results for f in r.findings]
     )
 
-    # D-31 partial-scan determination.
+    # Sub-step C + D: --refresh-coverage opt-in wiring (D-41' / Decision A).
+    # Runs BEFORE build_scope_ledger so the ledger reflects the
+    # post-refresh findings state. Sub-step C replaces the lcov
+    # 'coverage_unavailable' Finding with the fresh aggregate on refresh
+    # success; sub-step D appends a 'coverage_refresh_failed' Finding on
+    # refresh failure (does NOT remove the unavailable Finding — both
+    # surface so the reader sees "no fresh artifact" AND "we tried; here's
+    # why it failed").
+    if refresh_coverage:
+        findings = _maybe_refresh_coverage(repo_path, findings)
+
+    # D-30 scope ledger assembly (Phase 3: adapter_results folded).
+    scope_ledger = build_scope_ledger(
+        walker_result, collector_results,
+        repo_path=repo_path,
+        adapter_results=adapter_results,
+    )
+
+    # D-31 partial-scan determination (Phase 3: adapter status considered).
     partial = (
         walker_result.status != "ok"
         or any(r.status != "ok" for r in collector_results)
+        or any(r.status != "ok" for r in adapter_results)
     )
-
-    # Aggregate findings across collectors (sequential preserves ledger order).
-    findings = [f for r in collector_results for f in r.findings]
 
     # Assemble ScanReport.
     meta = ReportMeta(
