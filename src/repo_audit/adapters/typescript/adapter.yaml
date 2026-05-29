@@ -1,0 +1,126 @@
+# TypeScript / Node adapter (D-37 thin YAML descriptor).
+#
+# Loaded at module-load by adapters/typescript/__init__.py via
+# ruamel.yaml.YAML(typ='safe') — T-03-01 mitigation: 'safe' refuses
+# !!python/object and !!python/name constructors so a poisoned YAML in a
+# future user-overlay scenario cannot execute Python at load time.
+#
+# Pitfall guards:
+#   * tsc:    NO --incremental (Pitfall 3 — would write .tsbuildinfo into
+#             target repo, violating SC-6 post-scan-clean).
+#   * eslint: NO --cache (Pitfall 2 — would write .eslintcache into target
+#             repo). Cache redirection is done via --cache-location into
+#             the per-scan tempdir in adapter __init__.py.
+#   * knip:   NO --no-cache (Pitfall 1 — knip has no such flag; would
+#             crash with a usage error).
+#
+# Stack-name pin: 'typescript-node' MUST match Phase 1 detector's emitted
+# literal (verified by tests/adapters/test_stack_name_binding.py).
+name: typescript-node
+
+# D-39 required-collectors list: every name here MUST have a matching
+# block under `tools:` below; adapter __init__.py asserts this at load.
+required_collectors: [tsc, eslint, knip, coverage_lcov]
+
+tools:
+  tsc:
+    command: tsc
+    # Pitfall 3: NO --incremental. --noEmit suppresses .js/.d.ts output;
+    # --pretty=false makes diagnostics machine-parseable (one line per
+    # diagnostic, no colour escapes).
+    args: ["--noEmit", "--pretty=false"]
+    output_format: text
+    # D-39 parser dotted path. Wave 2 (plan 03-03) ships parsers.tsc;
+    # until then, _load_parser fails gracefully → AdapterResult unavailable.
+    parser: repo_audit.adapters.typescript.parsers.tsc:parse
+    timeout_ms: 120000
+    # D-48: tsc is a static type-checker, so its findings land in
+    # quality_debt (the 7-dimension taxonomy bucket that holds compiler
+    # diagnostics, dead types, etc.). Pinned by test_dimension_routing.
+    dimension: quality_debt
+    default_severity: critical
+
+  eslint:
+    command: eslint
+    # Pitfall 2: NO --cache. --format=json emits the structured shape
+    # parsers/eslint.py (Wave 2) consumes.
+    args: ["--format=json", "."]
+    output_format: json
+    parser: repo_audit.adapters.typescript.parsers.eslint:parse
+    timeout_ms: 90000
+    dimension: quality_debt
+    # D-49 literal rule_overrides: per-rule dimension/severity bumps
+    # applied by the parser when an eslint diagnostic's ruleId matches.
+    # The mapping is read but NOT consumed in Wave 1 (parser is a stub);
+    # Wave 2 plan 03-03 honours it.
+    rule_overrides:
+      no-eval:
+        dimension: security
+        severity: critical
+        confidence_caveat: "Static AST match; runtime call path not verified."
+      no-eval-string:
+        dimension: security
+        severity: critical
+        confidence_caveat: "Static AST match; runtime call path not verified."
+      no-script-url:
+        dimension: security
+        severity: major
+      no-secrets/no-secrets:
+        dimension: security
+        severity: critical
+        confidence_caveat: "Static AST match; runtime call path not verified."
+    # D-49 glob rule_override_globs: fnmatch patterns applied after the
+    # literal table; the first matching glob wins. Empty list disables.
+    rule_override_globs:
+      - pattern: "security/*"
+        dimension: security
+        severity: major
+      - pattern: "@typescript-eslint/no-floating-promises"
+        dimension: correctness
+        severity: major
+
+  knip:
+    command: knip
+    # Pitfall 1: knip has no --no-cache flag.
+    args: ["--reporter=json"]
+    output_format: json
+    parser: repo_audit.adapters.typescript.parsers.knip:parse
+    timeout_ms: 90000
+    # D-48: knip surfaces unused exports / dead files / orphan imports —
+    # architecture_rot bucket. Pinned by test_dimension_routing.
+    dimension: architecture_rot
+    # D-50 / parser-internal cap: every knip Finding lands at
+    # confidence=candidate, severity=info. The cap lives INSIDE
+    # parsers/knip.py (Wave 2) — repeated here as documentation only.
+    default_severity: info
+    default_confidence: candidate
+
+  coverage_lcov:
+    # File-reader, NOT a subprocess-invoker. The adapter handles
+    # `command: null` specially: read the file referenced by
+    # `input_glob` and pass it to `parser` rather than spawning a process.
+    command: null
+    parser: repo_audit.adapters.typescript.parsers.lcov:parse_from_repo
+    output_format: lcov
+    # D-48: coverage data lands in test_integrity (the bucket that holds
+    # all signals about whether tests actually run and what they cover).
+    dimension: test_integrity
+    input_glob: "coverage/lcov.info"
+    # D-43 staleness threshold (hours). Parser reads this through the
+    # `get_staleness_threshold_seconds()` indirection helper (Wave 2)
+    # so Phase 7 user-config can override without parser code changes.
+    staleness_hours: 24
+
+  # D-41' (Decision A) opt-in coverage refresh.
+  #
+  # The block is LOADED by this plan (so it appears in ADAPTER_CONFIG)
+  # but the runner is NOT INVOKED here — plan 03-06 (Wave 3) ships the
+  # refresh_coverage() function and plan 03-05 wires the CLI flag.
+  #
+  # Default mode='off' preserves backward-safe import-only behavior:
+  # importing the adapter does not trigger any test-script execution
+  # in target repos, which would violate the read-only contract.
+  coverage_refresh:
+    mode: "off"            # off | auto — Phase 7 user-config flips this
+    command: ["npm", "test"]
+    timeout_ms: 600000     # 10-minute default cap for test-suite runs
