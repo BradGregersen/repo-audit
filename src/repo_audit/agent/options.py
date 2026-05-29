@@ -54,6 +54,29 @@ UNIVERSAL_TOOL_NAMES: tuple[str, ...] = (
 # The agent -> renderer boundary tool (D-54). ALWAYS in allowed_tools.
 EMIT_REPORT_TOOL_NAME: str = "mcp__arch__emit_report"
 
+# Plan 04-05 / 04-06 reconciliation (CRITICAL — logged in 04-05-SUMMARY).
+# adapter_tool_names() derives tool names from adapter.yaml's
+# `required_collectors` (e.g. typescript-node yields tsc/eslint/knip/
+# coverage_lcov -> get_tsc/get_eslint/get_knip/get_coverage_lcov). Plan
+# 04-05 registered the four TS @tool getters under the more descriptive
+# interface-block names get_tsc_diagnostics/get_eslint_lint/
+# get_knip_dead_code/get_lcov_coverage. If allowed_tools used the
+# required_collectors-derived names while the MCP server registered the
+# descriptive names, the four TS getters would be REGISTERED-but-not-
+# ALLOWED and the agent could never call them at the first live connect.
+#
+# This map reconciles the two so build_options() stays the single source
+# of allowed_tools AND every allowed name matches a registered @tool name.
+# When a future stack adapter's required_collectors names already match
+# its registered getters, no entry is needed here (the name passes through
+# unchanged).
+_REGISTERED_TOOL_NAME_BY_COLLECTOR: dict[str, str] = {
+    "tsc": "get_tsc_diagnostics",
+    "eslint": "get_eslint_lint",
+    "knip": "get_knip_dead_code",
+    "coverage_lcov": "get_lcov_coverage",
+}
+
 # Built-in SDK tool names that must NEVER appear in allowed_tools (AGENT-03
 # / SC-1). `tools=[]` strips them structurally; this set powers the
 # defense-in-depth assertion in build_options.
@@ -96,7 +119,14 @@ def adapter_tool_names(stack: str) -> list[str]:
     if config is None:
         return []
     required = config.get("required_collectors", []) or []
-    return [f"mcp__arch__get_{name}" for name in required]
+    names: list[str] = []
+    for name in required:
+        # Reconcile required_collectors names to the actually-registered
+        # @tool getter names (Plan 04-05 / 04-06 coordination item). Falls
+        # through to `get_{name}` when no remap is needed.
+        registered = _REGISTERED_TOOL_NAME_BY_COLLECTOR.get(name, f"get_{name}")
+        names.append(f"mcp__arch__{registered}")
+    return names
 
 
 def _render_system_prompt(
