@@ -178,6 +178,41 @@ def fake_repo_with_commits(tmp_path):
     return _factory
 
 
+# ---- Phase 4 Plan 04-09: hermetic agent default for the deterministic suite ----
+
+
+@pytest.fixture(autouse=True)
+def _stub_agent_session(monkeypatch):
+    """Make ``repo-audit scan``'s default agent loop a hermetic no-op (Plan 04-09).
+
+    Plan 04-09 wired ``run_agent_session`` to run by default on ``repo-audit scan``
+    (only ``--no-agent`` skips it). Pre-existing Phase 1-3 CLI/render tests
+    invoke ``scan`` without ``--no-agent`` and assert the DETERMINISTIC report
+    shape — they must not depend on a live Claude Code CLI being reachable
+    (slow + environment-dependent + occasionally non-deterministic).
+
+    This autouse fixture replaces ``session.run_agent_session`` with an async
+    no-op that returns ``(None, meta)`` and leaves ``meta.agent_status`` as-is
+    (None) — exactly the deterministic-only render path. Tests that want to
+    exercise the real loop (e.g. the agent-session unit tests) construct their
+    own ``ClaudeSDKClient`` mock directly and never go through cli.scan; tests
+    that assert the wiring (test_cli_no_agent_flag.py) monkeypatch their own
+    spy AFTER this fixture, which takes precedence.
+    """
+    try:
+        import repo_audit.agent.session as _session_mod
+    except Exception:  # pragma: no cover — agent package always present in P4
+        return
+
+    async def _noop_run_agent_session(**kwargs):
+        # Deterministic-only path: return no agent_output, meta untouched.
+        return None, kwargs["meta"]
+
+    monkeypatch.setattr(
+        _session_mod, "run_agent_session", _noop_run_agent_session
+    )
+
+
 # ---- Phase 4 Wave 0 fixtures (added by plan 04-01-PLAN.md) ----
 
 

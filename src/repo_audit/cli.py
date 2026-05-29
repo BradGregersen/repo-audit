@@ -21,6 +21,8 @@ Read-only contract (REP-03):
 """
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import date as _date
 from pathlib import Path
 
@@ -40,7 +42,7 @@ from repo_audit.meta.git import NotAGitRepo, UNCOMMITTED_MARKER, head_sha
 from repo_audit.meta.git_status import diff_git_status, snapshot_git_status
 from repo_audit.meta.paths import state_report_paths
 from repo_audit.meta.slug import repo_slug
-from repo_audit.orchestration import build_scope_ledger
+from repo_audit.orchestration import auto_fill_ledger_gaps, build_scope_ledger
 from repo_audit.render.renderer import render_and_write
 from repo_audit.schema.report import ReportMeta, ScanReport
 from repo_audit.walker import build_repo_index
@@ -194,6 +196,24 @@ def scan(
             "(default: off; see adapter.yaml coverage_refresh.mode)."
         ),
     ),
+    no_agent: bool = typer.Option(
+        False,
+        "--no-agent",
+        help=(
+            "Skip the Claude Agent SDK loop entirely; produce a deterministic-"
+            "only report. Useful for debugging the deterministic pipeline "
+            "without paying agent cost or under offline conditions."
+        ),
+    ),
+    agent_budget: int | None = typer.Option(
+        None,
+        "--agent-budget",
+        help=(
+            "Override agent.max_tokens_per_scan for this scan (default: "
+            "150,000). The ENFORCEABLE cap under Max OAuth; the loop "
+            "disconnects when running tokens cross this threshold."
+        ),
+    ),
 ) -> None:
     """Scan a repo and emit a state report + JSON sidecar (CLI-02 / SC-3).
 
@@ -219,12 +239,28 @@ def scan(
     03-06's refresh.py for the runner-invocation contract
     (T-03-refresh-injection, T-03-refresh-dos, T-03-refresh-env-leak).
 
+    Phase 4 extensions (additive — every Phase 3 invariant above is preserved):
+        4.5 run_agent_session(...) — the single ClaudeSDKClient loop (D-53),
+            invoked BETWEEN build_scope_ledger and render_and_write. Skipped
+            entirely under ``--no-agent`` (deterministic-only report).
+        4.6 auto_fill_ledger_gaps(...) — D-60 post-flight ledger-completeness
+            backstop (AGENT-07), run AFTER the agent session and BEFORE render.
+        ``--agent-budget N`` overrides agent.max_tokens_per_scan for this scan
+        (AGENT-05 / D-65). ``meta.wall_clock_seconds`` is overwritten with the
+        overall arch-scan duration after render_and_write returns (RESEARCH
+        Open Question 2).
+
+    D-67 honesty contract: every agent fallback mode (auth missing, network,
+    cost-capped, SDK exception) still ships a deterministic report and exits 0;
+    the agent_status is surfaced on stderr.
+
     Exit codes:
-        0 — success
+        0 — success (incl. every D-67 agent fallback mode)
         2 — secret-lint refused (REP-05 / D-06)
         3 — completion-honesty refused (SAFE-08 / D-32)
     """
     repo_path = Path(path).resolve()
+    overall_start = time.perf_counter()  # Phase 4 — overall arch-scan wall-clock
 
     # D-33 pre-flight snapshot (must happen BEFORE any collector reads).
     pre_status = snapshot_git_status(repo_path)
@@ -292,6 +328,40 @@ def scan(
         baseline_run=True,  # Phase 1 + 2: always baseline (no prior sidecar)
         partial=partial,
     )
+
+    # Phase 4 NEW: AGENT-05 budget override (D-65) — one-shot scan override.
+    # Mutates the AGENT_DEFAULTS dict the agent loop reads via get_threshold();
+    # process-local + benign (each Typer invocation is a fresh CLI context).
+    if agent_budget is not None:
+        from repo_audit.agent.constants import AGENT_DEFAULTS
+        AGENT_DEFAULTS["agent.max_tokens_per_scan"] = int(agent_budget)
+
+    # Phase 4 NEW: agent session (D-53, D-65, D-67, D-68).
+    # Skipped under --no-agent for debugging the deterministic pipeline.
+    # Returns (AgentScanReport | None, mutated_meta); on failure agent_output
+    # is None and meta.agent_status carries the reason (D-67 exit-0 contract).
+    # Called via the module attribute so the loop is patchable in tests and
+    # session.py (which imports the SDK) is only pulled in when needed.
+    agent_output = None
+    if not no_agent:
+        from repo_audit.agent import session as _agent_session
+        agent_output, meta = asyncio.run(_agent_session.run_agent_session(
+            findings=findings,
+            scope_ledger=scope_ledger,
+            detection=detection,
+            meta=meta,
+        ))
+
+    # Phase 4 NEW: AGENT-07 post-flight ledger-gap auto-fill (D-60).
+    # Under D-57 read-only tools this is defense in depth — the agent path
+    # cannot create gaps; this catches collector-execution bugs and primes
+    # future action-tool semantics.
+    findings, scope_ledger = auto_fill_ledger_gaps(
+        findings, scope_ledger, detection,
+        repo_path=repo_path,
+        walker_index=walker_result.index,
+    )
+
     scan_report = ScanReport(
         schema_version="1",
         meta=meta,
@@ -302,8 +372,14 @@ def scan(
     # Output paths (Pitfall 4 collision-safe per Plan 02-01a paths.py fix).
     md_path, json_path = state_report_paths(repo_path, scan_date)
 
-    # Render + secret-lint + completion-honesty + write.
-    rc = render_and_write(scan_report, md_path, json_path)
+    # Render + secret-lint + completion-honesty + faithfulness + write.
+    # agent_output is None on --no-agent + every D-67 fallback → the renderer
+    # takes the deterministic-only path (Plan 04-08).
+    rc = render_and_write(scan_report, md_path, json_path, agent_output=agent_output)
+    # Phase 4: overwrite wall_clock_seconds with the overall arch-scan duration
+    # (RESEARCH Open Question 2 — caller-overrides-session). This is the
+    # user-facing total; session.py's agent-only measurement is superseded.
+    meta.wall_clock_seconds = time.perf_counter() - overall_start
     if rc != 0:
         raise typer.Exit(code=rc)
 
@@ -337,6 +413,14 @@ def scan(
             scan_report.scope_ledger.notes += "; " + integrity_note
         else:
             scan_report.scope_ledger.notes = integrity_note
+
+    # Phase 4 D-67: surface a non-ok agent fallback on stderr (the report is
+    # still a clean deterministic-only report; the scan still exits 0).
+    if meta.agent_status is not None and meta.agent_status != "ok":
+        typer.echo(
+            f"agent: {meta.agent_status} (deterministic-only report shipped per D-67)",
+            err=True,
+        )
 
     typer.echo(f"Wrote {md_path}")
     typer.echo(f"Wrote {json_path}")
