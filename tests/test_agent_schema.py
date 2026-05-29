@@ -15,33 +15,100 @@ RESEARCH §"Validation Architecture (Nyquist)" maps these test names:
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 _mod = pytest.importorskip(
     "repo_audit.agent.schema",
     reason="Wave 1+ plan 04-02 has not landed yet — Wave 0 stub.",
 )
 
+AgentScanReport = _mod.AgentScanReport
+DimensionNarrative = _mod.DimensionNarrative
+SeverityCall = _mod.SeverityCall
+FaithfulnessViolation = _mod.FaithfulnessViolation
+
 
 def test_agent_scan_report_extra_forbid():
     """D-03/D-54: AgentScanReport rejects extra fields (extra='forbid')."""
-    pass
+    # Valid payload constructs.
+    AgentScanReport.model_validate(
+        {"dimensions": [], "executive_summary": "x", "cross_cutting_notes": None}
+    )
+    # Smuggled extra field raises.
+    with pytest.raises(ValidationError):
+        AgentScanReport.model_validate(
+            {
+                "dimensions": [],
+                "executive_summary": "x",
+                "cross_cutting_notes": None,
+                "extra_field": "bad",
+            }
+        )
 
 
 def test_dimension_narrative_required_fields():
     """D-54: DimensionNarrative declares its required fields."""
-    pass
+    dn = DimensionNarrative(dimension="quality", narrative="...", severity_calls=[])
+    assert dn.dimension == "quality"
+    assert dn.narrative == "..."
+    # Missing `narrative` raises.
+    with pytest.raises(ValidationError):
+        DimensionNarrative(dimension="quality", severity_calls=[])
 
 
 def test_severity_call_required_fields():
     """D-54: SeverityCall declares its required fields."""
-    pass
+    sc = SeverityCall(
+        finding_ref="eslint::no-eval::src/foo.ts:12",
+        agent_severity="critical",
+        corroborated_by=[],
+    )
+    assert sc.agent_severity == "critical"
+    # An invalid Severity literal raises.
+    with pytest.raises(ValidationError):
+        SeverityCall(
+            finding_ref="eslint::no-eval::src/foo.ts:12",
+            agent_severity="kritisch",
+            corroborated_by=[],
+        )
 
 
 def test_no_markdown_in_agent_payload():
     """AGENT-04: the model has zero string fields named markdown/md/html."""
-    pass
+    forbidden = {"markdown", "md", "html"}
+    for model in (AgentScanReport, DimensionNarrative, SeverityCall):
+        assert forbidden.isdisjoint(model.model_fields.keys()), (
+            f"{model.__name__} must not declare a markdown-shaped field"
+        )
 
 
 def test_faithfulness_violation_shape():
     """D-64: the faithfulness-violation record has the expected shape."""
-    pass
+    fv = FaithfulnessViolation(
+        original_sentence="...",
+        offending_tokens=["73"],
+        dimension="test_integrity",
+        paragraph_index=0,
+        nearest_allowed=73.4,
+    )
+    assert fv.offending_tokens == ["73"]
+    assert fv.paragraph_index == 0
+    assert fv.nearest_allowed == 73.4
+    assert FaithfulnessViolation.model_config["extra"] == "forbid"
+
+
+def test_agent_scan_report_json_schema_shape():
+    """D-54: model_json_schema() exposes object/properties/dimensions $ref.
+
+    Plan 04-05 registers this as the emit_report @tool input_schema; the SDK
+    validates agent calls against it before invoking our handler.
+    """
+    schema = AgentScanReport.model_json_schema()
+    assert schema["type"] == "object"
+    assert "properties" in schema
+    assert "dimensions" in schema["properties"]
+    dims = schema["properties"]["dimensions"]
+    # dimensions is an array whose items $ref DimensionNarrative.
+    assert dims.get("type") == "array"
+    items = dims.get("items", {})
+    assert "$ref" in items and "DimensionNarrative" in items["$ref"]
