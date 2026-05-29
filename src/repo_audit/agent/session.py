@@ -71,6 +71,7 @@ async def run_agent_session(
     scope_ledger: "ScopeLedger",
     detection: "DetectionResult",
     meta: "ReportMeta",
+    trend: "object | None" = None,
 ) -> tuple["AgentScanReport | None", "ReportMeta"]:
     """Run the agent loop. Returns (emitted_report_or_None, mutated_meta).
 
@@ -83,7 +84,7 @@ async def run_agent_session(
 
     # Plan 04-05 contract: returns the McpServerConfig + populates _RESULTS.
     mcp_server = build_mcp_server(
-        findings=findings, scope_ledger=scope_ledger, meta=meta,
+        findings=findings, scope_ledger=scope_ledger, meta=meta, trend=trend,
     )
 
     options = build_options(

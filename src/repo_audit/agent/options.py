@@ -49,6 +49,10 @@ UNIVERSAL_TOOL_NAMES: tuple[str, ...] = (
     "mcp__arch__get_scope_ledger",
     "mcp__arch__get_meta",
     "mcp__arch__get_findings_by_dimension",
+    # Plan 05-03 / TREND-02: the read-only trend-delta getter. Registered in
+    # tools.py AND allow-listed here — REGISTERED-but-not-ALLOWED is the bug
+    # class this tuple guards against (see options.py reconciliation note).
+    "mcp__arch__trend_baseline",
 )
 
 # The agent -> renderer boundary tool (D-54). ALWAYS in allowed_tools.

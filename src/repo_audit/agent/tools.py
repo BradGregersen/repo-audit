@@ -41,6 +41,7 @@ _RESULTS: dict[str, Any] = {
     "findings": [],
     "scope_ledger": None,
     "meta": None,
+    "trend": None,
 }
 
 # Set by emit_report on successful validation; consumed by session loop
@@ -232,6 +233,26 @@ async def get_findings_by_dimension(args: dict[str, Any]) -> dict[str, Any]:
     return _wrap(out)
 
 
+# -- trend baseline getter (Plan 05-03 / TREND-02) ----------------------
+
+@tool(
+    "trend_baseline",
+    _module_description("repo_audit.trend.delta"),
+    {"_unused": str},
+)
+async def trend_baseline(args: dict[str, Any]) -> dict[str, Any]:
+    """Returns the Python-computed TrendDelta vs the prior sidecar.
+
+    The deltas are computed DETERMINISTICALLY by ``trend.delta.compute_trend``
+    BEFORE the agent runs — the agent reads them here and narrates ONLY these
+    numbers into ``AgentScanReport.trend_narrative`` (TREND-02 / D-05-07:
+    never invent trend numbers). On a baseline run (no prior sidecar) the
+    payload is ``{"baseline_run": true}`` and the agent leaves
+    ``trend_narrative`` null.
+    """
+    return _wrap(_RESULTS.get("trend") or {"baseline_run": True})
+
+
 # -- emit_report — the agent → renderer boundary (D-54) -----------------
 
 @tool(
@@ -285,6 +306,7 @@ ALL_TOOLS = [
     get_scope_ledger,
     get_meta,
     get_findings_by_dimension,
+    trend_baseline,
     emit_report,
 ]
 
@@ -308,6 +330,7 @@ def build_mcp_server(
     findings: "list[Finding]",
     scope_ledger: "ScopeLedger",
     meta: "ReportMeta",
+    trend: "object | None" = None,
 ):
     """Populate _RESULTS + return the in-process MCP server.
 
@@ -315,9 +338,19 @@ def build_mcp_server(
     ClaudeSDKClient.connect(). The returned server config is passed to
     ClaudeAgentOptions.mcp_servers={'arch': server} via Plan 04-04's
     build_options(mcp_server=...).
+
+    ``trend`` (Plan 05-03) is the deterministic ``TrendDelta`` for this scan
+    (or None on a baseline run). It is JSON-serialized and stashed so the
+    ``trend_baseline`` getter can hand the agent the Python-computed deltas
+    to narrate (TREND-02). None → the getter returns ``{"baseline_run": True}``.
     """
     global _EMITTED_REPORT
-    _RESULTS.update(findings=findings, scope_ledger=scope_ledger, meta=meta)
+    _RESULTS.update(
+        findings=findings,
+        scope_ledger=scope_ledger,
+        meta=meta,
+        trend=(trend.model_dump(mode="json") if trend is not None else None),
+    )
     _EMITTED_REPORT = None  # reset for this scan
     return create_sdk_mcp_server(name="arch", version="1", tools=ALL_TOOLS)
 
@@ -331,5 +364,5 @@ def reset_state() -> None:
     """Test helper: clear _RESULTS + _EMITTED_REPORT between scans."""
     global _EMITTED_REPORT
     _RESULTS.clear()
-    _RESULTS.update(findings=[], scope_ledger=None, meta=None)
+    _RESULTS.update(findings=[], scope_ledger=None, meta=None, trend=None)
     _EMITTED_REPORT = None

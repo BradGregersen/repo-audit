@@ -167,10 +167,27 @@ def compute_trend(
     repo_root = Path(repo_path)
 
     # --- Metric-family deltas (pure Python; None when a side is unavailable). ---
-    commits_delta = _subtract(_commits_metric(prior), _commits_metric(current))
-    loc_delta = _subtract(_loc_metric(prior), _loc_metric(current))
-    lint_error_delta = _subtract(_lint_error_count(prior), _lint_error_count(current))
-    coverage_delta = _subtract(_coverage_metric(prior), _coverage_metric(current))
+    prior_commits = _commits_metric(prior)
+    prior_loc = _loc_metric(prior)
+    prior_lint = _lint_error_count(prior)
+    prior_coverage = _coverage_metric(prior)
+
+    commits_delta = _subtract(prior_commits, _commits_metric(current))
+    loc_delta = _subtract(prior_loc, _loc_metric(current))
+    lint_error_delta = _subtract(prior_lint, _lint_error_count(current))
+    coverage_delta = _subtract(prior_coverage, _coverage_metric(current))
+
+    # Prior absolute totals (Plan 05-03 faithfulness fold). Omit a key when the
+    # metric was unavailable on the prior side (SAFE-04/08 — never a fake 0).
+    prior_totals: dict[str, float | int] = {}
+    if prior_commits is not None:
+        prior_totals["commits"] = prior_commits
+    if prior_loc is not None:
+        prior_totals["loc"] = prior_loc
+    if prior_lint is not None:
+        prior_totals["lint"] = prior_lint
+    if prior_coverage is not None:
+        prior_totals["coverage"] = prior_coverage
 
     prior_counts = _count_by_dimension(prior)
     current_counts = _count_by_dimension(current)
@@ -209,6 +226,7 @@ def compute_trend(
         coverage_delta=coverage_delta,
         finding_count_delta_by_dimension=finding_count_delta_by_dimension,
         changes=changes,
+        prior_totals=prior_totals,
     )
 
 

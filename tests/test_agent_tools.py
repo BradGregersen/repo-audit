@@ -23,15 +23,17 @@ _mod = pytest.importorskip(
 def test_tool_registry_shape():
     """AGENT-01: the tool registry has the expected shape.
 
-    14 callables: 6 universal collector getters + 4 TS-adapter getters
-    + 3 ledger/meta/dimension getters + 1 emit_report.
+    15 callables: 6 universal collector getters + 4 TS-adapter getters
+    + 3 ledger/meta/dimension getters + 1 trend_baseline (Plan 05-03)
+    + 1 emit_report.
     """
-    assert len(_mod.ALL_TOOLS) == 14
+    assert len(_mod.ALL_TOOLS) == 15
     # Every entry is a registered @tool object with a `name` attribute.
     names = {getattr(t, "name", getattr(t, "__name__", "")) for t in _mod.ALL_TOOLS}
     assert "emit_report" in names
     assert "get_git_cadence_findings" in names
     assert "get_tsc_diagnostics" in names
+    assert "trend_baseline" in names
 
 
 def test_tool_description_lifted_from_docstring():

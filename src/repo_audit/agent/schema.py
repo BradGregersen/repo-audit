@@ -95,6 +95,19 @@ class AgentScanReport(BaseModel):
     dimensions: list[DimensionNarrative] = Field(default_factory=list)
     executive_summary: str = ""
     cross_cutting_notes: str | None = None
+    trend_narrative: str | None = None
+    """Agent's movement-framed interpretation of the Python-computed trend deltas.
+
+    Filled ONLY from the `trend_baseline` tool's payload — the agent narrates
+    the deltas the tool returns and NEVER invents trend numbers (TREND-02 /
+    D-05-07). Null on a baseline run (no prior sidecar to diff against).
+
+    Like every other narrative field, the numeric tokens in this string are
+    subject to the D-64 faithfulness gate at render time. Plan 05-03 Task 2
+    folds the TrendDelta magnitudes + prior/current baseline totals into the
+    AllowedNumbers set so genuine trend numbers survive the gate; any number
+    NOT traceable to the tool's deltas is still stripped sentence-by-sentence.
+    """
 
 
 class FaithfulnessViolation(BaseModel):

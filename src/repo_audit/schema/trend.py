@@ -60,6 +60,17 @@ class TrendDelta(BaseModel):
     coverage_delta: float | None = None
     finding_count_delta_by_dimension: dict[str, int] = Field(default_factory=dict)
     changes: list[FindingChange] = Field(default_factory=list)
+    prior_totals: dict[str, float | int] = Field(default_factory=dict)
+    """Prior-scan absolute metric totals (commits/loc/lint/coverage).
+
+    Plan 05-03 faithfulness fold (RESEARCH Pitfall 1): the agent's trend
+    narrative phrases movement as "rose from {prior} to {current} (+{delta})".
+    The delta and current values trace to the Finding store + delta magnitudes,
+    but the PRIOR absolute total does not — it lives only on the prior sidecar.
+    Exposing it here lets ``build_allowed_numbers`` admit the prior totals so
+    the full "from X to Y (+D)" sentence survives the gate. Keyed by metric
+    family ("commits"/"loc"/"lint"/"coverage"); a key is omitted when that
+    metric was unavailable on the prior side (SAFE-04/08 — never a fake 0)."""
 
 
 __all__ = [

@@ -44,6 +44,7 @@ from repo_audit.orchestration.scope_ledger_builder import (
 )
 from repo_audit.render.renderer import render_and_write
 from repo_audit.schema.report import ReportMeta, ScanReport
+from repo_audit.trend.delta import compute_trend
 from repo_audit.walker import build_repo_index
 
 
@@ -285,6 +286,31 @@ def run_scan(
         partial=partial,
     )
 
+    # Plan 05-03 / TREND-02: compute the TrendDelta when a prior sidecar exists.
+    # Parsed defensively — find_prior_sidecar already validated parseability, but
+    # a race (file changed between selection and read) must not crash the scan.
+    # The "current" side is a provisional ScanReport built from the findings +
+    # meta + scope_ledger known at this point (the agent runs AFTER and only
+    # narrates; it never alters the deterministic metrics the delta reads). The
+    # TrendDelta is threaded into BOTH the agent session (so the agent can
+    # narrate the deltas via trend_baseline) AND render_and_write (so the gate
+    # folds the delta numbers into AllowedNumbers and the Trends section renders).
+    trend = None
+    if prior_sidecar is not None:
+        try:
+            prior_report = ScanReport.model_validate_json(
+                prior_sidecar.read_text(encoding="utf-8")
+            )
+            current_for_trend = ScanReport(
+                schema_version="1",
+                meta=meta,
+                findings=findings,
+                scope_ledger=scope_ledger,
+            )
+            trend = compute_trend(prior_report, current_for_trend, repo_path)
+        except Exception:  # noqa: BLE001 — a corrupt/raced prior must not crash
+            trend = None
+
     # Phase 4 NEW: AGENT-05 budget override (D-65) — one-shot scan override.
     # Mutates the AGENT_DEFAULTS dict the agent loop reads via get_threshold();
     # process-local + benign (each Typer invocation is a fresh CLI context).
@@ -306,6 +332,7 @@ def run_scan(
             scope_ledger=scope_ledger,
             detection=detection,
             meta=meta,
+            trend=trend,
         ))
 
     # Phase 4 NEW: AGENT-07 post-flight ledger-gap auto-fill (D-60).
@@ -331,7 +358,9 @@ def run_scan(
     # Render + secret-lint + completion-honesty + faithfulness + write.
     # agent_output is None on --no-agent + every D-67 fallback → the renderer
     # takes the deterministic-only path (Plan 04-08).
-    rc = render_and_write(scan_report, md_path, json_path, agent_output=agent_output)
+    rc = render_and_write(
+        scan_report, md_path, json_path, agent_output=agent_output, trend=trend,
+    )
     # Phase 4: overwrite wall_clock_seconds with the overall arch-scan duration
     # (RESEARCH Open Question 2 — caller-overrides-session). This is the
     # user-facing total; session.py's agent-only measurement is superseded.

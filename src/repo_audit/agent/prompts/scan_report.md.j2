@@ -80,6 +80,27 @@ context ("the critical findings cluster in the auth module"); do NOT
 add a count line — the renderer pre-pends the authoritative deterministic
 count.
 
+# Section 6.5: Trends vs prior
+
+Call `trend_baseline` ONCE near the start. It returns the
+Python-computed trend deltas vs the prior state report — commits, LOC,
+lint errors, coverage, and per-dimension finding-count changes — plus a
+three-way classification of every prior finding (resolved /
+vanished-with-file / still-present). You do NOT compute these numbers;
+they are produced deterministically before you run.
+
+- If the payload is `{"baseline_run": true}`, this is the first scan with
+  no prior to diff against. Leave `trend_narrative` null. Do NOT invent a
+  trend.
+- Otherwise, write a short movement-framed interpretation into
+  `trend_narrative` — e.g. "Commit volume rose from {prior} to {current}
+  ({delta}); lint errors fell by {delta}." Cite ONLY the numbers the tool
+  returns (prior totals, current totals, and delta magnitudes). The same
+  faithfulness gate that governs dimension narratives applies here: any
+  number not traceable to the trend deltas is stripped. NEVER invent a
+  delta, a prior total, or a current total (TREND-02 / D-05-07). Flag a
+  finding that vanished because its file was deleted as NOT a fix.
+
 # Section 7: emit_report schema
 
 Call `emit_report` EXACTLY ONCE as your final action. Schema:
@@ -100,7 +121,8 @@ Call `emit_report` EXACTLY ONCE as your final action. Schema:
     }
   ],
   "executive_summary": "<blocker+critical only; no counts>",
-  "cross_cutting_notes": "<optional; cross-dimension observations>"
+  "cross_cutting_notes": "<optional; cross-dimension observations>",
+  "trend_narrative": "<null on baseline run; else movement prose citing ONLY trend_baseline's numbers>"
 }
 ```
 
