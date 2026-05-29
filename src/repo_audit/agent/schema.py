@@ -125,3 +125,23 @@ class FaithfulnessViolation(BaseModel):
     dimension: Dimension | None = None
     paragraph_index: int = 0
     nearest_allowed: float | None = None
+
+
+# Cycle resolution (Plan 04-04): when the AGENT package is the import entry
+# point, schema.report loads while THIS module is still partial, so
+# report.py's eager ReportMeta.model_rebuild() is skipped (ImportError
+# branch). Now that FaithfulnessViolation is fully defined, re-run that
+# rebuild so ReportMeta's `list[FaithfulnessViolation]` forward ref resolves.
+# When the SCHEMA package is the entry point, report.py already rebuilt
+# successfully and this is a cheap idempotent no-op.
+def _resolve_report_meta_forward_refs() -> None:
+    import sys
+
+    report_mod = sys.modules.get("repo_audit.schema.report")
+    if report_mod is not None:
+        report_mod.ReportMeta.model_rebuild(
+            _types_namespace={"FaithfulnessViolation": FaithfulnessViolation}
+        )
+
+
+_resolve_report_meta_forward_refs()

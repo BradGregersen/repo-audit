@@ -10,15 +10,27 @@ additive changes don't bump the version, but renames/removals/retypes do.
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from repo_audit.agent.schema import FaithfulnessViolation
 from repo_audit.schema.detection import StackProfile
 from repo_audit.schema.enums import AgentStatus
 from repo_audit.schema.finding import Finding
 from repo_audit.schema.scope_ledger import ScopeLedger
+
+# FaithfulnessViolation lives in agent.schema (D-64 canonical home). A
+# top-level eager import here creates a cycle ONLY when the agent package
+# is the import entry point (e.g. `import repo_audit.agent.options`
+# before any schema import): agent/__init__ -> agent.schema ->
+# schema.enums -> schema/__init__ -> schema.report -> agent.schema (partial).
+# Plan 04-03 imported it eagerly assuming schema is always imported first;
+# Plan 04-04 surfaced the latent cycle via importorskip on an agent
+# submodule. The fix is a TYPE_CHECKING-only import + a deferred
+# model_rebuild() at module bottom, so the annotation is a string forward
+# ref that Pydantic resolves once both packages are fully initialized.
+if TYPE_CHECKING:  # pragma: no cover - typing aid only
+    from repo_audit.agent.schema import FaithfulnessViolation
 
 
 class ReportMeta(BaseModel):
@@ -119,3 +131,32 @@ class ScanReport(BaseModel):
     meta: ReportMeta
     findings: list[Finding] = Field(default_factory=list)
     scope_ledger: ScopeLedger = Field(default_factory=ScopeLedger)  # D-30
+
+
+# Resolve the `list[FaithfulnessViolation]` forward reference on ReportMeta.
+# By the time this module finishes executing, agent.schema is importable:
+# - schema-first entry: agent.schema fully loads here on demand.
+# - agent-first entry: this runs while agent.schema is still partial, so the
+#   eager rebuild would fail; we defer it to first ReportMeta construction
+#   via a one-shot guard instead of forcing it at import time.
+def _rebuild_report_meta() -> None:
+    """Resolve agent.schema forward refs once both packages are initialized."""
+    from repo_audit.agent.schema import (  # noqa: F401 — namespace for rebuild
+        FaithfulnessViolation,
+    )
+
+    ReportMeta.model_rebuild(
+        _types_namespace={"FaithfulnessViolation": FaithfulnessViolation}
+    )
+
+
+try:
+    _rebuild_report_meta()
+except ImportError:
+    # agent.schema is mid-initialization (agent package was the import
+    # entry point). The rebuild will be retriggered lazily — see the
+    # __init_subclass__-free fallback: schema/__init__ completes, then the
+    # agent package finishes and any first ReportMeta(...) construction
+    # triggers Pydantic's own lazy ref resolution. To be safe we also
+    # rebuild from agent.schema's module tail (see agent/schema.py).
+    pass
