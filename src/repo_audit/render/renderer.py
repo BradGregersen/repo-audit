@@ -66,6 +66,7 @@ from repo_audit.schema.report import ScanReport
 
 if TYPE_CHECKING:
     from repo_audit.agent.schema import AgentScanReport
+    from repo_audit.schema.trend import TrendDelta
 
 
 def _make_env() -> Environment:
@@ -89,7 +90,11 @@ def _make_env() -> Environment:
     return env
 
 
-def render_markdown(scan_report: ScanReport) -> str:
+def render_markdown(
+    scan_report: ScanReport,
+    *,
+    trend: "TrendDelta | None" = None,
+) -> str:
     """Render the markdown buffer. Pure; no I/O.
 
     Phase 1-3 entry point: renders with no agent narrative (agent_output=None)
@@ -97,6 +102,11 @@ def render_markdown(scan_report: ScanReport) -> str:
     template branches on ``agent_output is none`` + ``report.meta.agent_status``
     so this path produces the deterministic-only report (no agent kwargs leak
     StrictUndefined errors).
+
+    Plan 05-03: ``trend`` (the deterministic ``TrendDelta`` or None) is passed
+    to the template so the no-agent path still renders the Trends-vs-prior
+    delta table (the agent's ``trend_narrative`` block is simply skipped since
+    ``agent_output`` is None here).
     """
     env = _make_env()
     template = env.get_template("state_report.md.j2")
@@ -105,6 +115,7 @@ def render_markdown(scan_report: ScanReport) -> str:
         agent_output=None,
         deterministic_exec_header=build_deterministic_exec_header(scan_report.findings),
         critical_render_classes=_compute_critical_render_classes(scan_report),
+        trend=trend,
     )
 
 
@@ -149,6 +160,7 @@ def render_and_write(
     json_path: Path,
     *,
     agent_output: "AgentScanReport | None" = None,
+    trend: "TrendDelta | None" = None,
 ) -> int:
     """Build markdown + JSON buffers, run chokepoint pipeline, write both.
 
@@ -177,6 +189,7 @@ def render_and_write(
     # ----- Build allowed_numbers + load regex BEFORE prose touches anything. -----
     allowed_numbers = build_allowed_numbers(
         scan_report.findings, scan_report.scope_ledger, scan_report.meta,
+        trend=trend,
     )
     trigger_regex, allowlist_regex = load_faithfulness_allowlist()
     deterministic_exec_header = build_deterministic_exec_header(scan_report.findings)
@@ -273,13 +286,14 @@ def render_and_write(
     # intercept the buffer there still work). The agent path needs the extra
     # kwargs and builds the buffer directly.
     if cleaned_agent_output is None:
-        markdown_buf = render_markdown(scan_report)
+        markdown_buf = render_markdown(scan_report, trend=trend)
     else:
         markdown_buf = _render_markdown_with_agent(
             scan_report=scan_report,
             agent_output=cleaned_agent_output,
             deterministic_exec_header=deterministic_exec_header,
             critical_render_classes=critical_render_classes,
+            trend=trend,
         )
     json_buf = scan_report.model_dump_json(indent=2)
 
@@ -313,8 +327,9 @@ def _render_markdown_with_agent(
     agent_output: "AgentScanReport | None",
     deterministic_exec_header: str,
     critical_render_classes: dict[str, str],
+    trend: "TrendDelta | None" = None,
 ) -> str:
-    """Template render with the Phase 4 agent kwargs."""
+    """Template render with the Phase 4 agent kwargs (+ Plan 05-03 trend)."""
     env = _make_env()
     template = env.get_template("state_report.md.j2")
     return template.render(
@@ -322,6 +337,7 @@ def _render_markdown_with_agent(
         agent_output=agent_output,
         deterministic_exec_header=deterministic_exec_header,
         critical_render_classes=critical_render_classes,
+        trend=trend,
     )
 
 

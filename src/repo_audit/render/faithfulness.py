@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from repo_audit.schema.finding import Finding
     from repo_audit.schema.report import ReportMeta
     from repo_audit.schema.scope_ledger import ScopeLedger
+    from repo_audit.schema.trend import TrendDelta
 
 
 # D-63 abbreviation pre-mask list (RESEARCH Pitfall 5). "Eg." is included as a
@@ -116,6 +117,8 @@ def build_allowed_numbers(
     findings: list[Finding],
     scope_ledger: ScopeLedger,
     meta: ReportMeta,
+    *,
+    trend: "TrendDelta | None" = None,
 ) -> set[float]:
     """D-62: build the AllowedNumbers set deterministically BEFORE the agent runs.
 
@@ -125,14 +128,23 @@ def build_allowed_numbers(
         (recursively, depth-capped) plus any line-range endpoints;
       * per-dimension finding counts (the agent may quote "3 security findings");
       * per-severity finding counts;
-      * the three scope-ledger cardinalities (scanned/skipped/unavailable).
+      * the three scope-ledger cardinalities (scanned/skipped/unavailable);
+      * when ``trend`` is provided (Plan 05-03 / RESEARCH Pitfall 1): every
+        non-None delta magnitude (signed AND absolute), every per-dimension
+        finding-count delta, AND the prior baseline absolute totals. Trend
+        deltas are NOT findings, so without this fold the agent's
+        ``trend_narrative`` sentences ("rose from 120 to 134 (+14)") would be
+        silently stripped by the gate. Folding the prior totals + delta
+        magnitudes lets all three of those numbers pass while a fabricated
+        number (not in the trend) is still stripped (the load-bearing
+        negative-control invariant — see test_trend_faithfulness.py).
 
-    ``meta`` is accepted for forward-compatibility (Plan 04-08 may fold in
+    ``meta`` is accepted for forward-compatibility (later phases may fold in
     meta-level counts such as contributor totals); the v1 seed does not read
     it, keeping the construction purely a function of the Finding store +
-    scope ledger so it is reproducible across runs.
+    scope ledger (+ the optional trend) so it is reproducible across runs.
     """
-    _ = meta  # reserved for Plan 04-08 meta-derived counts; v1 seed is store-only.
+    _ = meta  # reserved for meta-derived counts; the seed is store+trend only.
     allowed: set[float] = set(_SMALL_CARDINALS)
 
     # All numeric leaves from every finding's parsed_value.
@@ -167,6 +179,33 @@ def build_allowed_numbers(
     allowed.add(float(len(getattr(scope_ledger, "scanned", []) or [])))
     allowed.add(float(len(getattr(scope_ledger, "skipped", []) or [])))
     allowed.add(float(len(getattr(scope_ledger, "unavailable", []) or [])))
+
+    # Plan 05-03 (RESEARCH Pitfall 1): fold the trend numbers so the agent's
+    # trend_narrative survives the gate. Trend deltas are not findings, so they
+    # must be admitted explicitly here.
+    if trend is not None:
+        # Each metric-family delta (signed AND absolute) — n/a (None) skipped.
+        for delta in (
+            getattr(trend, "commits_delta", None),
+            getattr(trend, "loc_delta", None),
+            getattr(trend, "lint_error_delta", None),
+            getattr(trend, "coverage_delta", None),
+        ):
+            if delta is not None:
+                allowed.add(float(delta))
+                allowed.add(abs(float(delta)))
+        # Per-dimension finding-count deltas (signed AND absolute).
+        for count_delta in (
+            getattr(trend, "finding_count_delta_by_dimension", {}) or {}
+        ).values():
+            allowed.add(float(count_delta))
+            allowed.add(abs(float(count_delta)))
+        # Prior baseline absolute totals (the "from X" half of "from X to Y").
+        for total in (getattr(trend, "prior_totals", {}) or {}).values():
+            try:
+                allowed.add(float(total))
+            except (TypeError, ValueError):
+                pass
 
     return allowed
 
