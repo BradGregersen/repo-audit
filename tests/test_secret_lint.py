@@ -22,7 +22,9 @@ def test_secret_lint_blocks_write_in_render_pipeline(synthetic_secret, fake_repo
     # The exact injection point is whatever Plan 04+05 expose for testing — for the stub,
     # we monkeypatch the markdown render to return a buffer containing the secret.
     from repo_audit.render import renderer as r
-    monkeypatch.setattr(r, "render_markdown", lambda sr: f"## report\nleaked: {synthetic_secret}\n")
+    monkeypatch.setattr(
+        r, "render_markdown", lambda sr, **kwargs: f"## report\nleaked: {synthetic_secret}\n"
+    )
     sr = ScanReport(
         schema_version="1",
         meta=ReportMeta(repo_slug="x", commit_sha="0"*40, scan_date=date(2026, 5, 28), tool_version="0.1.0"),

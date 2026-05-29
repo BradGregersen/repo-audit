@@ -39,6 +39,68 @@ _AI narrative unavailable: {{ report.meta.agent_status }} — see deterministic 
 **Partial scan** — {{ report.scope_ledger.unavailable | length }} dimension(s) incomplete: {{ report.scope_ledger.unavailable | map(attribute='dimension') | list | unique | join(', ') }}. See §2 Scope ledger.
 {%- endif %}
 
+{# Plan 05-03 Trends block (D-05-05: near the top, between lineage and §1).
+   Baseline run -> single explanatory one-liner, NO delta table (SC-3, no fake
+   zeros). Otherwise, when a trend was computed -> a deterministic delta table,
+   the agent's faithfulness-gated trend narrative beneath it, then three
+   explicitly-labeled finding groups (D-05-06). #}
+{% if report.meta.baseline_run %}
+
+**Trends vs prior:** baseline run — no prior report to diff against; trends begin next scan.
+{% elif trend is not none %}
+
+## Trends vs prior ({{ trend.prior_baseline_date.isoformat() }})
+
+| Metric | Delta vs prior |
+|--------|----------------|
+| Commits | {{ trend.commits_delta if trend.commits_delta is not none else 'n/a' }} |
+| LOC | {{ trend.loc_delta if trend.loc_delta is not none else 'n/a' }} |
+| Lint errors | {{ trend.lint_error_delta if trend.lint_error_delta is not none else 'n/a' }} |
+| Coverage % | {{ "%+.2f"|format(trend.coverage_delta) if trend.coverage_delta is not none else 'n/a' }} |
+{% for dim, d in trend.finding_count_delta_by_dimension.items() -%}
+| Findings — {{ dim }} | {{ d }} |
+{% endfor %}
+{% if agent_output is not none and agent_output.trend_narrative %}
+
+{{ agent_output.trend_narrative }}
+{% endif %}
+
+### Resolved
+
+{% set resolved = trend.changes | selectattr("status", "equalto", "resolved") | list %}
+{% if resolved -%}
+{% for c in resolved -%}
+- `{{ c.finding_ref }}` ({{ c.dimension }}, {{ c.severity }}){% if c.file %} — `{{ c.file }}`{% endif %}
+{% endfor %}
+{%- else -%}
+_(none resolved since the prior report)_
+{%- endif %}
+
+### Vanished with file
+
+_A finding listed here disappeared because its file was deleted — this is NOT counted as a fix._
+
+{% set vanished = trend.changes | selectattr("status", "equalto", "vanished_with_file") | list %}
+{% if vanished -%}
+{% for c in vanished -%}
+- `{{ c.finding_ref }}` ({{ c.dimension }}, {{ c.severity }}){% if c.file %} — `{{ c.file }}` (deleted){% endif %}
+{% endfor %}
+{%- else -%}
+_(no findings vanished with a deleted file)_
+{%- endif %}
+
+### Still present
+
+{% set still = trend.changes | selectattr("status", "equalto", "still_present") | list %}
+{% if still -%}
+{% for c in still -%}
+- `{{ c.finding_ref }}` ({{ c.dimension }}, {{ c.severity }}){% if c.file %} — `{{ c.file }}`{% endif %}
+{% endfor %}
+{%- else -%}
+_(no prior findings still present)_
+{%- endif %}
+{% endif %}
+
 ---
 
 ## 1. Executive summary
