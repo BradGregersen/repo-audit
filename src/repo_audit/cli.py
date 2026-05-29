@@ -7,7 +7,7 @@ this module's ``app`` (CLI-01).
 Subcommands:
     repo-audit scan [PATH]     -- emit state report for a repo (CLI-02 / SC-3)
     repo-audit detect [PATH]   -- show auto-detected stack(s) (CLI-04 / SC-2)
-    repo-audit fleet DIR       -- Phase 5 stub (exits with explanation)
+    repo-audit fleet DIR       -- sweep child repos into a fleet dashboard (CLI-03 / FLEET-01..04)
 
 Root flags:
     --doctor --self-test-secret-lint   -- runtime proof of REP-05 (D-08)
