@@ -34,3 +34,17 @@ EvidenceType = Literal[
 
 # SCH-04 — confidence ladder (rungs that dead-code findings respect)
 Confidence = Literal["high", "medium", "candidate", "corroborated", "confirmed"]
+
+# D-67 — failure-fallback taxonomy for the agent loop. Populated by
+# Plan 04-06's run_agent_session() per the exception → status mapping in
+# 04-RESEARCH.md §"Exception hierarchy". Values are surfaced to the user
+# via the report footer (Plan 04-08); all 'unavailable_*' modes render
+# identically (Plan 04-08 uses the D-09 pending-marker pattern).
+AgentStatus = Literal[
+    "ok",
+    "unavailable_auth_missing",
+    "unavailable_network",
+    "unavailable_emit_report_invalid",
+    "unavailable_sdk_exception",
+    "cost_capped",
+]
