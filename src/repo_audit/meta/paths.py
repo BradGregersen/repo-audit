@@ -47,6 +47,72 @@ def state_report_paths(repo_path: Path, scan_date: date) -> tuple[Path, Path]:
     return md, js
 
 
+def _repo_repo_root() -> Path:
+    """Resolve the repo-audit repo's own root (which owns ``reports/``).
+
+    The fleet artifacts land in the TOOL's repo, not in any scanned target repo:
+    ``{repo-audit}/reports/fleet-{date}.json`` (``.gitignore`` carries
+    ``reports/`` — D-05-02 / constraint: JSON fleet artifacts are gitignored).
+
+    Resolution walks up from this module's location looking for the repo root
+    marker (a ``pyproject.toml`` whose ``[project].name`` is ``repo-audit``).
+    This is correct for the supported install path (``pipx/uv tool install
+    --editable .`` from a local clone — CLAUDE.md): the editable install leaves
+    the package importable from inside the clone, so ``__file__`` sits under
+    ``{clone}/src/repo_audit/meta/paths.py`` and parents[3] is the clone.
+
+    Falls back to ``parents[3]`` (the structural repo root) if no matching
+    marker is found while walking up — preserves a sane default rather than
+    raising, so a fleet sweep never aborts on path resolution alone.
+    """
+    here = Path(__file__).resolve()
+    # paths.py -> meta -> repo_audit -> src -> {repo root}
+    structural_root = here.parents[3]
+    for candidate in (structural_root, *structural_root.parents):
+        pyproject = candidate / "pyproject.toml"
+        if pyproject.is_file():
+            try:
+                text = pyproject.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if 'name = "repo-audit"' in text:
+                return candidate
+    return structural_root
+
+
+def fleet_report_paths(root: Path, gen_date: date) -> tuple[Path, Path]:
+    """Return (fleet_json_path, fleet_dashboard_md_path). Does NOT create dirs.
+
+    Both land in the repo-audit repo's own gitignored ``reports/`` dir:
+        {repo-audit}/reports/fleet-{YYYY-MM-DD}.json
+        {repo-audit}/reports/fleet-dashboard-{YYYY-MM-DD}.md
+
+    ``root`` (the sweep root being audited) is accepted for API symmetry and
+    future provenance use; the OUTPUT location is always the tool's own
+    ``reports/`` dir regardless of which directory is swept.
+
+    Same-day collision handling mirrors ``state_report_paths``: if either the
+    ``.json`` or ``.md`` for today already exists, append ``-2``/``-3``/... so a
+    re-run never silently overwrites a prior sweep's pair. The directory is the
+    caller's responsibility to create (Plan 05-05 wires the write).
+    """
+    _ = root  # accepted for API symmetry / future provenance; output is tool-local
+    out_dir = _repo_repo_root() / "reports"
+    stem = f"fleet-{gen_date.isoformat()}"
+    dash_stem = f"fleet-dashboard-{gen_date.isoformat()}"
+    js = out_dir / f"{stem}.json"
+    md = out_dir / f"{dash_stem}.md"
+    if js.exists() or md.exists():
+        n = 2
+        while True:
+            cand_js = out_dir / f"{stem}-{n}.json"
+            cand_md = out_dir / f"{dash_stem}-{n}.md"
+            if not (cand_js.exists() or cand_md.exists()):
+                return cand_js, cand_md
+            n += 1
+    return js, md
+
+
 def find_prior_sidecar(repo_path: Path, today: date) -> Path | None:
     """Return the most-recent prior JSON sidecar dated strictly before today.
 
