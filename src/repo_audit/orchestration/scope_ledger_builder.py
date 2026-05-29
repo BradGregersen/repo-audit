@@ -30,6 +30,7 @@ Phase 3 extension contract (Plan 03-05):
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from repo_audit.adapters.base import AdapterResult
 from repo_audit.collectors.base import CollectorResult
@@ -40,6 +41,9 @@ from repo_audit.schema.scope_ledger import (
     UnavailableEntry,
 )
 from repo_audit.walker.repo_index import WalkerResult
+
+if TYPE_CHECKING:
+    from repo_audit.schema.detection import DetectionResult
 
 
 def _adapter_label(ar: AdapterResult) -> str:
@@ -143,3 +147,175 @@ def _is_under(path: Path, ancestor: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+# ============================================================
+# Plan 04-09 — D-60 post-flight ledger-gap auto-fill (AGENT-07)
+# ============================================================
+# UNIVERSAL_REQUIRED_COLLECTORS: the 6 Phase 2 collectors that MUST always
+# have at least one ledger row — a Finding sourced from them OR a
+# scope_ledger.unavailable entry naming them. Derived from
+# collectors/__init__.py's registry order.
+UNIVERSAL_REQUIRED_COLLECTORS: tuple[str, ...] = (
+    "git_cadence",
+    "loc_inventory",
+    "secret_detection",
+    "doc_presence",
+    "todo_markers",
+    "file_size_cap",
+)
+
+
+def _has_ledger_row(
+    collector_name: str,
+    findings: list,
+    scope_ledger: ScopeLedger,
+) -> bool:
+    """True iff findings or scope_ledger.unavailable references collector_name.
+
+    Adapter rows live under the ``"{adapter}:{tool}"`` shape (Phase 3 D-30),
+    so an adapter tool ``tsc`` matches either the bare ``tsc`` row OR a
+    ``typescript-node:tsc`` row.
+    """
+    if any(getattr(f, "source_collector", "") == collector_name for f in findings):
+        return True
+    if any(getattr(f, "source_tool", "") == collector_name for f in findings):
+        return True
+    for u in scope_ledger.unavailable:
+        coll = getattr(u, "collector", "")
+        if coll == collector_name or coll.endswith(f":{collector_name}"):
+            return True
+    return False
+
+
+def _invoke_collector_by_name(
+    name: str,
+    repo_path: "Path",
+    walker_index: dict,
+) -> CollectorResult | None:
+    """Locate a collector by its module name in the registry; invoke + return.
+
+    The collector registry stores each module's ``run`` callable. Universal
+    collector modules are named after the collector (``...collectors.git_cadence``),
+    so we match the registered callable's ``__module__`` against the target
+    name. Returns ``None`` if the collector cannot be located (registry bug).
+    NEVER raises — a buggy collector degrades to an ``unavailable``-shape
+    result so the ledger row still gets populated (D-67 honesty contract).
+    """
+    from repo_audit.collectors import get_registry
+
+    for fn in get_registry():
+        mod = getattr(fn, "__module__", "")
+        if mod.endswith(f".{name}") or mod.endswith(f".collectors.{name}"):
+            try:
+                return fn(repo_path, walker_index)
+            except Exception as exc:  # noqa: BLE001 — defense in depth (D-67)
+                return CollectorResult(
+                    status="unavailable",
+                    notes=f"auto-fill invocation failed: {type(exc).__name__}: {exc}",
+                    source_collector=name,
+                )
+    return None
+
+
+def _adapter_required_collectors(detection: "DetectionResult") -> list[str]:
+    """Walk ``adapter.yaml.required_collectors`` for every detected stack.
+
+    The adapter registry maps a stack name to its ``run`` callable (not the
+    module), so the adapter's ``ADAPTER_CONFIG`` is resolved via
+    ``sys.modules[run_fn.__module__]`` — the same indirection Plan 04-04's
+    ``adapter_tool_names`` uses. Stacks with no registered adapter are
+    silently skipped (D-40 graceful degradation).
+    """
+    import sys
+
+    from repo_audit.adapters import get_adapter_registry
+
+    out: list[str] = []
+    registry = get_adapter_registry()
+    for profile in detection.stacks:
+        run_fn = registry.get(profile.stack)
+        if run_fn is None:
+            continue
+        module = sys.modules.get(getattr(run_fn, "__module__", ""))
+        if module is None:
+            continue
+        config = getattr(module, "ADAPTER_CONFIG", None) or getattr(
+            module, "CONFIG", None
+        )
+        if not config:
+            continue
+        required = config.get("required_collectors", []) or []
+        out.extend(required)
+    return out
+
+
+def auto_fill_ledger_gaps(
+    findings: list,
+    scope_ledger: ScopeLedger,
+    detection: "DetectionResult",
+    *,
+    repo_path: "Path",
+    walker_index: dict,
+) -> tuple[list, ScopeLedger]:
+    """D-60 post-flight ledger-completeness check (AGENT-07).
+
+    Iterate ``UNIVERSAL_REQUIRED_COLLECTORS`` + every detected adapter's
+    ``adapter.yaml.required_collectors``; for each name without a ledger row
+    (in ``findings`` OR ``scope_ledger.unavailable``), re-invoke the collector
+    deterministically and append the resulting findings (or an unavailable
+    row when the collector cannot be located / returned non-ok). Always log
+    auto-fill events to ``scope_ledger.notes`` per D-60.
+
+    Under D-57 read-only tools this code path is essentially unreachable for
+    happy-path scans (collectors ran before the agent booted; the agent
+    cannot skip them). The mechanism stays as defense in depth for:
+      - Phase 6+ action-tool semantics
+      - a collector exception swallowed at execute time
+      - a bug in the collector registry shape
+
+    ALWAYS returns ``(findings, scope_ledger)``. NEVER raises (D-67 exit-0).
+    """
+    required_names = list(UNIVERSAL_REQUIRED_COLLECTORS) + _adapter_required_collectors(
+        detection
+    )
+    new_findings = list(findings)
+    gap_notes: list[str] = []
+    seen: set[str] = set()
+    for name in required_names:
+        if name in seen:
+            continue
+        seen.add(name)
+        if _has_ledger_row(name, new_findings, scope_ledger):
+            continue
+        gap_notes.append(
+            f"gap auto-filled: {name} had no row at post-flight check"
+        )
+        result = _invoke_collector_by_name(name, repo_path, walker_index)
+        if result is None:
+            scope_ledger.unavailable.append(
+                UnavailableEntry(
+                    dimension="unknown",
+                    collector=name,
+                    reason="auto-fill could not locate collector in registry",
+                )
+            )
+        elif result.status != "ok":
+            scope_ledger.unavailable.append(
+                UnavailableEntry(
+                    dimension=result.dimension or "unknown",
+                    collector=result.source_collector or name,
+                    reason=result.notes or result.status,
+                )
+            )
+        else:
+            new_findings.extend(result.findings)
+
+    if gap_notes:
+        note_text = "; ".join(gap_notes)
+        if scope_ledger.notes:
+            scope_ledger.notes = scope_ledger.notes + "; " + note_text
+        else:
+            scope_ledger.notes = note_text
+
+    return new_findings, scope_ledger
