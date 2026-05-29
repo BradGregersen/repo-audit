@@ -14,6 +14,12 @@ Importing this package is cheap — it only re-exports the Pydantic types.
 The agent loop is lazy-imported by cli.py at scan time so `repo-audit detect`
 and `repo-audit --doctor` paths pay zero SDK-import cost.
 """
+from repo_audit.agent.options import (
+    EMIT_REPORT_TOOL_NAME,
+    UNIVERSAL_TOOL_NAMES,
+    adapter_tool_names,
+    build_options,
+)
 from repo_audit.agent.schema import (
     AgentScanReport,
     DimensionNarrative,
@@ -26,4 +32,8 @@ __all__ = [
     "DimensionNarrative",
     "SeverityCall",
     "FaithfulnessViolation",
+    "build_options",
+    "UNIVERSAL_TOOL_NAMES",
+    "EMIT_REPORT_TOOL_NAME",
+    "adapter_tool_names",
 ]
