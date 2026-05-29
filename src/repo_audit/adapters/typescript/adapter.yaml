@@ -26,9 +26,11 @@ tools:
   tsc:
     command: tsc
     # Pitfall 3: NO --incremental. --noEmit suppresses .js/.d.ts output;
-    # --pretty=false makes diagnostics machine-parseable (one line per
-    # diagnostic, no colour escapes).
-    args: ["--noEmit", "--pretty=false"]
+    # --pretty false makes diagnostics machine-parseable (one line per
+    # diagnostic, no colour escapes). Note: tsc does NOT accept the
+    # ``--pretty=false`` equals-form (rejected with TS5023 "Unknown
+    # compiler option"); the value must be a separate argv entry.
+    args: ["--noEmit", "--pretty", "false"]
     output_format: text
     # D-39 parser dotted path. Wave 2 (plan 03-03) ships parsers.tsc;
     # until then, _load_parser fails gracefully → AdapterResult unavailable.
