@@ -51,10 +51,16 @@ def test_pending_markers_present_for_each_dimension():
 
 
 def test_executive_summary_pending_marker():
-    """D-10 — Executive Summary present with pending marker."""
+    """D-10 / D-70 — Executive Summary present with the deterministic header.
+
+    Plan 04-08 replaced the Phase-1 placeholder line
+    ('_(no blocker/critical findings — no collectors invoked yet)_') with the
+    D-70 authoritative count header, which is built from the structurally-
+    counted finding store. With an empty store it reports the all-zero header.
+    """
     from repo_audit.render.renderer import render_markdown
     md = render_markdown(_empty_scan_report())
-    assert "_(no blocker/critical findings — no collectors invoked yet)_" in md
+    assert "**0 blocker, 0 critical finding(s)** across 0 dimension(s)." in md
 
 
 def test_scope_ledger_pending_marker():

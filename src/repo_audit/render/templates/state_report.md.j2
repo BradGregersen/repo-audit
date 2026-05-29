@@ -2,6 +2,22 @@
    Section ordering matches /path/to/example-app/docs/state-reports/adapt-state-report-2026-05-23.md.
    Pending markers (D-09/D-10/D-11) make completion-honesty visible from day one.
    Phase 4+ replaces pending markers with curated narratives; section ordering stays. #}
+{# Phase 4 (Plan 04-08): per-dimension narrative slot. Resolves the agent's
+   narrative for `dim_name` (D-54). Falls back to the D-09 / D-67 pending
+   marker naming report.meta.agent_status when the agent did not run. #}
+{% macro dimension_narrative(dim_name) -%}
+{% set dim_narrative = none %}
+{% if agent_output is not none %}
+{% for dim in agent_output.dimensions %}
+{% if dim.dimension == dim_name %}{% set dim_narrative = dim.narrative %}{% endif %}
+{% endfor %}
+{% endif %}
+{% if dim_narrative %}
+{{ dim_narrative }}
+{% elif report.meta.agent_status is not none and report.meta.agent_status != 'ok' %}
+_AI narrative unavailable: {{ report.meta.agent_status }} — see deterministic findings below._
+{% endif %}
+{%- endmacro %}
 # {{ report.meta.repo_slug }} — Repository State Report
 
 **Date:** {{ report.meta.scan_date.isoformat() }}
@@ -27,11 +43,14 @@
 
 ## 1. Executive summary
 
-{% if not report.findings -%}
-_(no blocker/critical findings — no collectors invoked yet)_
-{%- else -%}
-{# Phase 4 will curate blocker+critical only here (SAFE-07 no-dilution). #}
-{%- endif %}
+{# D-70 deterministic header is authoritative; agent prose follows. #}
+{{ deterministic_exec_header }}
+
+{% if agent_output is not none and agent_output.executive_summary %}
+{{ agent_output.executive_summary }}
+{% elif report.meta.agent_status is not none and report.meta.agent_status != 'ok' %}
+_Unable to curate executive summary — see per-dimension findings below ({{ report.meta.agent_status }})._
+{% endif %}
 
 ---
 
@@ -82,91 +101,105 @@ _(no unavailable dimensions — full scan)_
 {# The 7 dimensions, in fixed order. Each has a pending marker until its phase wires collectors. #}
 
 ## 3. Security & SAST
-
+{{ dimension_narrative('security') }}
 {% set findings_here = report.findings | selectattr("dimension", "equalto", "security") | list %}
 {% if findings_here -%}
 | Severity | File:line | Source | Rule | Evidence |
 |----------|-----------|--------|------|----------|
 {% for f in findings_here -%}
-| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% set f_id = (f.source_tool ~ '::' ~ (f.rule_id or '') ~ '::' ~ (f.file or '') ~ ':' ~ (f.line or '')) %}
+{% set rc = critical_render_classes.get(f_id, '') %}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (universal collectors) and Phase 7 (gitleaks/trivy) where this dimension becomes populated)_
 {%- endif %}
 
 ## 4. Architecture rot
-
+{{ dimension_narrative('architecture_rot') }}
 {% set findings_here = report.findings | selectattr("dimension", "equalto", "architecture_rot") | list %}
 {% if findings_here -%}
 | Severity | File:line | Source | Rule | Evidence |
 |----------|-----------|--------|------|----------|
 {% for f in findings_here -%}
-| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% set f_id = (f.source_tool ~ '::' ~ (f.rule_id or '') ~ '::' ~ (f.file or '') ~ ':' ~ (f.line or '')) %}
+{% set rc = critical_render_classes.get(f_id, '') %}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (universal) and Phase 7 (dead-code) where this dimension becomes populated)_
 {%- endif %}
 
 ## 5. Test integrity
-
+{{ dimension_narrative('test_integrity') }}
 {% set findings_here = report.findings | selectattr("dimension", "equalto", "test_integrity") | list %}
 {% if findings_here -%}
 | Severity | File:line | Source | Rule | Evidence |
 |----------|-----------|--------|------|----------|
 {% for f in findings_here -%}
-| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% set f_id = (f.source_tool ~ '::' ~ (f.rule_id or '') ~ '::' ~ (f.file or '') ~ ':' ~ (f.line or '')) %}
+{% set rc = critical_render_classes.get(f_id, '') %}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 3 (TypeScript adapter) where this dimension first becomes populated)_
 {%- endif %}
 
 ## 6. Correctness & data/privacy
-
+{{ dimension_narrative('correctness') }}
 {% set findings_here = report.findings | selectattr("dimension", "equalto", "correctness") | list %}
 {% if findings_here -%}
 | Severity | File:line | Source | Rule | Evidence |
 |----------|-----------|--------|------|----------|
 {% for f in findings_here -%}
-| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% set f_id = (f.source_tool ~ '::' ~ (f.rule_id or '') ~ '::' ~ (f.file or '') ~ ':' ~ (f.line or '')) %}
+{% set rc = critical_render_classes.get(f_id, '') %}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 3+ where this dimension becomes populated)_
 {%- endif %}
 
 ## 7. Quality / perf / footprint / docs
-
+{{ dimension_narrative('quality') }}
 {% set findings_here = report.findings | selectattr("dimension", "equalto", "quality") | list %}
 {% if findings_here -%}
 | Severity | File:line | Source | Rule | Evidence |
 |----------|-----------|--------|------|----------|
 {% for f in findings_here -%}
-| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% set f_id = (f.source_tool ~ '::' ~ (f.rule_id or '') ~ '::' ~ (f.file or '') ~ ':' ~ (f.line or '')) %}
+{% set rc = critical_render_classes.get(f_id, '') %}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (LOC + doc-presence) where this dimension becomes populated)_
 {%- endif %}
 
 ## 8. Process & backlog
-
+{{ dimension_narrative('process') }}
 {% set findings_here = report.findings | selectattr("dimension", "equalto", "process") | list %}
 {% if findings_here -%}
 | Severity | File:line | Source | Rule | Evidence |
 |----------|-----------|--------|------|----------|
 {% for f in findings_here -%}
-| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% set f_id = (f.source_tool ~ '::' ~ (f.rule_id or '') ~ '::' ~ (f.file or '') ~ ':' ~ (f.line or '')) %}
+{% set rc = critical_render_classes.get(f_id, '') %}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (git cadence + TODO counts) where this dimension becomes populated)_
 {%- endif %}
 
 ## 9. Observability & runtime
-
+{{ dimension_narrative('observability') }}
 {% set findings_here = report.findings | selectattr("dimension", "equalto", "observability") | list %}
 {% if findings_here -%}
 | Severity | File:line | Source | Rule | Evidence |
 |----------|-----------|--------|------|----------|
 {% for f in findings_here -%}
-| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% set f_id = (f.source_tool ~ '::' ~ (f.rule_id or '') ~ '::' ~ (f.file or '') ~ ':' ~ (f.line or '')) %}
+{% set rc = critical_render_classes.get(f_id, '') %}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 3+ where this dimension becomes populated)_
@@ -177,4 +210,24 @@ _(no collectors invoked for this dimension yet — see ROADMAP Phase 3+ where th
 
 ---
 
-**Report finalized (baseline scaffold — no findings yet).** Generated by repo-audit {{ report.meta.tool_version }} at {{ report.meta.commit_sha }}.
+## Agent run metadata
+
+{% if report.meta.agent_status is not none %}
+- **Agent status:** `{{ report.meta.agent_status }}`
+{% if report.meta.token_usage is not none %}
+- **Token usage:** {{ "{:,}".format(report.meta.token_usage) }}
+{% endif %}
+{% if report.meta.total_cost_usd is not none %}
+- **Estimated cost:** ~${{ "%.4f"|format(report.meta.total_cost_usd) }} _(estimated equivalent under Max OAuth; actual under API-key auth)_
+{% else %}
+- **Estimated cost:** _n/a_
+{% endif %}
+{% if report.meta.wall_clock_seconds is not none %}
+- **Wall-clock:** {{ "%.2f"|format(report.meta.wall_clock_seconds) }} s
+{% endif %}
+{% if report.meta.faithfulness_violations %}
+- _Faithfulness gate: {{ report.meta.faithfulness_violations | length }} sentence(s) elided — see JSON sidecar for full record._
+{% endif %}
+{% endif %}
+
+Generated by repo-audit {{ report.meta.tool_version }} at `{{ report.meta.commit_sha }}`.
