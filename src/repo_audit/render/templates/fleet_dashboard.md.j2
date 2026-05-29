@@ -1,0 +1,27 @@
+{# Fleet triage dashboard (Plan 05-05 / FLEET-03 / SC-4).
+
+   Inputs (provided by fleet.dashboard.render_fleet_dashboard):
+     snapshot       -- the FleetSnapshot (fleet-wide totals + canonical repos)
+     ordered_rows   -- repos re-ordered for triage: failed rows pinned to the
+                       VERY TOP (D-05-10), then ok rows worst-health-first
+                       (D-05-08). Row ordering is done in Python before render;
+                       the template never re-sorts.
+
+   The numbers in this template all originate from the Python aggregator /
+   sweep (CLAUDE.md reproducibility constraint — the agent never invents fleet
+   figures). The template is a pure renderer of those values.
+#}
+# Fleet Health Dashboard
+
+{# D-05-11: fleet-level rollup header line. n/a for None cost/seconds. #}
+{{ snapshot.total_repos }} repos scanned · {{ snapshot.total_blockers }} blockers, {{ snapshot.total_critical }} critical across fleet · {{ snapshot.failed_count }} failed · total cost {% if snapshot.total_cost_usd is none %}n/a{% else %}${{ "%.2f"|format(snapshot.total_cost_usd) }}{% endif %} · swept in {% if snapshot.sweep_seconds is none %}n/a{% else %}{{ "%.1f"|format(snapshot.sweep_seconds) }}s{% endif %}
+
+_Sweep root: `{{ snapshot.sweep_root }}` · generated {{ snapshot.generated_date.isoformat() }}_
+
+Triage order: failed scans first (most urgent — a repo you can't even scan), then worst-health-first (blocker/critical counts lead).
+
+| Repo | Status | Severity by dimension | Last commit | Coverage | Scan cost | Scan time | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+{% for row in ordered_rows %}
+| `{{ row.repo_slug }}` | {{ row.status }} | {% if row.status == "failed" %}—{% elif row.severity_by_dimension %}{% for dim, sev in row.severity_by_dimension.items() %}{{ dim }}({% for s, c in sev.items() %}{{ s[:4] }}:{{ c }}{% if not loop.last %},{% endif %}{% endfor %}){% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}clean{% endif %} | {% if row.last_commit_iso is none %}n/a{% else %}{{ row.last_commit_iso }}{% endif %} | {% if row.coverage_pct is none %}n/a{% else %}{{ "%.1f"|format(row.coverage_pct) }}%{% endif %} | {% if row.scan_cost_usd is none %}n/a{% else %}${{ "%.4f"|format(row.scan_cost_usd) }}{% endif %} | {% if row.scan_seconds is none %}n/a{% else %}{{ "%.1f"|format(row.scan_seconds) }}s{% endif %} | {% if row.error_reason %}{{ row.error_reason }}{% else %}—{% endif %} |
+{% endfor %}
