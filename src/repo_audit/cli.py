@@ -27,6 +27,9 @@ import typer
 
 from repo_audit.detect.detector import detect_stacks
 from repo_audit.doctor.self_test import run_secret_lint_self_test
+from repo_audit.fleet.dashboard import render_fleet_dashboard
+from repo_audit.fleet.sweep import run_fleet
+from repo_audit.meta.paths import fleet_report_paths
 from repo_audit.orchestration import run_scan
 
 # D-13: bare ``arch`` prints help (no_args_is_help=True is Typer's idiom).
@@ -228,11 +231,77 @@ def detect(
 @app.command()
 def fleet(
     directory: Path = typer.Argument(..., help="Directory containing repos to sweep."),
+    with_agent: bool = typer.Option(
+        False,
+        "--with-agent",
+        help=(
+            "Run the per-repo Claude Agent SDK loop during the sweep (AI "
+            "narration per repo). Default is deterministic-only (D-05-12): "
+            "fast, ~free, and offline — the recommended mode for a 20-repo "
+            "fleet, avoiding surprise cost×N and large-repo agent timeouts."
+        ),
+    ),
 ) -> None:
-    """Sweep a directory of repos (Phase 5 -- stub in Phase 1)."""
-    typer.echo(
-        "repo-audit fleet lands in Phase 5 (Trend Memory & Fleet Roll-up) -- "
-        "not implemented yet.",
-        err=True,
+    """Sweep a directory of repos into a triage dashboard (CLI-03 / FLEET-03/04 / SC-4/5).
+
+    Discovers every immediate ``.git`` child of ``DIRECTORY``, re-scans each one
+    FRESH and SEQUENTIALLY (D-05-13 / FLEET-01), and aggregates the per-repo JSON
+    sidecars into a :class:`FleetSnapshot`. Writes a gitignored pair into the
+    repo-audit repo's own ``reports/`` dir:
+
+        reports/fleet-{YYYY-MM-DD}.json            (the versioned contract, D-05-02)
+        reports/fleet-dashboard-{YYYY-MM-DD}.md    (the triage view, D-05-03)
+
+    Failed per-repo scans become dashboard rows with their error reason and never
+    abort the sweep (FLEET-04 / SC-5). Failed rows pin to the top of the
+    dashboard; the rest rank worst-health-first (D-05-08/10).
+
+    Deterministic by default (D-05-12); ``--with-agent`` opts into per-repo AI
+    narration. The dashboard markdown + JSON route through the locked secret-lint
+    + completion-honesty chokepoint before either is written (T-05-08).
+
+    Exit codes:
+        0 — sweep completed (including when some repos failed — they are rows)
+        2 — secret-lint refused the dashboard write (T-05-08 / D-06)
+        3 — completion-honesty refused the dashboard write (D-32)
+    """
+    sweep_root = Path(directory).resolve()
+
+    # Thin CLI: all sweep logic lives in run_fleet. Failures inside a repo are
+    # rows (run_fleet isolates them); a sweep that produced zero repos is the
+    # honest "nothing to scan" case, not an error.
+    snapshot = run_fleet(sweep_root, with_agent=with_agent)
+
+    if snapshot.total_repos == 0:
+        typer.echo(f"No repos with .git found under {sweep_root}", err=True)
+        raise typer.Exit(code=0)
+
+    json_path, md_path = fleet_report_paths(sweep_root, snapshot.generated_date)
+
+    # render_fleet_dashboard renders + lints BOTH buffers, then writes the pair
+    # (md_path + its sibling .json). It derives the json path from md_path, so
+    # the two must be the matching pair fleet_report_paths returns.
+    rc = render_fleet_dashboard(snapshot, md_path)
+    if rc != 0:
+        # secret-lint (2) / completion-honesty (3) refused — nothing written.
+        raise typer.Exit(code=rc)
+
+    typer.echo(f"Wrote {json_path}")
+    typer.echo(f"Wrote {md_path}")
+    # One-line summary mirroring the dashboard's rollup header (D-05-11).
+    cost = (
+        "n/a"
+        if snapshot.total_cost_usd is None
+        else f"${snapshot.total_cost_usd:.2f}"
     )
-    raise typer.Exit(code=2)
+    secs = (
+        "n/a"
+        if snapshot.sweep_seconds is None
+        else f"{snapshot.sweep_seconds:.1f}s"
+    )
+    typer.echo(
+        f"{snapshot.total_repos} repos scanned · "
+        f"{snapshot.total_blockers} blockers, {snapshot.total_critical} critical "
+        f"across fleet · {snapshot.failed_count} failed · "
+        f"total cost {cost} · swept in {secs}"
+    )
