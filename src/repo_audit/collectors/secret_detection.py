@@ -1,33 +1,38 @@
-"""COLL-03: working-tree secret detection per D-35.
+"""COLL-03 — working-tree secret-grep findings (gitleaks + entropy backstop).
 
-Mirrors Phase 1's render/secret_lint.scan_with_gitleaks pattern but at
-the collector boundary instead of the renderer chokepoint. The renderer's
-secret-lint (Phase 1 D-07) remains the final structural guard -- this
-collector populates Finding rows; the chokepoint catches any value that
-accidentally escapes redaction (defense in depth, per C13).
+When to use: when narrating the `security` dimension's secrets sub-topic
+— discussing whether high-entropy or known-pattern secrets appear in the
+working tree. Findings carry `evidence_type: heuristic` and
+`confidence: candidate` at v1; values are ALWAYS rendered `[REDACTED:N]`
+(raw secret values are never present in the Finding by schema design).
 
-Reuses Phase 1 detection modules (NO duplication):
-    - scan_with_entropy        -- pure-Python entropy + known-pattern backstop
-    - scan_with_gitleaks       -- subprocess (graceful degrade when gitleaks absent)
-    - scan_with_known_patterns -- invoked INTERNALLY by scan_with_entropy
-    - SecretHit                -- dataclass with line + rule_id + redacted_len
-
-Finding shape (per RESEARCH.md Pattern 3):
-    output_snippet = f'{rule_id} [REDACTED:{redacted_len}] at line {line}'
-        -- NEVER the raw value
-    parsed_value = {'rule_id': str, 'redacted_len': int}
-        -- NEVER {value, secret, match, raw, original, token}
-
-Pitfall 7: docs/state-reports/ excluded -- yesterday's report's [REDACTED:N]
-placeholders would otherwise be re-flagged by entropy.
-Pitfall 8: gitleaks subprocess uses Phase 1's 30s timeout (already
-enforced inside scan_with_gitleaks; do NOT duplicate the subprocess call).
-
-SAFE-06 reminder: severity='major' but confidence='candidate' -- the
-candidate confidence-rung blocks SAFE-01's critical+static caveat
-requirement and signals to Phase 4 that corroboration is required before
-promotion. The renderer/agent never auto-promotes a candidate secret.
+When NOT to use: for ESLint security/* rules (use get_eslint_lint), for
+type-system soundness (use get_tsc_diagnostics), or for runtime auth
+misconfig (no v1 tool — narrate the gap honestly).
 """
+# Implementation notes (preserved from the original module docstring):
+# Mirrors Phase 1's render/secret_lint.scan_with_gitleaks pattern but at
+#   the collector boundary instead of the renderer chokepoint. The
+#   renderer's secret-lint (Phase 1 D-07) remains the final structural
+#   guard -- this collector populates Finding rows; the chokepoint catches
+#   any value that accidentally escapes redaction (defense in depth, C13).
+# Reuses Phase 1 detection modules (NO duplication): scan_with_entropy
+#   (pure-Python entropy + known-pattern backstop); scan_with_gitleaks
+#   (subprocess, graceful degrade when gitleaks absent);
+#   scan_with_known_patterns (invoked INTERNALLY by scan_with_entropy);
+#   SecretHit (dataclass with line + rule_id + redacted_len).
+# Finding shape (RESEARCH.md Pattern 3): output_snippet =
+#   f'{rule_id} [REDACTED:{redacted_len}] at line {line}' -- NEVER the raw
+#   value; parsed_value = {'rule_id': str, 'redacted_len': int} -- NEVER
+#   {value, secret, match, raw, original, token}.
+# Pitfall 7: docs/state-reports/ excluded -- yesterday's report's
+#   [REDACTED:N] placeholders would otherwise be re-flagged by entropy.
+# Pitfall 8: gitleaks subprocess uses Phase 1's 30s timeout (already
+#   enforced inside scan_with_gitleaks; do NOT duplicate the call).
+# SAFE-06 reminder: severity='major' but confidence='candidate' -- the
+#   candidate confidence-rung blocks SAFE-01's critical+static caveat
+#   requirement and signals to Phase 4 that corroboration is required
+#   before promotion. The renderer/agent never auto-promotes a candidate.
 from __future__ import annotations
 
 import shutil

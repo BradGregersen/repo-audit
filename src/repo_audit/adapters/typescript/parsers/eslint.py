@@ -1,35 +1,36 @@
-"""D-39 eslint parser: eslint 9.x JSON → Finding.
+"""ESLint --format=json findings (TypeScript stack adapter).
 
-Verified eslint 9.39.3 JSON shape (RESEARCH §"Code Examples"):
+When to use: when narrating the `quality` dimension for code style /
+anti-patterns / complexity. Also surfaces some `security` findings when
+rule_id starts with `security/` or `no-secrets/` (the adapter.yaml
+rule_overrides bump these to severity=critical with confidence_caveat).
+Each Finding's `evidence.parsed_value` carries the ESLint message.
 
-    [
-      {"filePath": "...", "messages": [{"ruleId": ..., "severity": ...,
-       "message": ..., "line": ..., "column": ..., ...}], ...}
-    ]
-
-Routing precedence (D-49):
-    1. CONFIG.rule_overrides[ruleId]  (literal dict lookup) — wins on conflict
-    2. CONFIG.rule_override_globs     (fnmatch in declaration order) — first
-       match wins
-    3. Default: dimension='quality', severity from eslint int
-       (2 → 'major', 1 → 'minor')
-
-SCH-03 invariant: any override that raises severity to 'critical' AND
-``evidence_type='static'`` MUST supply ``confidence_caveat``. The YAML
-provides caveats for the current overrides; the parser supplies a
-fallback for any user-overlay (Phase 7) that omits it.
-
-Malformed input → returns ``[]`` (no raise). The adapter layer sets
-``status='unavailable'`` at the boundary when the JSON parse fails and
-the parser hands back an empty list.
-
-Per checker Warning 11 + Warning 13: the rule_overrides + glob tables
-are resolved at CALL time (not module-load) and imported lazily inside
-the resolver helper — so Phase 7's user-overlay loader can update
-CONFIG between adapter package import and parser invocation without a
-parser reload, and so the parser module does not constrain import
-ordering with the adapter package itself.
+When NOT to use: for type errors (use get_tsc_diagnostics), for dead
+code (use get_knip_dead_code), or for coverage (use get_lcov_coverage).
 """
+# Implementation notes (preserved from the original module docstring):
+# D-39 eslint parser: eslint 9.x JSON -> Finding.
+# Verified eslint 9.39.3 JSON shape (RESEARCH §"Code Examples"):
+#   [{"filePath": "...", "messages": [{"ruleId": ..., "severity": ...,
+#     "message": ..., "line": ..., "column": ..., ...}], ...}]
+# Routing precedence (D-49): (1) CONFIG.rule_overrides[ruleId] literal
+#   dict lookup wins on conflict; (2) CONFIG.rule_override_globs fnmatch in
+#   declaration order, first match wins; (3) default dimension='quality',
+#   severity from eslint int (2 -> 'major', 1 -> 'minor').
+# SCH-03 invariant: any override that raises severity to 'critical' AND
+#   evidence_type='static' MUST supply confidence_caveat. The YAML provides
+#   caveats for the current overrides; the parser supplies a fallback for
+#   any user-overlay (Phase 7) that omits it.
+# Malformed input -> returns [] (no raise). The adapter layer sets
+#   status='unavailable' at the boundary when the JSON parse fails and the
+#   parser hands back an empty list.
+# Checker Warning 11 + Warning 13: the rule_overrides + glob tables are
+#   resolved at CALL time (not module-load) and imported lazily inside the
+#   resolver helper — so Phase 7's user-overlay loader can update CONFIG
+#   between adapter package import and parser invocation without a parser
+#   reload, and so the parser module does not constrain import ordering
+#   with the adapter package itself.
 from __future__ import annotations
 
 import json

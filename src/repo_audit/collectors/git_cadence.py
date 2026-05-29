@@ -1,22 +1,31 @@
-"""COLL-01: git cadence collector (commits/windows/contributors via pygit2).
+"""COLL-01 — git cadence findings (commits, windows, contributors, project age).
 
-Walks Repository.walk(head.target, SortMode.TIME) once and aggregates:
-- commits_total
-- commits_by_window for 7/30/60/90 days (inclusive boundary)
-- distinct_coding_days (set of ISO date strings)
-- contributor_count + contributors_top5 (by commit count, descending)
-- project_age_days (last_ts - first_ts in days)
+When to use: when narrating the `process` dimension — discussing commit
+cadence, contributor diversity, project age, or whether the repo shows
+signs of healthy day-to-day momentum. Returns one Finding per cadence
+metric (commits in last 7/30/60/90 days; distinct coding days;
+contributor top-5; project age in days). Data comes from pygit2's
+walk over the HEAD commit history.
 
-Edge cases (per RESEARCH.md §"Pattern 1: pygit2 cadence collector" Edge cases):
-- Not a git repo → status='unavailable', notes=<exception>
-- Empty HEAD (fresh `git init`) → status='unavailable', notes='no commits in HEAD'
-- Shallow clone → walks available history; partial_history flag in parsed_value
-
-Pitfall 2: import SortMode from pygit2.enums (the bare module-level sort
-constant is deprecated in pygit2 1.19+).
-
-SAFE-01 reminder: severity is 'info' — no confidence_caveat required.
+When NOT to use: for code-quality signals (use get_eslint_lint), file
+inventory (use get_loc_inventory_findings), or TODOs in the working
+tree (use get_todo_markers_findings). For history-derived churn
+statistics not yet covered here, narrate the gap honestly.
 """
+# Implementation notes (preserved from the original module docstring):
+# Walks Repository.walk(head.target, SortMode.TIME) once and aggregates:
+#   commits_total; commits_by_window for 7/30/60/90 days (inclusive
+#   boundary); distinct_coding_days (set of ISO date strings);
+#   contributor_count + contributors_top5 (by commit count, descending);
+#   project_age_days (last_ts - first_ts in days).
+# Edge cases (RESEARCH.md §"Pattern 1: pygit2 cadence collector"):
+#   not a git repo -> status='unavailable', notes=<exception>;
+#   empty HEAD (fresh `git init`) -> status='unavailable',
+#   notes='no commits in HEAD'; shallow clone -> walks available history
+#   with partial_history flag in parsed_value.
+# Pitfall 2: import SortMode from pygit2.enums (the bare module-level sort
+#   constant is deprecated in pygit2 1.19+).
+# SAFE-01 reminder: severity is 'info' — no confidence_caveat required.
 from __future__ import annotations
 
 from collections import Counter

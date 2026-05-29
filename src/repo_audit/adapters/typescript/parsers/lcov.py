@@ -1,40 +1,45 @@
-"""D-39 lcov parser (file-reader branch) + D-41' refresh-failure helper.
+"""coverage/lcov.info aggregate coverage finding (TypeScript stack adapter).
 
-Per D-42: Phase 3 reads ``coverage/lcov.info`` ONLY. Cobertura XML and
-Kover XML ship in Phase 6 alongside their adapters.
+When to use: when narrating the `test_integrity` dimension — discussing
+coverage line/branch/function percentages. The aggregate Finding's
+`parsed_value` carries `{total_pct, line_pct, branch_pct,
+function_pct, file_count}`. Numbers MUST come from this Finding's
+parsed_value (the faithfulness gate will strip invented percentages).
 
-Per D-43: staleness = lcov.info mtime > 24h wall clock; the threshold
-flows through ``_get_staleness_hours()`` (the Phase 7 user-config seam)
-so the integer 24 is NOT hard-coded into the comparison path.
-
-Per D-44: one aggregate Finding per scan with line/branch/function pcts
-+ file_count + artifact_mtime_iso. Per-file Findings are deferred to
-Phase 7.
-
-Per Pitfall 14: streaming read (``for line in f``), NOT a whole-file
-slurp via ``Path``-method-that-returns-text, so multi-MB lcov.info
-files don't pin memory.
-
-Per T-03-10: parser only opens ``<repo_path>/coverage/lcov.info``.
-Does NOT follow ``SF:`` paths from the file — those are only counted to
-increment ``file_count``, never opened. The only path-data leakage
-surface left is ``output_snippet`` (first 1024 chars of lcov.info),
-which is bounded by D-02 (2048 cap) at the Evidence layer.
-
-Per D-41' / Decision C: this module ALSO exports
-``_refresh_failed_finding``, a helper invoked by plan 03-05's CLI
-failure-synthesis path when the coverage-refresh runner (plan 03-06)
-returns ``status in {'failed', 'timeout'}``. The synthesised Finding
-uses ``evidence_type='failed'`` — the new Literal variant landed by
-plan 03-01a Wave 0a — which means SCH-03 (D-17) does NOT trigger
-(``failed != static``) and SCH-04 widened (D-51') does NOT trigger
-(``confidence='medium' != 'candidate'``). Verified by the Wave-2 test
-``test_refresh_failed_finding_constructs_under_extended_schema``.
-
-This helper is the SOLE emitter of the
-``coverage_refresh_failed`` rule_id in this module — pinned by
-``test_refresh_failed_finding_is_sole_emitter_of_rule_id``.
+When NOT to use: when no coverage artifact exists or it is stale — the
+Finding will be present with `evidence_type='unavailable'`; in that
+case narrate the gap honestly rather than guessing a percentage.
 """
+# Implementation notes (preserved from the original module docstring):
+# D-39 lcov parser (file-reader branch) + D-41' refresh-failure helper.
+# D-42: Phase 3 reads coverage/lcov.info ONLY. Cobertura XML and Kover XML
+#   ship in Phase 6 alongside their adapters.
+# D-43: staleness = lcov.info mtime > 24h wall clock; the threshold flows
+#   through _get_staleness_hours() (the Phase 7 user-config seam) so the
+#   integer 24 is NOT hard-coded into the comparison path.
+# D-44: one aggregate Finding per scan with line/branch/function pcts +
+#   file_count + artifact_mtime_iso. Per-file Findings are deferred to
+#   Phase 7.
+# Pitfall 14: streaming read (``for line in f``), NOT a whole-file slurp
+#   via the ``Path``-method-that-returns-text, so multi-MB lcov.info files
+#   don't pin memory.
+# T-03-10: parser only opens <repo_path>/coverage/lcov.info. Does NOT
+#   follow SF: paths from the file — those are only counted to increment
+#   file_count, never opened. The only path-data leakage surface left is
+#   output_snippet (first 1024 chars of lcov.info), bounded by D-02 (2048
+#   cap) at the Evidence layer.
+# D-41' / Decision C: this module ALSO exports _refresh_failed_finding, a
+#   helper invoked by plan 03-05's CLI failure-synthesis path when the
+#   coverage-refresh runner (plan 03-06) returns
+#   status in {'failed', 'timeout'}. The synthesised Finding uses
+#   evidence_type='failed' — the new Literal variant landed by plan 03-01a
+#   Wave 0a — which means SCH-03 (D-17) does NOT trigger
+#   (failed != static) and SCH-04 widened (D-51') does NOT trigger
+#   (confidence='medium' != 'candidate'). Verified by the Wave-2 test
+#   test_refresh_failed_finding_constructs_under_extended_schema.
+# This helper is the SOLE emitter of the coverage_refresh_failed rule_id
+#   in this module — pinned by
+#   test_refresh_failed_finding_is_sole_emitter_of_rule_id.
 from __future__ import annotations
 
 import time

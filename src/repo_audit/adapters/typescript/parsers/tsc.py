@@ -1,36 +1,39 @@
-"""D-39 tsc parser: tsc --noEmit --pretty=false diagnostic → Finding.
+"""tsc --noEmit type-check diagnostics (TypeScript stack adapter).
 
-Verified diagnostic shape (tsc 5.9.3, 2026-05-28):
+When to use: when narrating the `correctness` or `quality` dimensions
+for type-soundness — discussing TypeScript compilation errors,
+`@ts-ignore` rules, or any TS-XXXX diagnostic. Each Finding carries
+`source_tool='tsc'`, the rule_id (e.g., `TS2345`), file:line, and the
+compiler's diagnostic text in `evidence.output_snippet`.
 
-    path(line,col): error TSCODE: message text.
-
-Per Pitfall 4: tsc emits diagnostics on STDOUT, not stderr. Parser reads
-``inv.stdout`` only.
-
-Per Pitfall 5: tsc exit codes are interpreted at the adapter layer
-(``status_from_invocation`` maps exit 2 → ok with findings, exit 1 →
-unavailable; the parser is not called when the adapter sets status to
-anything other than 'ok'). This module assumes the adapter only invokes
-it when ``status == 'ok'``.
-
-Per D-51: every tsc finding is ``severity='critical'`` AND
-``evidence_type='static'``; the SCH-03 validator in
-``schema/finding.py`` structurally requires a non-empty
-``confidence_caveat`` on construction. The ``TSC_DEFAULT_CAVEAT``
-constant supplies it on every emission.
-
-Per D-48: tsc findings live in the ``correctness`` dimension. The
-adapter.yaml's ``dimension: quality_debt`` metadata on the tool block
-is recorded on the AdapterResult shell (free string) but does NOT flow
-into the Finding's ``dimension`` field — Finding.dimension is the
-schema Literal and the parser owns the routing decision per D-48.
-
-Robustness:
-    * Non-matching lines (tsc progress chatter like
-      ``Found N errors in M files.``) are silently skipped.
-    * The regex tolerates Windows-style backslash paths via the
-      non-greedy ``(?P<file>.+?)`` capture.
+When NOT to use: for lint findings (use get_eslint_lint), for dead-
+code candidates (use get_knip_dead_code), or for coverage (use
+get_lcov_coverage).
 """
+# Implementation notes (preserved from the original module docstring):
+# D-39 tsc parser: tsc --noEmit --pretty=false diagnostic -> Finding.
+# Verified diagnostic shape (tsc 5.9.3, 2026-05-28):
+#   path(line,col): error TSCODE: message text.
+# Pitfall 4: tsc emits diagnostics on STDOUT, not stderr. Parser reads
+#   inv.stdout only.
+# Pitfall 5: tsc exit codes are interpreted at the adapter layer
+#   (status_from_invocation maps exit 2 -> ok with findings, exit 1 ->
+#   unavailable; the parser is not called when the adapter sets status to
+#   anything other than 'ok'). This module assumes the adapter only
+#   invokes it when status == 'ok'.
+# D-51: every tsc finding is severity='critical' AND
+#   evidence_type='static'; the SCH-03 validator in schema/finding.py
+#   structurally requires a non-empty confidence_caveat on construction.
+#   The TSC_DEFAULT_CAVEAT constant supplies it on every emission.
+# D-48: tsc findings live in the correctness dimension. The adapter.yaml's
+#   dimension: quality_debt metadata on the tool block is recorded on the
+#   AdapterResult shell (free string) but does NOT flow into the Finding's
+#   dimension field — Finding.dimension is the schema Literal and the
+#   parser owns the routing decision per D-48.
+# Robustness: non-matching lines (tsc progress chatter like
+#   "Found N errors in M files.") are silently skipped; the regex
+#   tolerates Windows-style backslash paths via the non-greedy
+#   (?P<file>.+?) capture.
 from __future__ import annotations
 
 import re

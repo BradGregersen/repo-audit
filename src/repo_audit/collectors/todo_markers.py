@@ -1,31 +1,31 @@
-"""COLL-05: TODO/FIXME/HACK/XXX marker grep over text files in RepoIndex.
+"""COLL-05 — TODO/FIXME/HACK marker counts across the working tree.
 
-Regex per Claude's-Discretion in 02-CONTEXT.md:
+When to use: when narrating the `process` dimension's backlog sub-topic
+— discussing TODO / FIXME / HACK marker density, hotspot files, or
+trend if the prior sidecar reports them. Each Finding carries the
+file:line and the marker word.
 
-    \\b(TODO|FIXME|HACK|XXX)\\b   case-insensitive
-
-The word boundaries (``\\b``) ensure 'TODOed' / 'XXXth' / 'shacked' do
-NOT match. The collector does NOT lex per-language; matches inside
-comments and string literals fire alike, which is the correct universal
-posture (Phase 6 Python and Kotlin adapters may layer a more precise
-scan via ruff/detekt later).
-
-Performance bounds:
-
-    * Skip files > 1 MB (``MAX_FILE_BYTES``) -- avoids unbounded reads
-      on minified bundles, lockfiles, large CSV.
-    * Skip files whose extension is not in ``_TEXT_EXTS`` (binary
-      heuristic). Extensionless files starting with an alphanumeric
-      character are considered text (covers README, LICENSE, Makefile).
-    * ``read_text(errors='ignore')`` -- any UTF-8 noise is silently
-      dropped rather than raising; consistent with Pattern 5 in
-      02-RESEARCH.md.
-
-Note: todo_markers does NOT import _TEXT_EXTS from secret_detection
-even though both share the heuristic. Cross-collector imports create
-cycles through collectors/__init__.py and couple two collectors that
-should remain independent (per 02-05-PLAN.md Task 2 read_first).
+When NOT to use: for general code quality (use get_eslint_lint), for
+dead code (use get_knip_dead_code), or for type errors (use
+get_tsc_diagnostics).
 """
+# Implementation notes (preserved from the original module docstring):
+# Regex (Claude's-Discretion in 02-CONTEXT.md): \\b(TODO|FIXME|HACK|XXX)\\b
+#   case-insensitive. Word boundaries ensure 'TODOed' / 'XXXth' /
+#   'shacked' do NOT match. The collector does NOT lex per-language;
+#   matches inside comments and string literals fire alike, the correct
+#   universal posture (Phase 6 Python/Kotlin adapters may layer a more
+#   precise scan via ruff/detekt later).
+# Performance bounds: skip files > 1 MB (MAX_FILE_BYTES) to avoid
+#   unbounded reads on minified bundles, lockfiles, large CSV; skip files
+#   whose extension is not in _TEXT_EXTS (binary heuristic; extensionless
+#   files starting with an alphanumeric char are considered text, covering
+#   README/LICENSE/Makefile); errors='ignore' on the streaming read so
+#   UTF-8 noise is dropped rather than raising (Pattern 5, 02-RESEARCH.md).
+# Note: todo_markers does NOT import _TEXT_EXTS from secret_detection even
+#   though both share the heuristic. Cross-collector imports create cycles
+#   through collectors/__init__.py and couple two collectors that should
+#   remain independent (per 02-05-PLAN.md Task 2 read_first).
 from __future__ import annotations
 import re
 from pathlib import Path

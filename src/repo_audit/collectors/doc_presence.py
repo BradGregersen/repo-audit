@@ -1,15 +1,23 @@
-"""COLL-04: doc-presence collector (README, LICENSE, CHANGELOG, docs/).
+"""COLL-04 — README / LICENSE / CHANGELOG / docs/ presence findings.
 
-Each target emits a Finding regardless of presence -- absent docs are
-explicit ``present=False`` rows, not silently omitted (SAFE-08 honesty).
-All Findings carry ``presence_only=True``; the schema validator caps
-severity at ``info`` (SAFE-03 / D-19).
+When to use: when narrating the `quality` dimension's documentation
+sub-topic — discussing whether the repo has a README, LICENSE,
+CHANGELOG, or docs/ directory. Each Finding's parsed_value names the
+missing artifact when absent.
 
-Root-level file matching is case-insensitive name-prefix against the
-``RepoIndex`` keys whose ``.parent`` resolves to the repo root. The
-``docs/`` check goes directly to ``Path.is_dir`` so it picks up an empty
-``docs/`` directory even when the walker hasn't indexed any files inside.
+When NOT to use: for docstring coverage in code (no v1 tool — narrate
+honestly), for external docs (no v1 tool), or for any other
+documentation quality signal beyond presence.
 """
+# Implementation notes (preserved from the original module docstring):
+# Each target emits a Finding regardless of presence -- absent docs are
+#   explicit ``present=False`` rows, not silently omitted (SAFE-08).
+# All Findings carry ``presence_only=True``; the schema validator caps
+#   severity at ``info`` (SAFE-03 / D-19).
+# Root-level file matching is case-insensitive name-prefix against the
+#   ``RepoIndex`` keys whose ``.parent`` resolves to the repo root. The
+#   ``docs/`` check goes directly to ``Path.is_dir`` so it picks up an
+#   empty ``docs/`` directory even when the walker hasn't indexed files.
 from __future__ import annotations
 from pathlib import Path
 

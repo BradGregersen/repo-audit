@@ -1,22 +1,27 @@
-"""COLL-02: LOC + file inventory via vendored scc binary.
+"""COLL-02 — LOC by language + file inventory (via vendored scc binary).
 
-Runs ``scc -f json --no-cocomo <repo>`` against the vendored Go binary,
-parses the JSON, strips the per-file ``Content`` field (Pitfall 1: base64
-file contents would inflate the sidecar 100x and trip the entropy
-backstop in render/secret_lint.lint_buffer), and emits one Finding per
-detected language plus one aggregate Finding listing the top-N largest
-files.
+When to use: when narrating the `quality` dimension's footprint sub-
+topic — discussing total LOC, language mix, file count, or top-N largest
+files. Each Finding's parsed_value carries the structured scc output;
+use the leaf numbers (total_loc, by-language entries, top files).
 
-Subprocess hygiene (CLAUDE.md hard rules):
-    - shell=False
-    - command as list[str]
-    - timeout=60 (TimeoutExpired -> status='timeout')
-    - env override NO_COLOR=1 FORCE_COLOR=0 TERM=dumb (PITFALLS.md m6)
-    - graceful fallback on FileNotFoundError (binary missing for this platform)
-
-Pitfall 8 (subprocess buffer deadlock): mitigated by capture_output=True +
-explicit timeout; large repos won't hang.
+When NOT to use: for type-checking errors (use get_tsc_diagnostics),
+lint hits (use get_eslint_lint), dead-code candidates (use
+get_knip_dead_code), or coverage (use get_lcov_coverage).
 """
+# Implementation notes (preserved from the original module docstring):
+# Runs ``scc -f json --no-cocomo <repo>`` against the vendored Go binary,
+#   parses the JSON, strips the per-file ``Content`` field (Pitfall 1:
+#   base64 file contents would inflate the sidecar 100x and trip the
+#   entropy backstop in render/secret_lint.lint_buffer), and emits one
+#   Finding per detected language plus one aggregate Finding listing the
+#   top-N largest files.
+# Subprocess hygiene (CLAUDE.md hard rules): shell=False; command as
+#   list[str]; timeout=60 (TimeoutExpired -> status='timeout'); env
+#   override NO_COLOR=1 FORCE_COLOR=0 TERM=dumb (PITFALLS.md m6); graceful
+#   fallback on FileNotFoundError (binary missing for this platform).
+# Pitfall 8 (subprocess buffer deadlock): mitigated by capture_output=True
+#   + explicit timeout; large repos won't hang.
 from __future__ import annotations
 
 import json

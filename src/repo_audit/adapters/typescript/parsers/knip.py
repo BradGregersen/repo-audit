@@ -1,36 +1,39 @@
-"""D-39 knip parser: knip 6.x JSON → Finding.
+"""knip --reporter=json dead-code candidates (TypeScript stack adapter).
 
-Verified knip 6.14.2 JSON shape (RESEARCH §"Code Examples"):
+When to use: when narrating the `architecture_rot` dimension —
+discussing unused exports, dead files, or orphan imports. Every knip
+Finding lands at `severity=info` and `confidence=candidate` (D-50);
+recommendations should say "consider verifying" rather than "delete".
 
-    {"issues": [{"file": "<path>", "owners": [], "binaries": [],
-                 "catalog": [], "dependencies": [{"name": ..., "line": ...,
-                 "col": ..., "pos": ...}], "devDependencies": [...],
-                 "duplicates": [...], "enumMembers": [...],
-                 "exports": [...], "files": [{"name": ...}],
-                 "namespaceMembers": [...], "optionalPeerDependencies": [...],
-                 "types": [...], "unlisted": [...], "unresolved": [...]}]}
-
-Per D-50 + SAFE-05: EVERY knip Finding ships at
-    confidence='candidate', severity='info', dimension='architecture_rot'.
-
-Per Decision B / D-51', SCH-04 widened permits major/minor/info at
-candidate (only critical/blocker are rejected). The knip-specific D-50
-cap is therefore enforced by the parser's ``_KNIP_SEVERITY = 'info'``
-CONSTANT — changing it to 'major' would NOT trip SCH-04 but WOULD trip
-the parser-internal test. Constant is named so the change is visible in
-code review diff.
-
-Recommendation text says 'verify' — SAFE-05's "≥N methods before
-condemning" discipline encoded in code (the forbidden word is captured
-as a test, not in this docstring, so the test can pin its absence
-structurally).
-
-Per RESEARCH Pitfall 7: knip in JSON mode exits 0 regardless of issues.
-The adapter calls this parser whenever it has stdout (status='ok'); the
-parser tolerates both clean and issues cases.
-
-Malformed JSON → returns [] (no raise).
+When NOT to use: for type errors (use get_tsc_diagnostics) or lint
+findings (use get_eslint_lint). knip does not detect runtime dead
+code — narrate that limitation honestly.
 """
+# Implementation notes (preserved from the original module docstring):
+# D-39 knip parser: knip 6.x JSON -> Finding.
+# Verified knip 6.14.2 JSON shape (RESEARCH §"Code Examples"):
+#   {"issues": [{"file": "<path>", "owners": [], "binaries": [],
+#     "catalog": [], "dependencies": [{"name": ..., "line": ..., "col": ...,
+#     "pos": ...}], "devDependencies": [...], "duplicates": [...],
+#     "enumMembers": [...], "exports": [...], "files": [{"name": ...}],
+#     "namespaceMembers": [...], "optionalPeerDependencies": [...],
+#     "types": [...], "unlisted": [...], "unresolved": [...]}]}
+# D-50 + SAFE-05: EVERY knip Finding ships at confidence='candidate',
+#   severity='info', dimension='architecture_rot'.
+# Decision B / D-51': SCH-04 widened permits major/minor/info at candidate
+#   (only critical/blocker are rejected). The knip-specific D-50 cap is
+#   therefore enforced by the parser's _KNIP_SEVERITY = 'info' CONSTANT —
+#   changing it to 'major' would NOT trip SCH-04 but WOULD trip the
+#   parser-internal test. Constant is named so the change is visible in
+#   code review diff.
+# Recommendation text says 'verify' — SAFE-05's "≥N methods before
+#   condemning" discipline encoded in code (the forbidden word is captured
+#   as a test, not in this docstring, so the test can pin its absence
+#   structurally).
+# RESEARCH Pitfall 7: knip in JSON mode exits 0 regardless of issues. The
+#   adapter calls this parser whenever it has stdout (status='ok'); the
+#   parser tolerates both clean and issues cases.
+# Malformed JSON -> returns [] (no raise).
 from __future__ import annotations
 
 import json

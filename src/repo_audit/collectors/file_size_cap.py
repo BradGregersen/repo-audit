@@ -1,26 +1,31 @@
-"""COLL-06: per-ext line-count cap (D-36).
+"""COLL-06 — file-size-cap violations (per-language line thresholds).
 
-Threshold lookup routes through ``get_threshold(ext)`` so Phase 7's
-``.repo-audit.yaml`` overlay swaps just this one function::
+When to use: when narrating the `quality` dimension's footprint sub-
+topic — discussing files that exceed the configured per-language line
+cap (default 200L for .tsx, 300L otherwise). Each Finding includes the
+file path, line count, and the cap.
 
-    def get_threshold(ext: str) -> int:
-        return user_caps.get(
-            ext, DEFAULT_SIZE_CAPS.get(ext, DEFAULT_SIZE_CAPS['default']),
-        )
-
-Performance (Pattern 6 from 02-RESEARCH.md): coarse byte pre-filter
-skips files where ``size_bytes < threshold * BYTES_PER_LINE_FLOOR``
-(~40 bytes/line conservative average). On a 50k-file repo this skips
-~99% of files before any content read.
-
-Emission rule: one Finding per over-cap file, dimension='quality',
-severity='minor', evidence_type='static', confidence='high',
-source_tool='in-process', source_collector='file_size_cap'. The
-``parsed_value`` block carries the relative path, observed line_count,
-applied threshold, overage (line_count - threshold), and the ext that
-selected the threshold -- enough for Phase 5 trend deltas and Phase 4
-narrative without re-reading the file.
+When NOT to use: for total LOC (use get_loc_inventory_findings) or for
+complexity (no v1 tool — narrate the gap honestly).
 """
+# Implementation notes (preserved from the original module docstring):
+# Threshold lookup routes through get_threshold(ext) so Phase 7's
+#   .repo-audit.yaml overlay swaps just this one function:
+#       def get_threshold(ext: str) -> int:
+#           return user_caps.get(
+#               ext, DEFAULT_SIZE_CAPS.get(ext, DEFAULT_SIZE_CAPS['default']),
+#           )
+# Performance (Pattern 6, 02-RESEARCH.md): coarse byte pre-filter skips
+#   files where size_bytes < threshold * BYTES_PER_LINE_FLOOR (~40
+#   bytes/line conservative average). On a 50k-file repo this skips ~99%
+#   of files before any content read.
+# Emission rule: one Finding per over-cap file, dimension='quality',
+#   severity='minor', evidence_type='static', confidence='high',
+#   source_tool='in-process', source_collector='file_size_cap'. The
+#   parsed_value block carries the relative path, observed line_count,
+#   applied threshold, overage (line_count - threshold), and the ext that
+#   selected the threshold -- enough for Phase 5 trend deltas and Phase 4
+#   narrative without re-reading the file.
 from __future__ import annotations
 from pathlib import Path
 
