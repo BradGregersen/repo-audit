@@ -37,6 +37,7 @@ from jinja2 import Environment, PackageLoader, StrictUndefined
 from repo_audit.render.completion_honesty import (
     CompletionHonestyViolation,
     completion_honesty_lint,
+    extract_claim_spans,
     format_completion_honesty_diagnostic,
 )
 from repo_audit.render.corroboration import (
@@ -314,6 +315,14 @@ def render_and_write(
     # CRITICAL ORDERING (RESEARCH): redact BEFORE ``_write_outputs`` so the
     # redacted buffer is what gets written. completion_honesty_lint runs AFTER
     # redaction, on the redacted buffers.
+    #
+    # D-051-11 (completion-honesty SCOPE fix): completion_honesty_lint now lints
+    # ONLY claim-bearing narrative prose, never structured data. The json sidecar
+    # is machine-readable data (no narrative coverage claims) and is NO LONGER
+    # honesty-linted -- its secret-lint / entropy redaction below is RETAINED.
+    # For markdown we lint only the HONESTY:START/END-marked spans (exec summary
+    # + dimension narratives) via extract_claim_spans, never the finding tables
+    # or scope-ledger DATA rows where benign all/every/complete tokens appear.
     partial = scan_report.meta.partial
     try:
         markdown_buf, log_md = lint_and_redact_entropy(
@@ -322,8 +331,8 @@ def render_and_write(
         json_buf, log_json = lint_and_redact_entropy(
             json_buf, buffer_name="json-sidecar"
         )
-        completion_honesty_lint(markdown_buf, partial=partial, buffer_name="markdown")
-        completion_honesty_lint(json_buf, partial=partial, buffer_name="json-sidecar")
+        honesty_spans = extract_claim_spans(markdown_buf)
+        completion_honesty_lint(honesty_spans, partial=partial, buffer_name="markdown")
     except SecretsDetected as e:
         print(format_diagnostic(e.hits, e.buffer_name), file=sys.stderr)
         return 2  # D-06 hard refuse; ``_write_outputs`` is NOT called.
