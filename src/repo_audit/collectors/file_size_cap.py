@@ -45,6 +45,17 @@ DEFAULT_SIZE_CAPS: dict[str, int] = {
 
 BYTES_PER_LINE_FLOOR: int = 40       # coarse pre-filter divisor
 
+# SCAN-BOUND-01 / T-051-01 — per-file byte ceiling. Mirrors
+# collectors.secret_detection.MAX_FILE_BYTES exactly (D-051 "Don't-Hand-Roll":
+# same constant, same posture). This is THE load-bearing 999.1 fix: RESEARCH
+# measured _count_lines streaming 14.18 GB of binary .apk/.mp4 artifacts for
+# 337s, overrunning the 5-min scan budget by itself. A file larger than this
+# is generated/binary, never a source file we'd flag for line length, so it is
+# skipped BEFORE any content read. Kept a plain module constant (NOT routed
+# through get_threshold — that is the Phase-7 YAML seam for *line* caps, not
+# this *byte* ceiling).
+MAX_FILE_BYTES: int = 1_000_000
+
 
 def get_threshold(ext: str) -> int:
     """Phase 7's YAML overlay swaps THIS function; do not inline
@@ -71,6 +82,13 @@ def run(repo_path: Path, repo_index: dict) -> CollectorResult:
     findings: list[Finding] = []
 
     for file_path, meta in repo_index.items():
+        # SCAN-BOUND-01 / T-051-01 upper-bound guard -- the single fix that
+        # removes the measured 337s overrun. A >1MB file is generated/binary;
+        # never pass it to _count_lines (which streams every byte). Mirrors
+        # secret_detection.MAX_FILE_BYTES. MUST stay before the coarse
+        # pre-filter and the _count_lines call.
+        if meta.size_bytes > MAX_FILE_BYTES:
+            continue
         threshold = get_threshold(meta.ext)
         # Pattern 6 coarse pre-filter -- skips ~99% of files on typical
         # repos without ever opening them for content read.

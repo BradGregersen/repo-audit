@@ -66,6 +66,69 @@ def test_file_size_cap_tsx_uses_200_threshold(fake_repo):
     assert tsx_findings[0].evidence.parsed_value["threshold"] == 200
 
 
+def test_file_over_max_bytes_never_line_counted(fake_repo, monkeypatch):
+    """SCAN-BOUND-01: a file > MAX_FILE_BYTES is skipped before _count_lines.
+
+    The load-bearing 999.1 fix — RESEARCH measured _count_lines streaming
+    14.18 GB of binary .apk/.mp4 artifacts for 337s. A >1MB file is
+    generated/binary, never a source file we'd flag for line length, so it
+    is skipped BEFORE any content read. We build a synthetic repo_index
+    (not the walker) so we can hand it an oversized FileMeta without writing
+    a multi-MB fixture, and we spy on _count_lines to prove it is never
+    invoked for the large file while the normal over-cap file still emits.
+    """
+    from repo_audit.collectors import file_size_cap as fsc
+    from repo_audit.walker.repo_index import FileMeta
+
+    repo = fake_repo({}, name="byte-ceiling")
+    # A real over-cap .py source file (350 lines, ~50 bytes/line ≈ 17.5 KB).
+    long_line = "result = func_call(arg1, arg2, arg3, arg4)  # ok\n"
+    normal = repo / "big.py"
+    normal.write_text(long_line * 350, encoding="utf-8")
+    # An oversized FileMeta whose backing file we do NOT create at >1MB —
+    # the guard reads meta.size_bytes, not the disk, so a claimed size of
+    # 5 MB is enough to exercise the ceiling without a giant fixture.
+    huge = repo / "blob.apk"
+    huge.write_text("x\n" * 5, encoding="utf-8")  # tiny on disk
+    index = {
+        normal: FileMeta(path=normal, size_bytes=normal.stat().st_size, ext=".py"),
+        huge: FileMeta(path=huge, size_bytes=5_000_000, ext=".apk"),  # claimed 5MB
+    }
+
+    counted: list = []
+    real = fsc._count_lines
+
+    def spy(p):
+        counted.append(p)
+        return real(p)
+
+    monkeypatch.setattr(fsc, "_count_lines", spy)
+    result = fsc.run(repo, index)
+
+    # The >1MB file is never line-counted (skipped before _count_lines).
+    assert huge not in counted, "blob.apk (5MB) must be skipped before _count_lines"
+    # And produces no Finding.
+    assert all(
+        f.evidence.parsed_value.get("file") != "blob.apk"
+        for f in result.findings
+    )
+    # The normal over-cap source file still emits a Finding.
+    assert any(
+        f.evidence.parsed_value.get("file") == "big.py"
+        for f in result.findings
+    )
+
+
+def test_max_file_bytes_constant_matches_secret_detection():
+    """MAX_FILE_BYTES mirrors secret_detection.MAX_FILE_BYTES (D-051 precedent)."""
+    from repo_audit.collectors.file_size_cap import MAX_FILE_BYTES
+    from repo_audit.collectors.secret_detection import (
+        MAX_FILE_BYTES as SECRET_MAX,
+    )
+    assert MAX_FILE_BYTES == 1_000_000
+    assert MAX_FILE_BYTES == SECRET_MAX
+
+
 def test_file_size_cap_coarse_filter_skips_small_files_efficiently(
     fake_repo, monkeypatch,
 ):
