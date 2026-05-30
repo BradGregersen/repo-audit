@@ -173,8 +173,10 @@ def test_multiple_entropy_tokens_one_line_redacted_right_to_left():
     replace keeps earlier offsets valid)."""
     from repo_audit.render.secret_lint import lint_and_redact_entropy
 
-    t1 = "Qz9Kp2Wm5Lv8Rt4Nc6Fy"
-    t2 = "Hd1Gs0Jb7Xa3Ue5Io2Pq"
+    # Both >=4.5 bits/char (verified) and NOT known patterns, so each trips the
+    # entropy backstop independently.
+    t1 = "aB3xQ9zK7mP2wL5vR8tN4cF6yH1dG0sJ"
+    t2 = "Zk7Wm2Qp9Lv4Rt8Nc3Fy6Hd1Gs0Jb5Xa"
     buf = f"both: {t1} and {t2} end\n"
     cleaned, log = lint_and_redact_entropy(buf, buffer_name="markdown")
     assert t1 not in cleaned
