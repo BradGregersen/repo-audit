@@ -28,7 +28,14 @@ def test_chokepoint_order(tmp_path, monkeypatch):
 
     # Spy wrappers — record the call and delegate to the real fn (so the
     # render still produces a buffer for downstream steps).
-    real_lint_buffer = renderer_mod.lint_buffer
+    #
+    # SECRET-LINT-SPLIT-01 (Plan 05.1-02): the renderer's secret-lint site is
+    # now ``lint_and_redact_entropy`` (gitleaks/known-patterns hard-block;
+    # entropy-backstop redact-and-continue) rather than ``lint_buffer``. The
+    # FIRST stage of the locked D-64 chokepoint order is unchanged (secret-lint
+    # still runs first); we keep the internal "lint_buffer" call-order label so
+    # the asserted lock-order below stays a stable contract string.
+    real_lint_buffer = renderer_mod.lint_and_redact_entropy
     real_completion = renderer_mod.completion_honesty_lint
     real_faithfulness = renderer_mod.check_faithfulness
     real_dilution = renderer_mod.dilution_strip_exec_summary
@@ -65,7 +72,7 @@ def test_chokepoint_order(tmp_path, monkeypatch):
             call_order.append("classify_critical_finding")
         return real_classify(*a, **k)
 
-    monkeypatch.setattr(renderer_mod, "lint_buffer", spy_lint_buffer)
+    monkeypatch.setattr(renderer_mod, "lint_and_redact_entropy", spy_lint_buffer)
     monkeypatch.setattr(renderer_mod, "completion_honesty_lint", spy_completion)
     monkeypatch.setattr(renderer_mod, "check_faithfulness", spy_faithfulness)
     monkeypatch.setattr(renderer_mod, "dilution_strip_exec_summary", spy_dilution)
