@@ -272,3 +272,90 @@ def test_run_collectors_default_deadline_none_runs_all(tmp_path):
         if r.status == "timeout" and "time budget exceeded" in (r.notes or "")
     ]
     assert timeout_notes == []
+
+
+def _build_capped_tree(root, big_name, small_name):
+    """Helper: a repo with one over-cap subtree + one tiny subtree.
+
+    Returns the repo path. Used by the order-independence test with
+    order-forcing directory names (no os.walk mocking).
+    """
+    root.mkdir()
+    big = root / big_name
+    big.mkdir()
+    for i in range(3):
+        (big / f"b{i}.py").write_text("x" * 1000, encoding="utf-8")
+    small = root / small_name
+    small.mkdir()
+    (small / "keep.py").write_text("y = 2\n", encoding="utf-8")
+    return root
+
+
+def test_byte_cap_is_order_independent(tmp_path, monkeypatch):
+    """SCAN-COVER-01 / W2: the kept/pruned decision keys on the subtree, not on
+    os.walk visitation order.
+
+    Two REAL tmp trees with identical content but names that force DIFFERENT
+    alphabetical (hence os.walk) order:
+      * tree A: 'aaa' (over cap, visited FIRST) + 'zzz' (tiny, visited LAST)
+      * tree B: 'zzz_big' (over cap, visited LAST) + 'aaa_small' (tiny, FIRST)
+    In BOTH, the SMALL subtree's file is indexed and the BIG subtree is pruned.
+    No os.walk mock — real on-disk ordering only.
+    """
+    from repo_audit.walker import repo_index as ri
+
+    monkeypatch.setattr(ri, "SUBTREE_BYTE_CAP", 1500)
+
+    tree_a = _build_capped_tree(tmp_path / "A", "aaa", "zzz")
+    tree_b = _build_capped_tree(tmp_path / "B", "zzz_big", "aaa_small")
+
+    res_a = ri.build_repo_index(tree_a)
+    res_b = ri.build_repo_index(tree_b)
+
+    # In both, the tiny sibling's file survives despite opposite walk order.
+    assert "keep.py" in {p.name for p in res_a.index}
+    assert "keep.py" in {p.name for p in res_b.index}
+    # In both, the big subtree is pruned (budget-truncated) and status partial.
+    assert res_a.status == "partial"
+    assert res_b.status == "partial"
+    big_a = [p for p, r in res_a.skipped_dirs if r == "budget-truncated"]
+    big_b = [p for p, r in res_b.skipped_dirs if r == "budget-truncated"]
+    assert any("aaa" in p.parts for p in big_a)
+    assert any("zzz_big" in p.parts for p in big_b)
+
+    # Additionally: walk one tree, then RENAME its dirs to flip alphabetical
+    # order, and walk again — the indexed-file basename SET is identical.
+    tree_c = _build_capped_tree(tmp_path / "C", "aaa", "zzz")
+    before = {p.name for p in ri.build_repo_index(tree_c).index}
+    (tree_c / "aaa").rename(tree_c / "zzz_renamed_big")
+    (tree_c / "zzz").rename(tree_c / "aaa_renamed_small")
+    after = {p.name for p in ri.build_repo_index(tree_c).index}
+    assert before == after
+
+
+def test_builds_releases_skipped(tmp_path):
+    """SCAN-COVER-01 / W3: builds/ and releases/ are pruned as build-artifact
+    (belt-and-suspenders) and disclosed in skipped_dirs; src/ is indexed.
+    """
+    from repo_audit.walker import build_repo_index
+
+    repo = tmp_path / "artifacts"
+    repo.mkdir()
+    for d in ("builds", "releases"):
+        sub = repo / d
+        sub.mkdir()
+        (sub / "artifact.bin").write_text("x" * 100, encoding="utf-8")
+    src = repo / "src"
+    src.mkdir()
+    (src / "app.py").write_text("x = 1\n", encoding="utf-8")
+
+    result = build_repo_index(repo)
+
+    names = {p.name for p in result.index}
+    assert "app.py" in names
+    assert "artifact.bin" not in names
+    reasons_by_name = {
+        p.name: r for p, r in result.skipped_dirs
+    }
+    assert reasons_by_name.get("builds") == "build-artifact"
+    assert reasons_by_name.get("releases") == "build-artifact"

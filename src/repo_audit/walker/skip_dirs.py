@@ -24,6 +24,8 @@ DEFAULT_SKIP_DIRS: dict[str, SkipReason] = {
     "vendor": "dependencies",
     "dist": "build-artifact",
     "build": "build-artifact",
+    "builds": "build-artifact",
+    "releases": "build-artifact",
     "target": "build-artifact",
     ".next": "build-artifact",
     "__pycache__": "cache",
