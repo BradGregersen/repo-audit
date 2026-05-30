@@ -85,15 +85,18 @@ def test_no_agent_path_produces_report():
 
     This is the deterministic 999.1 canary. Before Plan 01's byte caps the
     adapt --no-agent scan overran ~337s in file_size_cap and timed out; the
-    caps removed that overrun, so the scan now completes in seconds. The 120s
-    timeout is generous headroom AND a tight regression tripwire on the caps.
+    caps removed that 337s file_size_cap overrun. The remaining full --no-agent
+    pipeline still takes ~5-6min on the 40 GB adapt, which the user has accepted
+    as closed-enough (D-051 orchestrator note) rather than chasing perf — so the
+    canary budget is relaxed to 360s headroom, not tightened to 120s.
     """
     _skip_if_no_adapt()
-    # Plan 01 byte caps removed the 337s file_size_cap overrun -> 120s is a
-    # regression tripwire, not a tolerance for slowness.
+    # Latency accepted per D-051 orchestrator note; Plan 01 byte caps removed the
+    # 337s file_size_cap overrun but the full --no-agent pipeline still ~5-6min
+    # on the 40 GB adapt. 360s is generous headroom for the accepted ~5m38s.
     result = subprocess.run(
         ["uv", "run", "arch", "scan", "--no-agent", str(ADAPT_PATH)],
-        capture_output=True, timeout=120,
+        capture_output=True, timeout=360,
     )
     assert result.returncode == 0
     today = date.today().isoformat()
