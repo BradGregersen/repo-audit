@@ -13,9 +13,13 @@
 {% endfor %}
 {% endif %}
 {% if dim_narrative %}
+<!--HONESTY:START-->
 {{ dim_narrative }}
+<!--HONESTY:END-->
 {% elif report.meta.agent_status is not none and report.meta.agent_status != 'ok' %}
+<!--HONESTY:START-->
 _AI narrative unavailable: {{ report.meta.agent_status }} — see deterministic findings below._
+<!--HONESTY:END-->
 {% endif %}
 {%- endmacro %}
 # {{ report.meta.repo_slug }} — Repository State Report
@@ -106,6 +110,7 @@ _(no prior findings still present)_
 ## 1. Executive summary
 
 {# D-70 deterministic header is authoritative; agent prose follows. #}
+<!--HONESTY:START-->
 {{ deterministic_exec_header }}
 
 {% if agent_output is not none and agent_output.executive_summary %}
@@ -113,6 +118,7 @@ _(no prior findings still present)_
 {% elif report.meta.agent_status is not none and report.meta.agent_status != 'ok' %}
 _Unable to curate executive summary — see per-dimension findings below ({{ report.meta.agent_status }})._
 {% endif %}
+<!--HONESTY:END-->
 
 ---
 

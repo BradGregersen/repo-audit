@@ -16,6 +16,27 @@ from dataclasses import dataclass
 # \b ensures "completed" / "fall" / "covered" / "overall" don't match.
 _FORBIDDEN_RE = re.compile(r"\b(all|every|complete)\b", re.IGNORECASE)
 
+# D-051-11: completion-honesty lints ONLY claim-bearing narrative prose, not
+# structured data. The template wraps its two claim-bearing prose regions (the
+# Executive summary block + each per-dimension narrative) in HONESTY:START/END
+# HTML-comment sentinels; this regex extracts exactly those spans so the lint
+# never sees finding-table rows or scope-ledger DATA.
+_HONESTY_SPAN_RE = re.compile(
+    r"<!--\s*HONESTY:START\s*-->(.*?)<!--\s*HONESTY:END\s*-->",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def extract_claim_spans(markdown: str) -> str:
+    """Return only the claim-bearing prose delimited by HONESTY:START/END markers.
+
+    Multiple marked spans are joined by newlines (markers excluded). Returns ''
+    when no markers are present (fail-open: lint nothing rather than re-linting
+    structured data — D-051-11). Feeding this output to completion_honesty_lint
+    keeps the D-32 matcher unchanged while scoping it to narrative prose only.
+    """
+    return "\n".join(s.strip() for s in _HONESTY_SPAN_RE.findall(markdown))
+
 
 @dataclass(frozen=True)
 class CompletionHonestyHit:
