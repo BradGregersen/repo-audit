@@ -37,6 +37,20 @@ from repo_audit.walker.skip_dirs import DEFAULT_SKIP_DIRS, SkipReason
 # D-29: hard cap; above this the walker truncates and reports status='partial'.
 FILE_CAP: int = 200_000
 
+# SCAN-BOUND-01 (D-051-06) — defence-in-depth walker bounds. The walker is NOT
+# the measured bottleneck (RESEARCH: 0.96s on adapt); the load-bearing fix is
+# the per-file byte ceiling in collectors/file_size_cap.py. These caps are
+# insurance so the index can never carry a GB-scale payload regardless of the
+# target's directory layout. Recommended-caps table (RESEARCH):
+#   TOTAL_BYTE_CAP = 2 GB  -> ~115x the largest healthy repo, ~7.5x under
+#                             adapt's ~15 GB; trips only on pathological trees.
+#   MAX_DEPTH      = 25     -> adapt is depth 14; 25 is generous insurance.
+# When either cap (or the existing FILE_CAP) trips, the truncated tree is
+# recorded as a ('budget-truncated') skipped_dirs row so the scope ledger
+# discloses the bound (D-051-07) — no ledger code change needed.
+TOTAL_BYTE_CAP: int = 2_000_000_000
+MAX_DEPTH: int = 25
+
 
 @dataclass(frozen=True)
 class FileMeta:
@@ -97,8 +111,31 @@ def build_repo_index(repo_path: Path) -> WalkerResult:
     notes = ""
 
     truncated = False
+    stop_walk = False  # set only by FILE_CAP / TOTAL_BYTE_CAP — halts traversal
+    total_bytes = 0
     for dirpath, dirnames, filenames in os.walk(repo_path, followlinks=False):
         current = Path(dirpath)
+
+        # SCAN-BOUND-01 (D-051-06) depth cap. Depth is the number of path
+        # components below repo_path; when it exceeds MAX_DEPTH we prune this
+        # subtree (clear dirnames in place so os.walk doesn't descend) and
+        # record it as budget-truncated. We still index this dir's own files
+        # (it is AT the boundary, not beyond it) but go no deeper.
+        try:
+            depth = len(current.relative_to(repo_path).parts)
+        except ValueError:
+            depth = 0
+        if depth > MAX_DEPTH:
+            dirnames[:] = []
+            skipped_dirs.append((current, "budget-truncated"))
+            truncated = True
+            if not notes:
+                notes = (
+                    f"Walker hit {MAX_DEPTH}-level depth cap at {current}; "
+                    f"deeper subtree unindexed."
+                )
+            continue
+
         keep: list[str] = []
         for d in dirnames:
             # 1) DEFAULT_SKIP_DIRS table.
@@ -149,14 +186,29 @@ def build_repo_index(repo_path: Path) -> WalkerResult:
                 size_bytes=stat.st_size,
                 ext=full.suffix.lower(),
             )
+            total_bytes += stat.st_size
             if len(index) >= FILE_CAP:
                 truncated = True
+                stop_walk = True
+                skipped_dirs.append((current, "budget-truncated"))
                 notes = (
                     f"Walker hit {FILE_CAP}-file cap at {current}; "
                     f"remaining files unindexed."
                 )
                 break
-        if truncated:
+            # SCAN-BOUND-01 (D-051-06) total-byte cap — mirrors the FILE_CAP
+            # break. Stops the index ever carrying a GB-scale payload on a
+            # pathological tree; records the truncated dir as budget-truncated.
+            if total_bytes >= TOTAL_BYTE_CAP:
+                truncated = True
+                stop_walk = True
+                skipped_dirs.append((current, "budget-truncated"))
+                notes = (
+                    f"Walker hit {TOTAL_BYTE_CAP}-byte cap at {current}; "
+                    f"remaining files unindexed."
+                )
+                break
+        if stop_walk:
             break
 
     if truncated:

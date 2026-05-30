@@ -70,8 +70,93 @@ def test_walker_excludes_docs_state_reports(tmp_path):
 
 
 def test_walker_skipped_dirs_use_only_locked_reason_literals():
-    """SkipReason Literal — only the six values allowed."""
+    """SkipReason Literal — only the locked values allowed.
+
+    SCAN-BOUND-01 added an additive 7th member 'budget-truncated' (used by
+    the walker caps, NOT by DEFAULT_SKIP_DIRS). DEFAULT_SKIP_DIRS itself
+    still only uses the original six dir-classification reasons.
+    """
     from repo_audit.walker.skip_dirs import DEFAULT_SKIP_DIRS
     allowed = {"vcs", "dependencies", "build-artifact", "cache", "editor", "test-output"}
     used = set(DEFAULT_SKIP_DIRS.values())
     assert used.issubset(allowed), f"unexpected SkipReason value: {used - allowed}"
+
+
+def test_skipreason_includes_budget_truncated_additively():
+    """SCAN-BOUND-01: 'budget-truncated' is a valid SkipReason; six originals kept."""
+    import typing
+
+    from repo_audit.walker.skip_dirs import SkipReason
+
+    members = set(typing.get_args(SkipReason))
+    assert "budget-truncated" in members
+    assert {
+        "vcs", "dependencies", "build-artifact", "cache", "editor", "test-output",
+    }.issubset(members)
+
+
+def test_walker_total_byte_cap_truncates_and_records_budget_truncated(
+    tmp_path, monkeypatch,
+):
+    """SCAN-BOUND-01 / T-051-02: cumulative bytes over TOTAL_BYTE_CAP truncate.
+
+    Uses a small monkeypatched cap so the test stays fast (no multi-GB
+    fixtures). When the cap is crossed: status='partial', a
+    (dir, 'budget-truncated') row is appended to skipped_dirs, and notes
+    names where it truncated.
+    """
+    from repo_audit.walker import repo_index as ri
+
+    repo = tmp_path / "byte-cap"
+    repo.mkdir()
+    # Three ~1KB files; cap at 1500 bytes forces truncation after file 2.
+    for i in range(3):
+        (repo / f"f{i}.py").write_text("x" * 1000, encoding="utf-8")
+    monkeypatch.setattr(ri, "TOTAL_BYTE_CAP", 1500)
+
+    result = ri.build_repo_index(repo)
+
+    assert result.status == "partial"
+    assert any(reason == "budget-truncated" for _, reason in result.skipped_dirs)
+    assert result.notes  # non-empty, names where it truncated
+
+
+def test_walker_depth_cap_prunes_and_records_budget_truncated(
+    tmp_path, monkeypatch,
+):
+    """SCAN-BOUND-01 / T-051-02: traversal deeper than MAX_DEPTH is pruned."""
+    from repo_audit.walker import repo_index as ri
+
+    repo = tmp_path / "deep"
+    repo.mkdir()
+    # Build a chain repo/d0/d1/d2/d3 with a file at the deepest level.
+    cur = repo
+    for i in range(4):
+        cur = cur / f"d{i}"
+        cur.mkdir()
+    (cur / "deep.py").write_text("x = 1\n", encoding="utf-8")
+    monkeypatch.setattr(ri, "MAX_DEPTH", 2)
+
+    result = ri.build_repo_index(repo)
+
+    assert any(reason == "budget-truncated" for _, reason in result.skipped_dirs)
+    # The deepest file beyond MAX_DEPTH must not be indexed.
+    assert all("deep.py" not in str(p) for p in result.index)
+
+
+def test_walker_healthy_tree_stays_ok_no_budget_truncated(tmp_path):
+    """SCAN-BOUND-01: a small healthy tree under all caps stays status='ok'."""
+    from repo_audit.walker import build_repo_index
+
+    repo = tmp_path / "healthy"
+    repo.mkdir()
+    (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "b.ts").write_text("export const b = 2;\n", encoding="utf-8")
+    sub = repo / "src"
+    sub.mkdir()
+    (sub / "c.py").write_text("y = 2\n", encoding="utf-8")
+
+    result = build_repo_index(repo)
+
+    assert result.status == "ok"
+    assert all(reason != "budget-truncated" for _, reason in result.skipped_dirs)
