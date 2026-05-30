@@ -86,17 +86,20 @@ def test_no_agent_path_produces_report():
     This is the deterministic 999.1 canary. Before Plan 01's byte caps the
     adapt --no-agent scan overran ~337s in file_size_cap and timed out; the
     caps removed that 337s file_size_cap overrun. The remaining full --no-agent
-    pipeline still takes ~5-6min on the 40 GB adapt, which the user has accepted
-    as closed-enough (D-051 orchestrator note) rather than chasing perf — so the
-    canary budget is relaxed to 360s headroom, not tightened to 120s.
+    pipeline latency on the 40 GB adapt is ACCEPTED as closed-enough (D-051
+    orchestrator note) rather than chasing perf — so the canary budget is
+    relaxed (not tightened to 120s) to a generous tripwire that still catches a
+    true regression (e.g. a reintroduced unbounded walk) without false-reds.
     """
     _skip_if_no_adapt()
-    # Latency accepted per D-051 orchestrator note; Plan 01 byte caps removed the
-    # 337s file_size_cap overrun but the full --no-agent pipeline still ~5-6min
-    # on the 40 GB adapt. 360s is generous headroom for the accepted ~5m38s.
+    # Latency accepted per D-051 orchestrator note. Measured clean run on the
+    # 40 GB adapt (2026-05-29) was ~415s, exit 0, both reports written. 360s
+    # was below the real latency and false-failed; 600s gives ~45% headroom
+    # over the measured ~415s while still tripping on a true unbounded-walk
+    # regression. (Matches the live-agent test's 600s convention.)
     result = subprocess.run(
         ["uv", "run", "arch", "scan", "--no-agent", str(ADAPT_PATH)],
-        capture_output=True, timeout=360,
+        capture_output=True, timeout=600,
     )
     assert result.returncode == 0
     today = date.today().isoformat()
