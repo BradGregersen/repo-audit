@@ -167,3 +167,77 @@ def test_secret_detection_binary_files_skipped(tmp_path):
     assert result.findings == []
     # Collector still completes cleanly with a valid status
     assert result.status in ("ok", "partial")
+
+
+# --- 260530-gm9: entropy backstop is OPT-IN (default OFF) ---
+
+# High-entropy content with NO known-pattern secret shape: an npm lockfile
+# integrity hash line + a Shields.io badge URL with a high-entropy token.
+# Verified during planning to trip the entropy-backstop (>=4.5 bits/char on a
+# >=5-char token) while matching NO KNOWN_PATTERNS rule.
+_HIGH_ENTROPY_NO_KNOWN_PATTERN = (
+    '  "integrity": '
+    '"sha512-MV0Yl1f0udeNJUYI3DjbsbWcA3M7q3a3i3a3+abcDEFghijKLMNop'
+    'QRstuvWXyz0123456789ABCDEFGHIJKLMNOPqrstuvwxyz==",\n'
+    "[![coverage](https://img.shields.io/badge/coverage-87%25-brightgreen"
+    "?logo=jest&t=aB3xYz9KqWeRtY7uIoP1234567890qPzMnBvCxLkJhGfDsA)]"
+    "(https://example.com)\n"
+)
+
+
+def test_entropy_backstop_off_by_default_zero_entropy_findings(fake_repo):
+    """Default scan (no config) yields ZERO entropy-backstop findings on a
+    high-entropy file (npm integrity hash + Shields badge URL)."""
+    from repo_audit.collectors.secret_detection import run
+    from repo_audit.walker import build_repo_index
+    repo = fake_repo(
+        {"package-lock.json": _HIGH_ENTROPY_NO_KNOWN_PATTERN}, name="entropy-default-off"
+    )
+    wr = build_repo_index(repo)
+    result = run(repo, wr.index)
+    assert all(f.rule_id != "entropy-backstop" for f in result.findings), (
+        "entropy backstop must be OFF by default: "
+        f"{[f.rule_id for f in result.findings]!r}"
+    )
+
+
+def test_known_pattern_still_fires_by_default(fake_repo):
+    """Default scan still flags a seeded real AKIA<16 alnum> token via the
+    known-pattern rule (NOT via entropy)."""
+    from repo_audit.collectors.secret_detection import run
+    from repo_audit.walker import build_repo_index
+    # AKIA + 16 uppercase-alnum chars (distinct from the AKIA...EXAMPLE fixture).
+    seeded = "AKIA" + "QWERTYUIOPASDFGH"
+    repo = fake_repo(
+        {"src/aws.py": f"AWS_ACCESS_KEY_ID = '{seeded}'\n"},
+        name="known-pattern-default-on",
+    )
+    wr = build_repo_index(repo)
+    result = run(repo, wr.index)
+    rule_ids = {f.rule_id for f in result.findings}
+    assert "aws-access-key-id" in rule_ids, (
+        f"known-pattern detection must stay always-on; got {rule_ids!r}"
+    )
+    assert seeded not in "".join(f.evidence.output_snippet for f in result.findings)
+
+
+def test_entropy_backstop_reappears_when_opted_in(fake_repo):
+    """With secret_detection.entropy_backstop: true in the target repo's
+    .repo-audit.yaml, entropy-backstop findings reappear."""
+    from repo_audit.collectors.secret_detection import run
+    from repo_audit.walker import build_repo_index
+    repo = fake_repo(
+        {
+            "package-lock.json": _HIGH_ENTROPY_NO_KNOWN_PATTERN,
+            ".repo-audit.yaml": (
+                "secret_detection:\n  entropy_backstop: true\n"
+            ),
+        },
+        name="entropy-opt-in",
+    )
+    wr = build_repo_index(repo)
+    result = run(repo, wr.index)
+    assert any(f.rule_id == "entropy-backstop" for f in result.findings), (
+        "opt-in flag must re-enable the entropy backstop: "
+        f"{[f.rule_id for f in result.findings]!r}"
+    )
