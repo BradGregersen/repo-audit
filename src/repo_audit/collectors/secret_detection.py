@@ -38,12 +38,15 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from ruamel.yaml import YAML
+
 from repo_audit.collectors import register_collector
 from repo_audit.collectors.base import CollectorResult
 from repo_audit.render.secret_lint import (
     SecretHit,
     scan_with_entropy,
     scan_with_gitleaks,
+    scan_with_known_patterns,
 )
 from repo_audit.schema.finding import Evidence, Finding
 
@@ -51,6 +54,43 @@ from repo_audit.schema.finding import Evidence, Finding
 # Resolved once per process: amortizes shutil.which cost across fleet sweeps
 # and matches Phase 1's secret_lint module-load discovery pattern.
 GITLEAKS_AVAILABLE: bool = shutil.which("gitleaks") is not None
+
+# Opt-in config key (default OFF). The Shannon-entropy backstop produced a
+# VERIFIED 100% false-positive rate on the user's own repos (9,661 noise / 0
+# real on adapt), all rendered severity=major -- faking the security dimension
+# and overflowing the agent's finding-inspection budget. Known-pattern +
+# gitleaks stay always-on (they cover real accidentally-committed keys);
+# the entropy half is re-enabled per target repo via .repo-audit.yaml.
+# No global pydantic config model exists yet (Phase 7 overlay); this scoped
+# ruamel.yaml safe-load mirrors the established adapter.yaml / faithfulness.yaml
+# loaders rather than inventing a parallel config system (260530-gm9).
+_CONFIG_FILENAME = ".repo-audit.yaml"
+
+
+def _entropy_backstop_enabled(repo_path: Path) -> bool:
+    """Return True only when secret_detection.entropy_backstop is set true in
+    the target repo's .repo-audit.yaml. Default False; never raises.
+
+    Fail-safe OFF: a missing file, an absent key, a non-dict shape, or a
+    malformed/unreadable overlay all yield False so a hostile or broken config
+    can neither re-enable the noisy heuristic by accident nor break the scan.
+    """
+    config_path = repo_path / _CONFIG_FILENAME
+    if not config_path.is_file():
+        return False
+    try:
+        yaml = YAML(typ="safe")  # T-gm9-01: refuses !!python/object, no code exec
+        with config_path.open("r", encoding="utf-8") as fh:
+            cfg = yaml.load(fh) or {}
+    except Exception:
+        # T-gm9-02: malformed/unreadable overlay must not break the scan.
+        return False
+    if not isinstance(cfg, dict):
+        return False
+    section = cfg.get("secret_detection")
+    if not isinstance(section, dict):
+        return False
+    return bool(section.get("entropy_backstop", False))
 
 # Per-file content-read DoS guard (matches Phase 1 secret_lint posture).
 # Files larger than this are skipped before any read -- gitleaks subprocess
@@ -107,6 +147,9 @@ def run(repo_path: Path, repo_index: dict) -> CollectorResult:
     repo_path = Path(repo_path).resolve()
     state_report_prefix = repo_path / "docs" / "state-reports"
 
+    # 260530-gm9: resolve the opt-in flag ONCE before the file loop. Default OFF.
+    entropy_backstop_on = _entropy_backstop_enabled(repo_path)
+
     findings: list[Finding] = []
     scanned_files = 0
 
@@ -140,10 +183,17 @@ def run(repo_path: Path, repo_index: dict) -> CollectorResult:
         hits: list[SecretHit] = []
         if GITLEAKS_AVAILABLE:
             hits.extend(scan_with_gitleaks(text))
-        # scan_with_entropy internally composes scan_with_known_patterns
-        # (see secret_lint.py docstring); invoking both would double-count
-        # per Phase 1 secret_lint.lint_buffer's comment.
-        hits.extend(scan_with_entropy(text))
+        # 260530-gm9: Always-on, low-FP named-rule layer (AKIA/ghp_/sk_live_/...).
+        # Called DIRECTLY so it survives independent of the entropy flag
+        # (CONTEXT: known-pattern detection is ALWAYS ON).
+        hits.extend(scan_with_known_patterns(text))
+        # OPT-IN heuristic (default OFF). scan_with_entropy() composes
+        # scan_with_known_patterns at its tail, so to avoid double-counting the
+        # named-rule hits above we keep ONLY its entropy-backstop hits here.
+        if entropy_backstop_on:
+            hits.extend(
+                h for h in scan_with_entropy(text) if h.rule_id == "entropy-backstop"
+            )
 
         for hit in hits:
             try:
