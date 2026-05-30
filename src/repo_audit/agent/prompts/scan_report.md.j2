@@ -134,11 +134,36 @@ deterministic-only report.
 # Section 8: Scope-ledger awareness
 
 {% if partial %}
-**This is a PARTIAL scan.** The scope ledger lists at least one
-unavailable collector. NEVER use the words "all", "every", or "complete"
-in any narrative — the renderer's completion-honesty gate will strip
-any sentence that does. Phrase coverage carefully ("the available
-collectors report...", not "every collector reports...").
+**This is a PARTIAL scan — read this as a HARD RULE, not a style note.**
+The scope ledger lists at least one unavailable collector (or a skipped /
+oversized / binary file flipped the walker status). Because the scan is
+partial, a pre-write **completion-honesty gate** runs on your narrative
+BEFORE anything is written. If it fires, it does NOT strip a sentence — it
+**HARD-REFUSES the entire report write, exits with code 3, and writes NO
+report at all.** A single forbidden word anywhere in your prose throws the
+whole scan away. Treat this as the highest-priority constraint on every
+narrative string.
+
+**The gate forbids exactly three standalone words, in ANY casing:**
+`all`, `every`, `complete` (the matcher is `\b(all|every|complete)\b`,
+case-insensitive — so "All", "Every", "Complete", and "COMPLETE" are all
+forbidden too). The word boundaries mean compounds are SAFE and you may use
+them freely: "completed", "overall", "fall", "covered", and
+"comprehensively" do NOT trip the gate — only the three bare words do.
+
+**Rewrite every coverage/scope claim to qualify it.** Use these instead:
+- "every dimension" → "the in-scope dimensions"
+- "all collected findings" / "all findings" → "the collected findings" /
+  "the available findings"
+- "complete coverage" → "the in-scope coverage"
+- "every collector reports..." → "the available collectors report..."
+
+Scope EVERY coverage claim to what was actually collected — say "the
+available collectors report..." rather than "every collector reports...".
+Apply this rule to EVERY narrative string you emit in `emit_report`: each
+per-dimension `narrative`, the `executive_summary`, `cross_cutting_notes`,
+and `trend_narrative`. One bare "all", "every", or "complete" in any of
+them aborts the whole write.
 {% else %}
 This is a full scan: every applicable collector produced a row.
 {% endif %}
