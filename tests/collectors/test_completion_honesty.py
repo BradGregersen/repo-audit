@@ -153,20 +153,20 @@ def _partial_meta(**overrides):
 
 def _benign_finding():
     """A finding whose DATA carries benign all/every/complete tokens. NOT a claim."""
-    from repo_audit.schema.finding import Finding, FindingEvidence
+    from repo_audit.schema.finding import Evidence, Finding
     return Finding(
         dimension="quality",
         severity="minor",
-        confidence="probable",
-        title="every dead export should be removed",
+        confidence="medium",
+        evidence_type="static",
         file="src/all/index.ts",
         line=12,
         rule_id="no-unused",
         source_tool="knip",
-        evidence=FindingEvidence(
-            evidence_type="violation",
+        recommendation="remove every unused export",
+        evidence=Evidence(
+            tool="knip",
             output_snippet="all files scanned; every export reviewed; coverage complete",
-            source_tool="knip",
         ),
     )
 

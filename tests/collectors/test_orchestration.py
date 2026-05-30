@@ -67,11 +67,19 @@ def test_build_scope_ledger_populates_scanned_skipped_unavailable(tmp_path):
     assert dims == {"security", "process"}
 
 
-def test_render_and_write_completion_honesty_exit_3_on_partial_violation(tmp_path):
-    """D-32 / SAFE-08 — partial scan with forbidden token in rendered prose returns 3.
+def test_render_and_write_completion_honesty_writes_when_token_is_in_scope_ledger_data(
+    tmp_path,
+):
+    """D-051-11 — completion-honesty now lints ONLY claim-bearing narrative prose
+    (HONESTY:START/END-marked exec summary + dimension narratives), NEVER structured
+    DATA. The scope_ledger.notes line is rendered under §2 Scope ledger as DATA
+    (``> {{ notes }}``), OUTSIDE any HONESTY marker, so a benign all/every/complete
+    token there no longer trips the chokepoint: the partial scan WRITES (exit 0).
 
-    Crafted by injecting the forbidden token via scope_ledger.notes (which IS
-    rendered as `> {{ notes }}`). meta.partial=True triggers the chokepoint.
+    (Previously this test asserted exit 3; the D-051-11 scoping fix deliberately
+    changes that contract. The genuine-narrative-claim exit-3 guarantee is pinned
+    by tests/collectors/test_completion_honesty.py::
+    test_partial_genuine_narrative_claim_refuses.)
     """
     from repo_audit.render.renderer import render_and_write
     md = tmp_path / "r.md"
@@ -90,10 +98,11 @@ def test_render_and_write_completion_honesty_exit_3_on_partial_violation(tmp_pat
         schema_version="1", meta=meta, findings=[], scope_ledger=sl,
     )
     rc = render_and_write(sr, md, js)
-    assert rc == 3
-    # No files written
-    assert not md.exists()
-    assert not js.exists()
+    assert rc == 0
+    # Both files written; the benign token survives in the DATA region.
+    assert md.exists()
+    assert js.exists()
+    assert "every dimension is complete" in md.read_text(encoding="utf-8")
 
 
 def test_render_and_write_zero_on_clean_partial_scan(tmp_path):
