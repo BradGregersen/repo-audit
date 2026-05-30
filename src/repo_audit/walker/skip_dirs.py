@@ -9,8 +9,8 @@ from typing import Literal
 SkipReason = Literal[
     "vcs", "dependencies", "build-artifact", "cache", "editor", "test-output",
     # SCAN-BOUND-01 (D-051-06/07): additive 7th member. Used by the walker's
-    # TOTAL_BYTE_CAP / MAX_DEPTH / FILE_CAP bounds to record a truncated tree
-    # in skipped_dirs so the scope ledger discloses every bound honestly
+    # per-file / per-subtree / MAX_DEPTH / FILE_CAP bounds to record a truncated
+    # tree in skipped_dirs so the scope ledger discloses every bound honestly
     # (no schema_version bump — follows the Phase 3/4 additive-Optional
     # precedent). NOT used by DEFAULT_SKIP_DIRS below.
     "budget-truncated",
