@@ -60,7 +60,7 @@ from repo_audit.render.filters import (
 from repo_audit.render.secret_lint import (
     SecretsDetected,
     format_diagnostic,
-    lint_buffer,
+    lint_and_redact_entropy,
 )
 from repo_audit.schema.report import ScanReport
 
@@ -206,8 +206,14 @@ def render_and_write(
             [dim.narrative for dim in agent_output.dimensions]
             + [agent_output.executive_summary or ""]
         )
+        # SECRET-LINT-SPLIT-01: gitleaks + known-patterns still HARD-block here
+        # (raise -> return 2). Entropy-backstop hits downgrade to redaction, but
+        # the agent narrative is re-derived from ``cleaned_agent_output``
+        # downstream and re-scanned by the load-bearing SECOND pass over the
+        # actually-written markdown/json buffers -- so this defence-in-depth pass
+        # only needs the hard-block behaviour; its cleaned buffer is discarded.
         try:
-            lint_buffer(agent_narrative_buf, buffer_name="agent-narrative")
+            lint_and_redact_entropy(agent_narrative_buf, buffer_name="agent-narrative")
         except SecretsDetected as e:
             print(format_diagnostic(e.hits, e.buffer_name), file=sys.stderr)
             return 2
@@ -300,10 +306,22 @@ def render_and_write(
     # ----- SECOND-PASS chokepoints on FULL buffers (defense in depth). -----
     # Catches any leak that survived the narrative-only pass + catches leaks
     # in the deterministic portion (findings tables, scope ledger, meta).
+    #
+    # SECRET-LINT-SPLIT-01 (D-051-02/04): this is the LOAD-BEARING pass -- the
+    # markdown_buf and json_buf scanned here ARE what reach disk. gitleaks +
+    # known-patterns still HARD-refuse (raise -> return 2, no write); only the
+    # heuristic entropy backstop downgrades to in-place ``[REDACTED:N]``.
+    # CRITICAL ORDERING (RESEARCH): redact BEFORE ``_write_outputs`` so the
+    # redacted buffer is what gets written. completion_honesty_lint runs AFTER
+    # redaction, on the redacted buffers.
     partial = scan_report.meta.partial
     try:
-        lint_buffer(markdown_buf, buffer_name="markdown")
-        lint_buffer(json_buf, buffer_name="json-sidecar")
+        markdown_buf, log_md = lint_and_redact_entropy(
+            markdown_buf, buffer_name="markdown"
+        )
+        json_buf, log_json = lint_and_redact_entropy(
+            json_buf, buffer_name="json-sidecar"
+        )
         completion_honesty_lint(markdown_buf, partial=partial, buffer_name="markdown")
         completion_honesty_lint(json_buf, partial=partial, buffer_name="json-sidecar")
     except SecretsDetected as e:
@@ -315,6 +333,16 @@ def render_and_write(
             file=sys.stderr,
         )
         return 3  # D-32 hard refuse; distinct from secret-lint exit code.
+
+    # D-051-02: record the value-blind redaction log on meta (in-place mutation,
+    # same pattern as Step 4f's faithfulness_violations etc.). The SECOND-pass
+    # buffers are the authoritative source -- they are what reach disk -- so the
+    # agent-narrative pass (defence-in-depth, hard-block-only) does not contribute.
+    scan_report.meta.entropy_redactions = log_md + log_json
+    # The JSON sidecar buffer was serialized BEFORE this mutation, so re-dump so
+    # the written sidecar reflects the redaction log (and stays self-describing).
+    if scan_report.meta.entropy_redactions:
+        json_buf = scan_report.model_dump_json(indent=2)
 
     # ----- Single disk-write chokepoint (D-15 mkdir lives inside). -----
     _write_outputs(markdown_buf, json_buf, md_path, json_path)
