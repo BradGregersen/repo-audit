@@ -115,6 +115,22 @@ class ReportMeta(BaseModel):
         default_factory=list,
     )
 
+    # D-051-02 / SECRET-LINT-SPLIT-01 — populated by the render-local
+    # entropy redact-and-continue path (render/secret_lint.lint_and_redact_entropy,
+    # wired at renderer.py's lint sites). Each entry records ONE entropy-backstop
+    # token that was redacted in place to ``[REDACTED:N]`` so a legitimate report
+    # could still be written instead of hard-refusing on a benign high-entropy
+    # token (lockfile hashes, minified strings). The high-confidence layers
+    # (gitleaks + known-patterns) still HARD-block (raise SecretsDetected → exit 2);
+    # only ``rule_id == "entropy-backstop"`` hits route here.
+    #
+    # VALUE-BLIND: each entry mirrors SecretHit's exposed fields exactly —
+    # ``{"line": int, "rule_id": "entropy-backstop", "redacted_len": int}``. The
+    # raw redacted token is NEVER stored (D-051-02 / T-051-07). schema_version
+    # stays "1" (D-21): additive Optional list, forward-compatible with the
+    # Phase 5 fleet aggregator.
+    entropy_redactions: list[dict[str, object]] = Field(default_factory=list)
+
 
 class ScanReport(BaseModel):
     """The structured scan report. Serialized as the JSON sidecar (SCH-06).

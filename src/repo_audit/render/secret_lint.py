@@ -283,6 +283,104 @@ def lint_buffer(text: str, *, buffer_name: str) -> None:
         raise SecretsDetected(hits, buffer_name)
 
 
+def lint_and_redact_entropy(
+    text: str, *, buffer_name: str
+) -> tuple[str, list[dict[str, object]]]:
+    """SECRET-LINT-SPLIT-01 (D-051-01/02/03/04): render-local lint-and-redact.
+
+    The locked split for the RENDER path only. Unlike ``lint_buffer`` (which
+    hard-blocks on ANY hit and is left UNCHANGED for its 5 non-render callers --
+    RESEARCH Pitfall 1), this helper splits the secret-lint chain by confidence:
+
+      * HIGH-confidence layers -- ``scan_with_gitleaks`` + ``scan_with_known_patterns``
+        -- STILL HARD-BLOCK: any hit raises ``SecretsDetected`` so the caller
+        refuses the write and the CLI exits 2 (D-051-01, fail-loud preserved).
+        ``scan_with_known_patterns`` is called DIRECTLY here (NOT via
+        ``scan_with_entropy``, which composes it) so the known-pattern slice is
+        never downgraded -- a buffer that mixes a benign entropy token AND a real
+        ``AKIA``/``ghp_``/``sk_live_`` token still hard-refuses (RESEARCH Pitfall 2).
+
+      * The HEURISTIC entropy backstop (``rule_id == "entropy-backstop"``)
+        DOWNGRADES to redact-and-continue: each offending token is replaced in
+        place by ``[REDACTED:N]`` (N = original token length) and a value-blind
+        log entry is recorded. The cleaned buffer is returned so the report can
+        still be written (D-051-04: a benign sha512- lockfile hash becoming
+        ``[REDACTED:N]`` is acceptable cosmetic loss; a lost legitimate report
+        is not).
+
+    The ``[REDACTED:N]`` marker is itself low-entropy (a short, structured
+    literal well below ``ENTROPY_THRESHOLD_BITS_PER_CHAR``), so re-scanning the
+    cleaned buffer yields zero entropy-backstop hits and the redaction never
+    re-trips the scanner (RESEARCH Pitfall 3 / T-051-08). The
+    ``test_no_reflag`` contract pins this invariant.
+
+    Args:
+        text: The buffer to scan + redact (markdown OR JSON sidecar).
+        buffer_name: A label for the ``SecretsDetected`` diagnostic.
+
+    Returns:
+        ``(cleaned_text, redaction_log)`` where ``cleaned_text`` has every
+        entropy-backstop token replaced by ``[REDACTED:N]`` and
+        ``redaction_log`` is a list of VALUE-BLIND dicts, one per redaction:
+        ``{"line": int, "rule_id": "entropy-backstop", "redacted_len": int}``.
+        The raw redacted token is NEVER stored (D-051-02 / T-051-07).
+
+    Raises:
+        SecretsDetected: when any gitleaks OR known-pattern hit fires -- the
+            high-confidence hard-block is preserved for the render path.
+    """
+    # --- HIGH-confidence layers stay HARD-block (D-051-01). Call known-patterns
+    # DIRECTLY so the entropy downgrade below cannot weaken the named-rule slice. ---
+    hard_hits = scan_with_gitleaks(text) + scan_with_known_patterns(text)
+    if hard_hits:
+        raise SecretsDetected(hard_hits, buffer_name)
+
+    # --- HEURISTIC entropy backstop -> redact-and-continue. Re-tokenize per line
+    # so we have the (start, end) spans the value-blind SecretHit does not carry. ---
+    redaction_log: list[dict[str, object]] = []
+    cleaned_lines: list[str] = []
+    for lineno, line in enumerate(text.splitlines(keepends=True), start=1):
+        # Strip the trailing newline(s) for matching, then re-attach so the
+        # buffer's line structure is preserved exactly.
+        stripped = line.rstrip("\r\n")
+        newline = line[len(stripped):]
+
+        spans: list[tuple[int, int]] = []
+        for m in TOKENIZER.finditer(stripped):
+            token = m.group(0)
+            if len(token) < TOKEN_MIN_LEN:
+                continue
+            if shannon_entropy_bits_per_char(token) >= ENTROPY_THRESHOLD_BITS_PER_CHAR:
+                spans.append((m.start(), m.end()))
+
+        if not spans:
+            cleaned_lines.append(line)
+            continue
+
+        # Replace right-to-left so earlier offsets stay valid (COPY of the proven
+        # render/faithfulness.py span-replace routine -- Don't-Hand-Roll).
+        redacted = stripped
+        for start, end in sorted(spans, key=lambda s: s[0], reverse=True):
+            length = end - start
+            redacted = redacted[:start] + f"[REDACTED:{length}]" + redacted[end:]
+            # Value-blind log entry: mirrors SecretHit's exposed fields only.
+            redaction_log.append(
+                {
+                    "line": lineno,
+                    "rule_id": "entropy-backstop",
+                    "redacted_len": length,
+                }
+            )
+        cleaned_lines.append(redacted + newline)
+
+    # Restore the spans-on-each-line into chronological (line, left-to-right)
+    # order so the log reads naturally; right-to-left replace above reversed
+    # the within-line order.
+    redaction_log.sort(key=lambda e: e["line"])
+
+    return "".join(cleaned_lines), redaction_log
+
+
 def format_diagnostic(hits: list[SecretHit], buffer_name: str) -> str:
     """D-06: stderr-friendly format. NEVER includes the raw value.
 
