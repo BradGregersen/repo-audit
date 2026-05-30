@@ -95,30 +95,92 @@ def test_skipreason_includes_budget_truncated_additively():
     }.issubset(members)
 
 
-def test_walker_total_byte_cap_truncates_and_records_budget_truncated(
-    tmp_path, monkeypatch,
-):
-    """SCAN-BOUND-01 / T-051-02: cumulative bytes over TOTAL_BYTE_CAP truncate.
+def test_walker_oversized_file_is_skipped_not_indexed(tmp_path, monkeypatch):
+    """SCAN-COVER-01 / T-0511-02: a single file over MAX_FILE_INDEX_BYTES is
+    skipped (not indexed, not counted) but the walk continues.
 
-    Uses a small monkeypatched cap so the test stays fast (no multi-GB
-    fixtures). When the cap is crossed: status='partial', a
-    (dir, 'budget-truncated') row is appended to skipped_dirs, and notes
-    names where it truncated.
+    Uses a small monkeypatched per-file ceiling so the test stays fast. The
+    small sibling file MUST still be indexed; the oversized file MUST NOT.
     """
     from repo_audit.walker import repo_index as ri
 
-    repo = tmp_path / "byte-cap"
+    repo = tmp_path / "oversized"
     repo.mkdir()
-    # Three ~1KB files; cap at 1500 bytes forces truncation after file 2.
-    for i in range(3):
-        (repo / f"f{i}.py").write_text("x" * 1000, encoding="utf-8")
-    monkeypatch.setattr(ri, "TOTAL_BYTE_CAP", 1500)
+    (repo / "small.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "big.bin").write_text("x" * 5000, encoding="utf-8")
+    monkeypatch.setattr(ri, "MAX_FILE_INDEX_BYTES", 1000)
 
     result = ri.build_repo_index(repo)
 
+    names = {p.name for p in result.index}
+    assert "small.py" in names
+    assert "big.bin" not in names
     assert result.status == "partial"
-    assert any(reason == "budget-truncated" for _, reason in result.skipped_dirs)
-    assert result.notes  # non-empty, names where it truncated
+    # The oversized file's path is disclosed in a budget-truncated row.
+    truncated = [p for p, r in result.skipped_dirs if r == "budget-truncated"]
+    assert any(p.name == "big.bin" for p in truncated)
+    assert result.notes  # non-empty
+
+
+def test_walker_subtree_byte_cap_prunes_one_subtree_keeps_siblings(
+    tmp_path, monkeypatch,
+):
+    """SCAN-COVER-01 / T-0511-03: one subtree over SUBTREE_BYTE_CAP is pruned
+    and recorded, but a sibling top-level subtree is STILL indexed.
+
+    This is the core coverage fix: a big subtree must not knock out siblings.
+    """
+    from repo_audit.walker import repo_index as ri
+
+    repo = tmp_path / "subtree-cap"
+    repo.mkdir()
+    big = repo / "big"
+    big.mkdir()
+    # Several files summing well over the (monkeypatched-low) subtree cap.
+    for i in range(3):
+        (big / f"b{i}.py").write_text("x" * 1000, encoding="utf-8")
+    small = repo / "small"
+    small.mkdir()
+    (small / "keep.py").write_text("y = 2\n", encoding="utf-8")
+    monkeypatch.setattr(ri, "SUBTREE_BYTE_CAP", 1500)
+
+    result = ri.build_repo_index(repo)
+
+    names = {p.name for p in result.index}
+    # The sibling subtree's file survives — this is the bug being fixed.
+    assert "keep.py" in names
+    assert result.status == "partial"
+    # A dir under big/ is recorded as budget-truncated.
+    truncated = [p for p, r in result.skipped_dirs if r == "budget-truncated"]
+    assert any("big" in p.parts for p in truncated)
+
+
+def test_walker_root_level_file_counted_under_root_sentinel(
+    tmp_path, monkeypatch,
+):
+    """SCAN-COVER-01 / B2: files directly in repo_path are bucketed under the
+    '<root>' sentinel subtree key and bounded by SUBTREE_BYTE_CAP — no
+    IndexError on empty rel.parts.
+    """
+    from repo_audit.walker import repo_index as ri
+
+    repo = tmp_path / "root-files"
+    repo.mkdir()
+    # Two root-level files; a (1000) + b (1000) exceed a 1500-byte cap so the
+    # second file is dropped once the "<root>" bucket overflows.
+    (repo / "a.py").write_text("x" * 1000, encoding="utf-8")
+    (repo / "b.py").write_text("x" * 1000, encoding="utf-8")
+    monkeypatch.setattr(ri, "SUBTREE_BYTE_CAP", 1500)
+
+    # Must not raise IndexError on empty rel.parts.
+    result = ri.build_repo_index(repo)
+
+    assert result.status == "partial"
+    truncated = [r for _, r in result.skipped_dirs if r == "budget-truncated"]
+    assert truncated  # the root subtree overflow is disclosed
+    # Exactly one of the two root files is indexed (cap trips after the first).
+    indexed_root = {p.name for p in result.index}
+    assert len(indexed_root & {"a.py", "b.py"}) == 1
 
 
 def test_walker_depth_cap_prunes_and_records_budget_truncated(
