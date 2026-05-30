@@ -98,6 +98,45 @@ def test_artifact_mtime_iso_is_valid_iso8601_utc(ts_fixture_repo):
     assert parsed.utcoffset().total_seconds() == 0.0
 
 
+# --- D-051-05: structured output_snippet (not a raw SF:/BRDA: dump) ------
+
+
+def test_coverage_summary_output_snippet_is_structured(ts_fixture_repo):
+    """D-051-05: the coverage_summary Finding's output_snippet is a short
+    structured summary sourced from parsed_value -- NOT the raw 1024-char
+    SF:/DA:/BRDA: lcov dump (the dominant benign-entropy source)."""
+    finding = parse_from_repo(ts_fixture_repo)[0]
+    snippet = finding.evidence.output_snippet
+    pv = finding.evidence.parsed_value
+
+    # No raw lcov record prefixes leak through.
+    assert "SF:" not in snippet
+    assert "DA:" not in snippet
+    assert "BRDA:" not in snippet
+    assert "BRF:" not in snippet
+    assert "end_of_record" not in snippet
+
+    # Faithful to parsed_value: the summary is built from the computed totals.
+    assert str(pv["line_pct"]) in snippet
+    assert str(pv["branch_pct"]) in snippet
+    assert str(pv["function_pct"]) in snippet
+    assert str(pv["file_count"]) in snippet
+    assert "lcov" in snippet.lower()
+    # Bounded prose, not a kilobyte dump.
+    assert len(snippet) < 200
+
+
+def test_coverage_summary_snippet_does_not_trip_entropy(ts_fixture_repo):
+    """D-051-05: the structured summary string is low-entropy prose + numbers and
+    yields ZERO entropy-backstop hits (it no longer feeds the false-positive)."""
+    from repo_audit.render.secret_lint import scan_with_entropy
+
+    finding = parse_from_repo(ts_fixture_repo)[0]
+    snippet = finding.evidence.output_snippet
+    entropy_hits = [h for h in scan_with_entropy(snippet) if h.rule_id == "entropy-backstop"]
+    assert entropy_hits == []
+
+
 # --- missing / stale / malformed: COV-04 unavailable Findings -----------
 
 

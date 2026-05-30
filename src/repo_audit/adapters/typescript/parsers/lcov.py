@@ -145,7 +145,13 @@ def parse_from_repo(repo_path: Path) -> list[Finding]:
                 detail=f"{type(e).__name__}: {e}",
             )
         ]
-    snippet = _read_snippet(lcov)
+    # D-051-05 / SECRET-LINT-SPLIT-01: the Evidence.output_snippet used to be the
+    # raw first-1024-chars of lcov.info -- a dense SF:/DA:/BRDA: dump that was the
+    # DOMINANT benign-entropy false-positive feeding the secret-lint entropy
+    # backstop. Replace it with a short structured summary built from the
+    # already-computed totals (faithful: numbers come from parsed_value). This is
+    # path-free low-entropy prose and is also more useful to a reader.
+    snippet = _summary_snippet(totals)
     return [
         Finding(
             dimension="test_integrity",                  # D-48
@@ -222,10 +228,21 @@ def _parse_streaming(lcov: Path) -> dict[str, Any]:
     }
 
 
-def _read_snippet(lcov: Path) -> str:
-    """First 1024 chars of lcov.info — bounded read for Evidence.output_snippet."""
-    with lcov.open(encoding="utf-8", errors="replace") as f:
-        return f.read(1024)
+def _summary_snippet(totals: dict[str, Any]) -> str:
+    """D-051-05: structured one-line coverage summary for Evidence.output_snippet.
+
+    Built from the already-computed ``totals`` dict (line/branch/function pcts +
+    file_count) so it is FAITHFUL -- every number traces back to parsed_value,
+    which the faithfulness gate sources from. Replaces the old raw 1024-char
+    lcov dump that was the dominant benign-entropy false-positive: this string is
+    path-free, low-entropy prose + numbers and yields zero entropy-backstop hits.
+    """
+    return (
+        f"lcov: {totals['line_pct']}% line, "
+        f"{totals['branch_pct']}% branch, "
+        f"{totals['function_pct']}% func "
+        f"across {totals['file_count']} files"
+    )
 
 
 def _unavailable_finding(*, reason: str, detail: str) -> Finding:
