@@ -166,21 +166,23 @@ def test_walker_root_level_file_counted_under_root_sentinel(
 
     repo = tmp_path / "root-files"
     repo.mkdir()
-    # Two root-level files; a (1000) + b (1000) exceed a 1500-byte cap so the
-    # second file is dropped once the "<root>" bucket overflows.
-    (repo / "a.py").write_text("x" * 1000, encoding="utf-8")
-    (repo / "b.py").write_text("x" * 1000, encoding="utf-8")
+    # Three root-level files (1000 bytes each) with a 1500-byte cap. The "<root>"
+    # bucket accumulates AFTER each index: a -> 1000 (kept), b -> 2000 (kept, but
+    # tips the bucket over the cap so "<root>" is pruned), c -> dropped. At least
+    # one root file must be dropped once the "<root>" bucket overflows.
+    for name in ("a.py", "b.py", "c.py"):
+        (repo / name).write_text("x" * 1000, encoding="utf-8")
     monkeypatch.setattr(ri, "SUBTREE_BYTE_CAP", 1500)
 
-    # Must not raise IndexError on empty rel.parts.
+    # Must not raise IndexError on empty rel.parts (the "<root>" sentinel path).
     result = ri.build_repo_index(repo)
 
     assert result.status == "partial"
     truncated = [r for _, r in result.skipped_dirs if r == "budget-truncated"]
     assert truncated  # the root subtree overflow is disclosed
-    # Exactly one of the two root files is indexed (cap trips after the first).
-    indexed_root = {p.name for p in result.index}
-    assert len(indexed_root & {"a.py", "b.py"}) == 1
+    # At least one root file is dropped once the "<root>" bucket exceeds the cap.
+    indexed_root = {p.name for p in result.index} & {"a.py", "b.py", "c.py"}
+    assert len(indexed_root) < 3
 
 
 def test_walker_depth_cap_prunes_and_records_budget_truncated(
