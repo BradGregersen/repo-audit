@@ -34,6 +34,7 @@ from pathlib import Path
 from repo_audit.collectors import register_collector
 from repo_audit.collectors.base import CollectorResult
 from repo_audit.schema.finding import Evidence, Finding
+from repo_audit.walker.skip_dirs import DEFAULT_SKIP_DIRS
 
 
 SCC_TIMEOUT_S: int = 60
@@ -79,8 +80,20 @@ def _run_scc(repo_path: Path) -> list[dict]:
             f"vendored scc missing for this platform: {binary}"
         )
     env = {**os.environ, **_CLEAN_ENV_OVERRIDES}
+    # SCAN-BOUND-01 (D-051-08) — scc --exclude-dir parity. Pass the
+    # DEFAULT_SKIP_DIRS dir names (comma-separated) so scc cannot walk
+    # vendored/build trees EVEN when the target repo has a poor .gitignore.
+    # This is deterministic parity with the rest of the pipeline, independent
+    # of the target's .gitignore. We do NOT pass --no-gitignore (that would
+    # remove scc's existing default protection — RESEARCH / Don't-Hand-Roll).
+    exclude_dirs = ",".join(sorted(DEFAULT_SKIP_DIRS))
+    argv = [
+        str(binary), "-f", "json", "--no-cocomo",
+        "--exclude-dir", exclude_dirs,
+        str(repo_path),
+    ]
     result = subprocess.run(
-        [str(binary), "-f", "json", "--no-cocomo", str(repo_path)],
+        argv,
         capture_output=True,
         text=True,
         timeout=SCC_TIMEOUT_S,

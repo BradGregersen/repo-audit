@@ -71,3 +71,53 @@ def test_loc_inventory_platform_resolution_rejects_windows(monkeypatch):
     monkeypatch.setattr("platform.system", lambda: "Windows")
     with pytest.raises(RuntimeError, match="unsupported platform"):
         _platform_tag()
+
+
+def test_scc_argv_includes_exclude_dir_with_default_skip_dirs(
+    monkeypatch, tmp_path,
+):
+    """SCAN-BOUND-01 (D-051-08): scc is invoked with --exclude-dir parity.
+
+    The argv must carry --exclude-dir with the DEFAULT_SKIP_DIRS dir names
+    (comma-separated) so scc cannot walk vendored/build trees even on a repo
+    with a poor .gitignore. --no-gitignore must NOT be present (that would
+    remove scc's own default protection). We capture the argv by stubbing
+    subprocess.run; the binary-existence check is stubbed so the test runs
+    on any platform without the vendored binary.
+    """
+    import subprocess
+
+    from repo_audit.collectors import loc_inventory as li
+    from repo_audit.walker.skip_dirs import DEFAULT_SKIP_DIRS
+
+    repo = tmp_path / "scc-argv"
+    repo.mkdir()
+    # Point _scc_binary_path at a real file that exists() naturally — avoids
+    # patching pathlib.Path.exists (which would leak across tests).
+    fake_binary = tmp_path / "scc"
+    fake_binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(li, "_scc_binary_path", lambda: fake_binary)
+
+    captured = {}
+
+    class _Result:
+        returncode = 0
+        stdout = "[]"
+        stderr = ""
+
+    def fake_run(argv, *args, **kwargs):
+        captured["argv"] = argv
+        return _Result()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    li._run_scc(repo)
+
+    argv = captured["argv"]
+    assert "--exclude-dir" in argv
+    idx = argv.index("--exclude-dir")
+    exclude_arg = argv[idx + 1]
+    # Every DEFAULT_SKIP_DIRS name is present in the comma-separated list.
+    names = set(exclude_arg.split(","))
+    assert set(DEFAULT_SKIP_DIRS).issubset(names)
+    # --no-gitignore must NOT be present (keeps scc's default protection).
+    assert "--no-gitignore" not in argv

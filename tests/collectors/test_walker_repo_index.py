@@ -160,3 +160,53 @@ def test_walker_healthy_tree_stays_ok_no_budget_truncated(tmp_path):
 
     assert result.status == "ok"
     assert all(reason != "budget-truncated" for _, reason in result.skipped_dirs)
+
+
+def test_run_collectors_past_deadline_marks_all_timeout(tmp_path):
+    """SCAN-BOUND-01 / T-051-03: a deadline already in the past times out all.
+
+    run_collectors with a past deadline marks EVERY collector status='timeout'
+    deterministically and never raises (no mid-flight kill). The number of
+    results equals the registry size so the ledger surfaces every collector.
+    """
+    import time
+
+    from repo_audit.collectors import get_registry, run_collectors
+
+    repo = tmp_path / "deadline"
+    repo.mkdir()
+    (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+
+    results = run_collectors(repo, {}, deadline=time.perf_counter() - 1)
+
+    assert len(results) == len(get_registry())
+    assert results, "registry must be non-empty"
+    assert all(r.status == "timeout" for r in results)
+    assert all(r.notes for r in results)
+
+
+def test_run_collectors_default_deadline_none_runs_all(tmp_path):
+    """SCAN-BOUND-01: deadline=None (default) preserves prior behaviour.
+
+    With no deadline, every collector runs exactly as before — none is
+    marked timeout by the budget path.
+    """
+    from repo_audit.collectors import get_registry, run_collectors
+
+    repo = tmp_path / "no-deadline"
+    repo.mkdir()
+    (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+    from repo_audit.walker import build_repo_index
+
+    wr = build_repo_index(repo)
+    results = run_collectors(repo, wr.index)  # default deadline=None
+
+    assert len(results) == len(get_registry())
+    # No collector is timed out by the (absent) budget path. Individual
+    # collectors may legitimately return other statuses (e.g. 'partial' when
+    # gitleaks is absent), but none should be the budget-timeout sentinel.
+    timeout_notes = [
+        r for r in results
+        if r.status == "timeout" and "time budget exceeded" in (r.notes or "")
+    ]
+    assert timeout_notes == []

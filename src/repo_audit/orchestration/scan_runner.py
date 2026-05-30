@@ -48,6 +48,15 @@ from repo_audit.trend.delta import compute_trend
 from repo_audit.walker import build_repo_index
 
 
+# SCAN-BOUND-01 (D-051-06) — per-scan wall-clock budget. Matches the
+# documented 5-minute scan budget. Threaded into run_collectors as a deadline
+# so that ANY future pathology terminates: once the budget passes, remaining
+# collectors are marked status='timeout' deterministically (no mid-flight
+# kill). With the Task-1 per-file byte ceiling this deadline is rarely-hit
+# insurance, but D-051-06 wants it explicit.
+TIME_BUDGET_S: float = 300.0
+
+
 @dataclass
 class ScanResult:
     """Data carrier returned by :func:`run_scan`.
@@ -229,7 +238,12 @@ def run_scan(
     walker_result = build_repo_index(repo_path)
 
     # D-24 sequential collector orchestration.
-    collector_results = run_collectors(repo_path, walker_result.index)
+    # SCAN-BOUND-01 (D-051-06): pass the per-scan deadline so any overrun
+    # marks remaining collectors timeout deterministically (flips partial).
+    collector_results = run_collectors(
+        repo_path, walker_result.index,
+        deadline=overall_start + TIME_BUDGET_S,
+    )
 
     # Phase 3 (Plan 03-05): adapter dispatch between collectors and ledger.
     # Called via the module attribute so it stays patchable in tests.

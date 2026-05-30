@@ -35,15 +35,43 @@ def get_registry() -> tuple[CollectorFn, ...]:
     return tuple(_REGISTRY)
 
 
-def run_collectors(repo_path: Path, repo_index: dict) -> list[CollectorResult]:
+def run_collectors(
+    repo_path: Path,
+    repo_index: dict,
+    *,
+    deadline: float | None = None,
+) -> list[CollectorResult]:
     """D-24 sequential; D-25 never raises across boundary.
 
     Per-collector timing is captured via time.perf_counter; the resulting
     duration_ms field surfaces in the ScopeLedger's Unavailable subsection
     when a collector hits the soft 60s budget (Phase 2 default).
+
+    SCAN-BOUND-01 (D-051-06): ``deadline`` is an optional ``time.perf_counter``
+    value. BEFORE invoking each collector, if the deadline has passed, the
+    collector (and every remaining one) is marked ``status='timeout'`` with a
+    notes string INSTEAD of being run — a deterministic between-collector
+    check, never a mid-flight kill (no partial-read corruption). A
+    ``status != 'ok'`` result already flows to the ledger's unavailable
+    section and flips the scan to partial. ``deadline=None`` (the default)
+    preserves the exact prior behaviour for every existing caller/test.
     """
     results: list[CollectorResult] = []
+    budget_exceeded = False
     for fn in _REGISTRY:
+        name = getattr(fn, "__module__", getattr(fn, "__name__", "<unknown>"))
+        name = name.rsplit(".", 1)[-1]
+        # SCAN-BOUND-01: deterministic between-collector deadline check.
+        if budget_exceeded or (
+            deadline is not None and time.perf_counter() > deadline
+        ):
+            budget_exceeded = True
+            results.append(CollectorResult(
+                status="timeout",
+                notes=f"per-scan time budget exceeded; {name} skipped",
+                source_collector=name,
+            ))
+            continue
         t0 = time.perf_counter()
         try:
             r = fn(repo_path, repo_index)
