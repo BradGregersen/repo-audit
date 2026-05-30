@@ -124,3 +124,133 @@ def test_template_static_prose_spans_lint_clean(synthetic_partial_scan_report):
     # No exception — the static prose inside the markers contains no standalone
     # all/every/complete token.
     completion_honesty_lint(spans, partial=True, buffer_name="markdown")
+
+
+# ---- D-051-11 end-to-end render_and_write contract (Task 3). ----
+#
+# These prove the SCOPING fix at the render_and_write level: benign all/every/
+# complete tokens in finding-table DATA (and therefore in the serialized json
+# sidecar) write the report (exit 0), while a genuine completeness CLAIM in the
+# claim-bearing narrative prose on a partial scan still hard-refuses (exit 3, no
+# write). The first closes the adapt (json) + adapt-garmin (markdown data rows)
+# regressions; the second preserves the D-32 / SAFE-08 guarantee.
+
+from datetime import date as _date
+
+
+def _partial_meta(**overrides):
+    from repo_audit.schema.report import ReportMeta
+    base = dict(
+        repo_slug="d-051-11-test",
+        commit_sha="0" * 40,
+        scan_date=_date(2026, 5, 29),
+        tool_version="0.1.0",
+        partial=True,
+    )
+    base.update(overrides)
+    return ReportMeta(**base)
+
+
+def _benign_finding():
+    """A finding whose DATA carries benign all/every/complete tokens. NOT a claim."""
+    from repo_audit.schema.finding import Finding, FindingEvidence
+    return Finding(
+        dimension="quality",
+        severity="minor",
+        confidence="probable",
+        title="every dead export should be removed",
+        file="src/all/index.ts",
+        line=12,
+        rule_id="no-unused",
+        source_tool="knip",
+        evidence=FindingEvidence(
+            evidence_type="violation",
+            output_snippet="all files scanned; every export reviewed; coverage complete",
+            source_tool="knip",
+        ),
+    )
+
+
+def test_partial_benign_finding_data_writes(tmp_path):
+    """A partial scan whose finding rows (and thus the json sidecar values) carry
+    benign all/every/complete tokens writes both files (exit 0).
+
+    No agent: the markdown benign tokens sit OUTSIDE the HONESTY markers (finding
+    table DATA), and the json sidecar is no longer honesty-linted at all."""
+    from repo_audit.render import renderer as renderer_mod
+    from repo_audit.schema.report import ScanReport
+    from repo_audit.schema.scope_ledger import ScopeLedger
+
+    scan_report = ScanReport(
+        meta=_partial_meta(),
+        findings=[_benign_finding()],
+        scope_ledger=ScopeLedger(),
+    )
+    md_path = tmp_path / "r.md"
+    json_path = tmp_path / "r.json"
+    rc = renderer_mod.render_and_write(scan_report, md_path, json_path)
+    assert rc == 0
+    assert md_path.exists()
+    assert json_path.exists()
+    # The benign tokens really are present in the written data (regression proof).
+    assert "every" in json_path.read_text(encoding="utf-8")
+    assert "all" in md_path.read_text(encoding="utf-8")
+
+
+def test_partial_genuine_narrative_claim_refuses(tmp_path):
+    """A partial scan whose claim-bearing narrative (agent executive_summary,
+    which lands inside HONESTY markers) genuinely claims completeness returns 3
+    and writes NOTHING — D-32 / SAFE-08 preserved."""
+    pytest.importorskip("claude_agent_sdk", reason="Phase 4 SDK plumbing required")
+    from repo_audit.agent.schema import AgentScanReport
+    from repo_audit.render import renderer as renderer_mod
+    from repo_audit.schema.report import ScanReport
+    from repo_audit.schema.scope_ledger import ScopeLedger
+
+    scan_report = ScanReport(
+        meta=_partial_meta(agent_status="ok"),
+        findings=[],
+        scope_ledger=ScopeLedger(),
+    )
+    agent_output = AgentScanReport(
+        dimensions=[],
+        executive_summary="All dimensions were completely audited.",
+        cross_cutting_notes=None,
+    )
+    md_path = tmp_path / "r.md"
+    json_path = tmp_path / "r.json"
+    rc = renderer_mod.render_and_write(
+        scan_report, md_path, json_path, agent_output=agent_output,
+    )
+    assert rc == 3
+    assert not md_path.exists()
+    assert not json_path.exists()
+
+
+def test_full_scan_narrative_claim_writes(tmp_path):
+    """The SAME genuine completeness claim, but on a full scan (partial=False),
+    writes both files (exit 0) — completion-honesty no-ops on full scans."""
+    pytest.importorskip("claude_agent_sdk", reason="Phase 4 SDK plumbing required")
+    from repo_audit.agent.schema import AgentScanReport
+    from repo_audit.render import renderer as renderer_mod
+    from repo_audit.schema.report import ScanReport
+    from repo_audit.schema.scope_ledger import ScopeLedger
+
+    scan_report = ScanReport(
+        meta=_partial_meta(partial=False, agent_status="ok"),
+        findings=[],
+        scope_ledger=ScopeLedger(),
+    )
+    agent_output = AgentScanReport(
+        dimensions=[],
+        executive_summary="All dimensions were completely audited.",
+        cross_cutting_notes=None,
+    )
+    md_path = tmp_path / "r.md"
+    json_path = tmp_path / "r.json"
+    rc = renderer_mod.render_and_write(
+        scan_report, md_path, json_path, agent_output=agent_output,
+    )
+    assert rc == 0
+    assert md_path.exists()
+    assert json_path.exists()
