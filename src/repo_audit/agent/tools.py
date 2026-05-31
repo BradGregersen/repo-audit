@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import inspect
 import json
+from collections import Counter
 from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
@@ -34,6 +35,30 @@ if TYPE_CHECKING:
     from repo_audit.schema.finding import Finding
     from repo_audit.schema.report import ReportMeta
     from repo_audit.schema.scope_ledger import ScopeLedger
+
+
+# -- bounded-aggregate constants (quick task 260530-pjq) ----------------
+# top_n cap for representative findings in every finding-list getter summary.
+TOP_N: int = 12
+
+# Severity rank for ranking — lower = more severe → sorts first. Mirrors the
+# Severity Literal order in schema/enums.py.
+_SEVERITY_RANK: dict[str, int] = {
+    "blocker": 0,
+    "critical": 1,
+    "major": 2,
+    "minor": 3,
+    "info": 4,
+}
+
+# All five severity keys, present-with-zeros for a stable summary shape.
+_ALL_SEVERITIES: tuple[str, ...] = ("blocker", "critical", "major", "minor", "info")
+
+# Per-finding snippet excerpt cap inside top_n. The schema already redacts +
+# caps output_snippet at 2048 chars; we excerpt further so TOP_N representative
+# snippets cannot dominate the bounded summary (12 × 2048 ≈ 25 KB defeats the
+# whole point). A few hundred chars is plenty for the narrator to characterize.
+_TOP_N_SNIPPET_CAP: int = 280
 
 
 # Module-level state the session loop populates before connect().
@@ -60,20 +85,110 @@ def _module_description(dotted_path: str) -> str:
     return doc.strip()
 
 
-def _findings_by_source_tool(source_tool: str) -> list[dict]:
-    return [
-        f.model_dump(mode="json")
+def _summarize(findings: "list[Finding]") -> dict[str, Any]:
+    """Deterministic, HARD-bounded aggregate of a finding list (260530-pjq).
+
+    Replaces the prior "json.dumps the entire list" getter payload — which
+    overflowed the SDK tool-result / context budget on large collectors (knip
+    arch-rot ~2,836 findings on adapt) and left the agent narrating from counts
+    only. The returned dict is bounded in serialized size REGARDLESS of input
+    cardinality:
+
+      - "total": len(findings).
+      - "counts_by_severity": all 5 severities present (zeros included) → int;
+        sums to total. Stable shape.
+      - "counts_by_rule": rule_id → int. The ONE potentially-unbounded field, so
+        it is capped: the top (TOP_N * 4) most-frequent rule_ids are kept and the
+        remainder folded into a single "__other__" bucket so the values STILL sum
+        to total and the field stays bounded regardless of rule cardinality.
+      - "top_n": <= TOP_N representative finding dicts carrying ONLY
+        {severity, rule_id, file, line, snippet}. snippet is the schema's already
+        redacted output_snippet, further excerpted to _TOP_N_SNIPPET_CAP chars so
+        TOP_N snippets cannot dominate the bounded payload (never re-expanded). No
+        full model_dump.
+
+    Ranking for top_n (computed here in Python — the agent never ranks/invents):
+      (a) severity rank ascending via _SEVERITY_RANK (blocker first),
+      (b) rule_id frequency DESCENDING (most-common rule first),
+      (c) stable deterministic tie-break: (file or "", line or -1, rule_id).
+    The full sort key is value-derived (no reliance on input order), so a
+    shuffled copy of the same findings yields the same top_n (CLAUDE.md
+    reproducibility).
+    """
+    total = len(findings)
+
+    counts_by_severity: dict[str, int] = {s: 0 for s in _ALL_SEVERITIES}
+    rule_counter: Counter[str] = Counter()
+    for f in findings:
+        sev = getattr(f, "severity", "")
+        if sev in counts_by_severity:
+            counts_by_severity[sev] += 1
+        rule_counter[getattr(f, "rule_id", "") or ""] += 1
+
+    # Cap counts_by_rule: keep the TOP_N*4 most frequent, fold the rest into
+    # __other__ so the values still sum to total.
+    rule_cap = TOP_N * 4
+    counts_by_rule: dict[str, int] = {}
+    if len(rule_counter) <= rule_cap:
+        counts_by_rule = dict(rule_counter)
+    else:
+        # most_common is order-stable on ties by insertion; sort the kept set
+        # deterministically for a reproducible payload.
+        kept = sorted(rule_counter.items(), key=lambda kv: (-kv[1], kv[0]))[:rule_cap]
+        counts_by_rule = dict(kept)
+        other = total - sum(counts_by_rule.values())
+        if other:
+            counts_by_rule["__other__"] = other
+
+    # Rank for top_n. Frequency is over the FULL counter (not the capped map) so
+    # representative selection reflects true rule prevalence.
+    ranked = sorted(
+        findings,
+        key=lambda f: (
+            _SEVERITY_RANK.get(getattr(f, "severity", ""), len(_SEVERITY_RANK)),
+            -rule_counter[getattr(f, "rule_id", "") or ""],
+            getattr(f, "file", None) or "",
+            getattr(f, "line", None) if getattr(f, "line", None) is not None else -1,
+            getattr(f, "rule_id", "") or "",
+        ),
+    )
+    top_n = [
+        {
+            "severity": getattr(f, "severity", ""),
+            "rule_id": getattr(f, "rule_id", "") or "",
+            "file": getattr(f, "file", None),
+            "line": getattr(f, "line", None),
+            "snippet": (getattr(getattr(f, "evidence", None), "output_snippet", "") or "")[
+                :_TOP_N_SNIPPET_CAP
+            ],
+        }
+        for f in ranked[:TOP_N]
+    ]
+
+    return {
+        "total": total,
+        "counts_by_severity": counts_by_severity,
+        "counts_by_rule": counts_by_rule,
+        "top_n": top_n,
+    }
+
+
+def _findings_by_source_tool(source_tool: str) -> dict[str, Any]:
+    matched = [
+        f
         for f in _RESULTS.get("findings", [])
         if getattr(f, "source_tool", "") == source_tool
     ]
+    return _summarize(matched)
 
 
-def _findings_by_source_collector(source_collector: str) -> list[dict]:
-    return [
-        f.model_dump(mode="json")
+def _findings_by_source_collector(source_collector: str) -> dict[str, Any]:
+    matched = [
+        f
         for f in _RESULTS.get("findings", [])
         if getattr(f, "source_collector", "") == source_collector
     ]
+    return _summarize(matched)
 
 
 def _wrap(payload: object) -> dict[str, Any]:
@@ -225,12 +340,12 @@ async def get_meta(args: dict[str, Any]) -> dict[str, Any]:
 )
 async def get_findings_by_dimension(args: dict[str, Any]) -> dict[str, Any]:
     dim = args.get("dimension", "")
-    out = [
-        f.model_dump(mode="json")
+    matched = [
+        f
         for f in _RESULTS.get("findings", [])
         if getattr(f, "dimension", "") == dim
     ]
-    return _wrap(out)
+    return _wrap(_summarize(matched))
 
 
 # -- trend baseline getter (Plan 05-03 / TREND-02) ----------------------
