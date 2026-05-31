@@ -30,6 +30,10 @@ from typing import TYPE_CHECKING, Any
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from repo_audit.agent.schema import AgentScanReport
+from repo_audit.render.completion_honesty import (
+    CompletionHonestyViolation,
+    completion_honesty_lint,
+)
 
 if TYPE_CHECKING:
     from repo_audit.schema.finding import Finding
@@ -386,10 +390,26 @@ async def trend_baseline(args: dict[str, Any]) -> dict[str, Any]:
     AgentScanReport.model_json_schema(),
 )
 async def emit_report(args: dict[str, Any]) -> dict[str, Any]:
-    """D-54 boundary + D-55 repair-loop trigger."""
+    """D-54 boundary + D-55 repair-loop trigger.
+
+    Two ``is_error`` returns drive the D-55 repair loop:
+      1. schema-validation failure (model_validate raises), and
+      2. completion-honesty violation on a PARTIAL scan (quick 260530-tbi).
+
+    The honesty gate is hooked here so a partial-scan narrative tripping the
+    standalone all/every/complete check becomes an IN-SESSION repair signal
+    instead of a terminal render-time refusal (renderer.py rc=3). The
+    render-time completion_honesty_lint backstop in renderer.py is KEPT
+    unchanged as the authoritative defense-in-depth layer.
+
+    CRITICAL: validate into a LOCAL first and only assign ``_EMITTED_REPORT``
+    AFTER the honesty gate passes (or is skipped because meta is None) — a
+    rejected emit must leave ``_EMITTED_REPORT`` unset for this scan so the
+    session loop never terminates with a dirty report.
+    """
     global _EMITTED_REPORT
     try:
-        _EMITTED_REPORT = AgentScanReport.model_validate(args)
+        report = AgentScanReport.model_validate(args)
     except Exception as exc:  # pydantic.ValidationError
         return {
             "content": [{
@@ -402,6 +422,41 @@ async def emit_report(args: dict[str, Any]) -> dict[str, Any]:
             }],
             "is_error": True,  # D-55 repair-loop trigger
         }
+
+    # In-session completion-honesty gate (quick 260530-tbi). Skipped when meta
+    # is absent (defensive — never crash). Otherwise lint the SAME buffer the
+    # renderer builds (renderer.py 206-209: dimension narratives FIRST, then
+    # executive_summary) so an in-session repair actually prevents the
+    # render-time rc=3.
+    meta = _RESULTS.get("meta")
+    if meta is not None:
+        agent_narrative_buf = "\n\n".join(
+            [dim.narrative for dim in report.dimensions]
+            + [report.executive_summary or ""]
+        )
+        try:
+            completion_honesty_lint(
+                agent_narrative_buf,
+                partial=meta.partial,
+                buffer_name="agent-narrative",
+            )
+        except CompletionHonestyViolation as exc:
+            # Do NOT store _EMITTED_REPORT — leave it unset for this scan so
+            # the session loop does not terminate with a dirty report.
+            tokens = sorted({h.word for h in exc.hits})
+            return {
+                "content": [{"type": "text", "text": (
+                    "COMPLETION-HONESTY VIOLATION — emit_report rejected on a "
+                    "PARTIAL scan. These standalone words are forbidden in the "
+                    f"narrative on a partial scan: {tokens}. Rewrite to qualify "
+                    "scope — say 'the in-scope dimensions' not 'every dimension', "
+                    "'the collected findings' not 'all findings', 'as far as the "
+                    "scan reached' not 'complete' — and call emit_report again."
+                )}],
+                "is_error": True,  # D-55 repair-loop trigger (same shape as schema path)
+            }
+
+    _EMITTED_REPORT = report
     return _wrap({"status": "ok", "message": "Report accepted; loop terminating."})
 
 
