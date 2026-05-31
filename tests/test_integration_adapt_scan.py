@@ -83,23 +83,33 @@ def test_adapt_scan_produces_narrative():
 def test_no_agent_path_produces_report():
     """`--no-agent` path produces a deterministic-only report; exit 0.
 
-    This is the deterministic 999.1 canary. Before Plan 01's byte caps the
-    adapt --no-agent scan overran ~337s in file_size_cap and timed out; the
-    caps removed that 337s file_size_cap overrun. The remaining full --no-agent
-    pipeline latency on the 40 GB adapt is ACCEPTED as closed-enough (D-051
-    orchestrator note) rather than chasing perf — so the canary budget is
-    relaxed (not tightened to 120s) to a generous tripwire that still catches a
-    true regression (e.g. a reintroduced unbounded walk) without false-reds.
+    This is the deterministic 999.1 canary. History:
+      * Before Plan 01's byte caps the adapt --no-agent scan overran ~337s in
+        file_size_cap and timed out.
+      * After Plan 01 the FULL pipeline still ran ~415s because the read-heavy /
+        subprocess collectors were unbounded INSIDE their own bodies — chiefly
+        secret_detection, which spawns a gitleaks subprocess PER text file
+        (~13.7k files on adapt). The between-collector deadline could not
+        interrupt a single running collector, so the canary had been relaxed to
+        600s as "closed-enough".
+      * 05.1-gap (Blocker A) actually bounds it: each read-heavy collector now
+        polls the shared scan deadline from inside its loop (TIME_BUDGET_S=95s
+        collector phase) and self-reports status='timeout' (-> partial banner +
+        scope ledger disclosure, SAFE-08). The whole `repo-audit scan --no-agent`
+        adapt run now reliably finishes ~100s (measured 102s & 104s, 2026-05-30).
+
+    The canary is therefore TIGHTENED to 180s: a real tripwire (~75% headroom
+    over the measured ~104s for slower disks/CI) that catches a reintroduced
+    unbounded collector / walk, well below the documented 300s scan ceiling.
     """
     _skip_if_no_adapt()
-    # Latency accepted per D-051 orchestrator note. Measured clean run on the
-    # 40 GB adapt (2026-05-29) was ~415s, exit 0, both reports written. 360s
-    # was below the real latency and false-failed; 600s gives ~45% headroom
-    # over the measured ~415s while still tripping on a true unbounded-walk
-    # regression. (Matches the live-agent test's 600s convention.)
+    # 05.1-gap: measured clean runs on the 40 GB adapt (2026-05-30) were 102s and
+    # 104s, exit 0, both reports written, meta.partial=True with the
+    # secret_detection timeout disclosed in the scope ledger. 180s keeps ~75%
+    # headroom while staying a tight regression tripwire (< the 300s ceiling).
     result = subprocess.run(
         ["uv", "run", "arch", "scan", "--no-agent", str(ADAPT_PATH)],
-        capture_output=True, timeout=600,
+        capture_output=True, timeout=180,
     )
     assert result.returncode == 0
     today = date.today().isoformat()
