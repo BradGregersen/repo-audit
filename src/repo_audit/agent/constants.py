@@ -27,7 +27,11 @@ AGENT_DEFAULTS: dict[str, Any] = {
     # Documentation-grade under Max OAuth per D-65; the SDK signals
     # overage via ResultMessage.subtype == 'error_max_budget_usd' for
     # API-key auth users (RESEARCH §"Budget signal detection").
-    "agent.max_budget_usd": 0.50,
+    # Raised 0.50 -> 3.00: the prior $0.50 default cost-capped the agent
+    # before per-dimension narration completed on large repos (adapt full
+    # narration ~$0.63 documentation-grade under Max OAuth; ~$0 actual
+    # under a Max subscription).
+    "agent.max_budget_usd": 3.00,
 }
 
 
