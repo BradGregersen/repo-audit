@@ -95,17 +95,21 @@ def test_no_agent_path_produces_report():
       * 05.1-gap (Blocker A) actually bounds it: each read-heavy collector now
         polls the shared scan deadline from inside its loop (TIME_BUDGET_S=95s
         collector phase) and self-reports status='timeout' (-> partial banner +
-        scope ledger disclosure, SAFE-08). The whole `repo-audit scan --no-agent`
-        adapt run now reliably finishes ~100s (measured 102s & 104s, 2026-05-30).
+        scope ledger disclosure, SAFE-08). The deterministic collector phase is
+        hard-capped at 95s; the whole `repo-audit scan --no-agent` adapt run finishes
+        116-118s on a QUIET host (95s collectors + ~21s walker/adapters/render
+        tail; clean samples 116s & 118s, 2026-05-30).
 
-    The canary is therefore TIGHTENED to 180s: a real tripwire (~75% headroom
-    over the measured ~104s for slower disks/CI) that catches a reintroduced
-    unbounded collector / walk, well below the documented 300s scan ceiling.
+    The canary is therefore TIGHTENED to 180s: a real tripwire (~52% headroom
+    over the measured ~118s for slower disks / shared CI runners) that catches a
+    reintroduced unbounded collector / walk, well below the documented 300s scan
+    ceiling. (NOTE: measure on a QUIET host — leaked gitleaks/scan children from
+    a killed prior run compete for CPU and inflate this badly; reap them first.)
     """
     _skip_if_no_adapt()
-    # 05.1-gap: measured clean runs on the 40 GB adapt (2026-05-30) were 102s and
-    # 104s, exit 0, both reports written, meta.partial=True with the
-    # secret_detection timeout disclosed in the scope ledger. 180s keeps ~75%
+    # 05.1-gap: clean quiet-host runs on the 40 GB adapt (2026-05-30) were 116s
+    # and 118s, exit 0, both reports written, meta.partial=True with the
+    # secret_detection timeout disclosed in the scope ledger. 180s keeps ~52%
     # headroom while staying a tight regression tripwire (< the 300s ceiling).
     result = subprocess.run(
         ["uv", "run", "arch", "scan", "--no-agent", str(ADAPT_PATH)],
