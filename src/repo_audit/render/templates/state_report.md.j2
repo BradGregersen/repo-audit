@@ -6,15 +6,15 @@
    narrative for `dim_name` (D-54). Falls back to the D-09 / D-67 pending
    marker naming report.meta.agent_status when the agent did not run. #}
 {% macro dimension_narrative(dim_name) -%}
-{% set dim_narrative = none %}
+{% set ns = namespace(narrative=none) %}
 {% if agent_output is not none %}
 {% for dim in agent_output.dimensions %}
-{% if dim.dimension == dim_name %}{% set dim_narrative = dim.narrative %}{% endif %}
+{% if dim.dimension == dim_name %}{% set ns.narrative = dim.narrative %}{% endif %}
 {% endfor %}
 {% endif %}
-{% if dim_narrative %}
+{% if ns.narrative %}
 <!--HONESTY:START-->
-{{ dim_narrative }}
+{{ ns.narrative }}
 <!--HONESTY:END-->
 {% elif report.meta.agent_status is not none and report.meta.agent_status != 'ok' %}
 <!--HONESTY:START-->
