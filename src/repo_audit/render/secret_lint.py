@@ -174,7 +174,9 @@ def scan_with_known_patterns(text: str) -> list[SecretHit]:
     return hits
 
 
-def scan_with_gitleaks(text: str) -> list[SecretHit]:
+def scan_with_gitleaks(
+    text: str, *, timeout: float = GITLEAKS_TIMEOUT_S
+) -> list[SecretHit]:
     """D-05 gitleaks named-rule scan via subprocess.
 
     Returns ``[]`` when gitleaks is not on PATH (graceful degrade per
@@ -184,6 +186,13 @@ def scan_with_gitleaks(text: str) -> list[SecretHit]:
 
     Per CLAUDE.md hard rule: ``shell=False``, command as ``list[str]``,
     explicit ``timeout``.
+
+    05.1-gap: ``timeout`` (default ``GITLEAKS_TIMEOUT_S`` = 30 s — UNCHANGED for
+    the renderer chokepoint's existing callers) lets the secret_detection
+    collector cap the PER-FILE subprocess at the scan budget remaining, so a
+    gitleaks call started near the scan deadline cannot overshoot it by a full
+    30 s. A non-positive ``timeout`` skips the call (returns ``[]``) rather than
+    launching a doomed subprocess.
 
     ``redacted_len`` is derived from gitleaks's ``EndColumn - StartColumn``
     JSON fields -- i.e., the position-derived ORIGINAL token length on the
@@ -195,6 +204,8 @@ def scan_with_gitleaks(text: str) -> list[SecretHit]:
     absent or zero (defensive).
     """
     if shutil.which("gitleaks") is None:
+        return []
+    if timeout <= 0:
         return []
 
     # Gitleaks 8.x supports ``gitleaks stdin`` for piped input. Flags verified
@@ -212,7 +223,7 @@ def scan_with_gitleaks(text: str) -> list[SecretHit]:
             input=text,
             capture_output=True,
             text=True,
-            timeout=GITLEAKS_TIMEOUT_S,
+            timeout=timeout,
             shell=False,  # CLAUDE.md hard rule
             check=False,  # gitleaks exits non-zero when it finds secrets
         )

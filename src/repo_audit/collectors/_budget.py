@@ -73,10 +73,18 @@ class DeadlineGuard:
         self.tripped = False
 
     def tick(self) -> bool:
-        """Advance one iteration; return True when the deadline has been reached."""
+        """Advance one iteration; return True when the deadline has been reached.
+
+        Polls the clock on the FIRST tick (so an already-expired deadline trips
+        immediately — the common case when a collector starts after the budget
+        is spent) and every ``check_every`` ticks thereafter (cheap steady
+        state). With ``deadline=None`` it never trips.
+        """
         if self.deadline is None or self.tripped:
             return self.tripped
         self._i += 1
-        if self._i % self.check_every == 0 and time.perf_counter() >= self.deadline:
+        if (self._i == 1 or self._i % self.check_every == 0) and (
+            time.perf_counter() >= self.deadline
+        ):
             self.tripped = True
         return self.tripped
