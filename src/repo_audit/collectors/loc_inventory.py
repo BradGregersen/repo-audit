@@ -32,6 +32,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from repo_audit.collectors import register_collector
+from repo_audit.collectors._budget import remaining_seconds
 from repo_audit.collectors.base import CollectorResult
 from repo_audit.schema.finding import Evidence, Finding
 from repo_audit.walker.skip_dirs import DEFAULT_SKIP_DIRS
@@ -65,20 +66,33 @@ def _scc_binary_path() -> Path:
     return Path(str(base))
 
 
-def _run_scc(repo_path: Path) -> list[dict]:
+def _run_scc(repo_path: Path, *, deadline: float | None = None) -> list[dict]:
     """Invoke scc; return parsed list-of-language-dicts with Content stripped.
 
     Raises:
         FileNotFoundError -- binary missing for this platform (vendor gap)
-        subprocess.TimeoutExpired -- scc exceeded SCC_TIMEOUT_S
+        subprocess.TimeoutExpired -- scc exceeded its (deadline-capped) timeout
         RuntimeError -- scc returned non-zero
         json.JSONDecodeError -- scc produced unparseable stdout
+
+    05.1-gap: ``deadline`` (a ``time.perf_counter`` value) caps the subprocess
+    timeout at the MINIMUM of ``SCC_TIMEOUT_S`` and the seconds remaining before
+    the shared scan deadline, so scc — which walks the target tree itself — can
+    never push the scan past its budget.
     """
     binary = _scc_binary_path()
     if not binary.exists():
         raise FileNotFoundError(
             f"vendored scc missing for this platform: {binary}"
         )
+    timeout_s: float = float(SCC_TIMEOUT_S)
+    rem = remaining_seconds(deadline)
+    if rem is not None:
+        if rem <= 1.0:
+            # No budget left to start scc; treat as a timeout the caller maps
+            # to status='timeout' (honest partial), not a doomed 60 s subprocess.
+            raise subprocess.TimeoutExpired(cmd="scc", timeout=0)
+        timeout_s = min(timeout_s, rem)
     env = {**os.environ, **_CLEAN_ENV_OVERRIDES}
     # SCAN-BOUND-01 (D-051-08) — scc --exclude-dir parity. Pass the
     # DEFAULT_SKIP_DIRS dir names (comma-separated) so scc cannot walk
@@ -96,7 +110,7 @@ def _run_scc(repo_path: Path) -> list[dict]:
         argv,
         capture_output=True,
         text=True,
-        timeout=SCC_TIMEOUT_S,
+        timeout=timeout_s,
         shell=False,
         check=False,
         env=env,
@@ -119,7 +133,12 @@ def _run_scc(repo_path: Path) -> list[dict]:
 
 
 @register_collector
-def run(repo_path: Path, repo_index: dict) -> CollectorResult:
+def run(
+    repo_path: Path,
+    repo_index: dict,
+    *,
+    deadline: float | None = None,
+) -> CollectorResult:
     # Resolve platform; Windows raises here.
     try:
         platform_tag = _platform_tag()
@@ -132,9 +151,10 @@ def run(repo_path: Path, repo_index: dict) -> CollectorResult:
             scanned_paths=[str(repo_path)],
         )
 
-    # Run scc.
+    # Run scc. 05.1-gap: pass the shared deadline so the subprocess timeout is
+    # capped at the remaining scan budget (scc walks the tree itself).
     try:
-        parsed = _run_scc(repo_path)
+        parsed = _run_scc(repo_path, deadline=deadline)
     except FileNotFoundError as exc:
         return CollectorResult(
             status="unavailable",

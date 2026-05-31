@@ -31,6 +31,7 @@ import re
 from pathlib import Path
 
 from repo_audit.collectors import register_collector
+from repo_audit.collectors._budget import DeadlineGuard
 from repo_audit.collectors.base import CollectorResult
 from repo_audit.schema.finding import Evidence, Finding
 
@@ -55,11 +56,29 @@ def _looks_text(file_path: Path, ext: str) -> bool:
 
 
 @register_collector
-def run(repo_path: Path, repo_index: dict) -> CollectorResult:
+def run(
+    repo_path: Path,
+    repo_index: dict,
+    *,
+    deadline: float | None = None,
+) -> CollectorResult:
+    """05.1-gap: ``deadline`` is the shared ``time.perf_counter`` scan deadline.
+
+    The per-file content read previously ran unbounded (~9 s on the 40 GB adapt;
+    pathological on a larger tree). The loop now polls the deadline once per N
+    files and stops early when it is reached, self-reporting ``status='timeout'``
+    so the scope ledger discloses that not every file was scanned (SAFE-08).
+    """
     repo_path = Path(repo_path).resolve()
     findings: list[Finding] = []
+    guard = DeadlineGuard(deadline)
+    deadline_hit = False
+    scanned_files = 0
 
     for file_path, meta in repo_index.items():
+        if guard.tick():
+            deadline_hit = True
+            break
         if meta.size_bytes > MAX_FILE_BYTES:
             continue
         if not _looks_text(file_path, meta.ext):
@@ -68,6 +87,7 @@ def run(repo_path: Path, repo_index: dict) -> CollectorResult:
             text = file_path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
+        scanned_files += 1
         for lineno, line in enumerate(text.splitlines(), start=1):
             for m in TODO_RE.finditer(line):
                 try:
@@ -98,7 +118,13 @@ def run(repo_path: Path, repo_index: dict) -> CollectorResult:
 
     return CollectorResult(
         findings=findings,
-        status="ok",
+        status="timeout" if deadline_hit else "ok",
+        notes=(
+            f"scan time budget reached after {scanned_files} files; "
+            "remaining files not scanned for TODO markers"
+            if deadline_hit
+            else ""
+        ),
         source_collector="todo_markers",
         dimension="quality",
         scanned_paths=[str(repo_path)],

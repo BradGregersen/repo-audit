@@ -41,6 +41,7 @@ from pathlib import Path
 from ruamel.yaml import YAML
 
 from repo_audit.collectors import register_collector
+from repo_audit.collectors._budget import DeadlineGuard, remaining_seconds
 from repo_audit.collectors.base import CollectorResult
 from repo_audit.render.secret_lint import (
     SecretHit,
@@ -128,7 +129,12 @@ def _looks_text(file_path: Path, ext: str) -> bool:
 
 
 @register_collector
-def run(repo_path: Path, repo_index: dict) -> CollectorResult:
+def run(
+    repo_path: Path,
+    repo_index: dict,
+    *,
+    deadline: float | None = None,
+) -> CollectorResult:
     """COLL-03 entry point.
 
     Iterates the pre-built RepoIndex (Plan 02-01a) for text files, scans
@@ -139,10 +145,20 @@ def run(repo_path: Path, repo_index: dict) -> CollectorResult:
     Args:
         repo_path: Path to the target repo root.
         repo_index: dict[Path, FileMeta] from build_repo_index().
+        deadline: optional ``time.perf_counter`` value — the shared scan
+            deadline (05.1-gap). This collector calls gitleaks once PER text
+            file (Pitfall-8 per-file subprocess), which on a 40 GB repo with
+            ~13.7 k text files cannot finish inside the scan budget — it is THE
+            Blocker-A bottleneck. The per-file loop now polls this deadline and
+            stops early when it is reached, self-reporting ``status='timeout'``
+            so the scope ledger discloses the bounded coverage (SAFE-08). The
+            redaction / value-blind contract (T-02-04-01, SCH-08) is unchanged.
 
     Returns:
-        CollectorResult with status='ok' when gitleaks is available;
-        status='partial' otherwise (notes documents the precision drop).
+        CollectorResult with status='ok' when gitleaks is available and the
+        whole index was swept; status='partial' when gitleaks is absent
+        (precision drop); status='timeout' when the scan deadline cut the
+        sweep short (partial coverage, honestly disclosed).
     """
     repo_path = Path(repo_path).resolve()
     state_report_prefix = repo_path / "docs" / "state-reports"
@@ -152,8 +168,20 @@ def run(repo_path: Path, repo_index: dict) -> CollectorResult:
 
     findings: list[Finding] = []
     scanned_files = 0
+    # 05.1-gap: shared-deadline guard so the per-file gitleaks subprocess loop
+    # can never run past the scan budget. Each iteration here may spawn a
+    # gitleaks subprocess (potentially seconds), so poll the clock on EVERY
+    # file (check_every=1) rather than the default batch interval.
+    guard = DeadlineGuard(deadline, check_every=1)
+    deadline_hit = False
 
     for file_path, meta in repo_index.items():
+        # 05.1-gap: stop the (expensive, per-file-subprocess) sweep once the
+        # shared scan deadline is reached. Deterministic between-file check —
+        # never a mid-read kill. Surfaces as status='timeout' below.
+        if guard.tick():
+            deadline_hit = True
+            break
         # Pitfall 7 -- defensive double-check; the walker already excludes
         # docs/state-reports/ at the repo root (Plan 02-01a). Belt-and-
         # suspenders in case a future caller hands us a hand-built index.
@@ -182,7 +210,14 @@ def run(repo_path: Path, repo_index: dict) -> CollectorResult:
 
         hits: list[SecretHit] = []
         if GITLEAKS_AVAILABLE:
-            hits.extend(scan_with_gitleaks(text))
+            # 05.1-gap: cap this per-file gitleaks subprocess at the scan budget
+            # remaining (default 30 s when no deadline), so a call started near
+            # the deadline cannot overshoot it by a full 30 s. remaining<=0 makes
+            # scan_with_gitleaks skip the call; the in-process scans below still
+            # run, so every swept file keeps known-pattern coverage.
+            rem = remaining_seconds(deadline)
+            gl_timeout = 30.0 if rem is None else min(30.0, rem)
+            hits.extend(scan_with_gitleaks(text, timeout=gl_timeout))
         # 260530-gm9: Always-on, low-FP named-rule layer (AKIA/ghp_/sk_live_/...).
         # Called DIRECTLY so it survives independent of the entropy flag
         # (CONTEXT: known-pattern detection is ALWAYS ON).
@@ -235,12 +270,23 @@ def run(repo_path: Path, repo_index: dict) -> CollectorResult:
                 ),
             ))
 
-    status = "ok" if GITLEAKS_AVAILABLE else "partial"
-    notes = (
-        ""
-        if GITLEAKS_AVAILABLE
-        else "gitleaks not on PATH -- entropy + known-pattern backstop only"
-    )
+    # 05.1-gap: a deadline-truncated sweep is the collector's honest status —
+    # it must surface as non-'ok' so the ledger flips partial and the report
+    # discloses that not every file was scanned. This takes precedence over the
+    # gitleaks-absent 'partial' (a truncated sweep is the stronger caveat).
+    if deadline_hit:
+        status = "timeout"
+        notes = (
+            f"scan time budget reached after {scanned_files} files; "
+            "remaining files not swept for secrets"
+        )
+    else:
+        status = "ok" if GITLEAKS_AVAILABLE else "partial"
+        notes = (
+            ""
+            if GITLEAKS_AVAILABLE
+            else "gitleaks not on PATH -- entropy + known-pattern backstop only"
+        )
 
     return CollectorResult(
         findings=findings,

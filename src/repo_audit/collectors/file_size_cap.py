@@ -30,6 +30,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from repo_audit.collectors import register_collector
+from repo_audit.collectors._budget import DeadlineGuard
 from repo_audit.collectors.base import CollectorResult
 from repo_audit.schema.finding import Evidence, Finding
 
@@ -77,11 +78,29 @@ def _count_lines(file_path: Path) -> int:
 
 
 @register_collector
-def run(repo_path: Path, repo_index: dict) -> CollectorResult:
+def run(
+    repo_path: Path,
+    repo_index: dict,
+    *,
+    deadline: float | None = None,
+) -> CollectorResult:
+    """05.1-gap: ``deadline`` is the shared ``time.perf_counter`` scan deadline.
+
+    ``_count_lines`` streams every in-cap file; on a very large tree the
+    aggregate read can overrun. The loop polls the deadline once per N files and
+    stops early when reached, self-reporting ``status='timeout'`` so the scope
+    ledger discloses the partial coverage (SAFE-08).
+    """
     repo_path = Path(repo_path).resolve()
     findings: list[Finding] = []
+    guard = DeadlineGuard(deadline)
+    deadline_hit = False
+    scanned_files = 0
 
     for file_path, meta in repo_index.items():
+        if guard.tick():
+            deadline_hit = True
+            break
         # SCAN-BOUND-01 / T-051-01 upper-bound guard -- the single fix that
         # removes the measured 337s overrun. A >1MB file is generated/binary;
         # never pass it to _count_lines (which streams every byte). Mirrors
@@ -89,6 +108,7 @@ def run(repo_path: Path, repo_index: dict) -> CollectorResult:
         # pre-filter and the _count_lines call.
         if meta.size_bytes > MAX_FILE_BYTES:
             continue
+        scanned_files += 1
         threshold = get_threshold(meta.ext)
         # Pattern 6 coarse pre-filter -- skips ~99% of files on typical
         # repos without ever opening them for content read.
@@ -128,7 +148,13 @@ def run(repo_path: Path, repo_index: dict) -> CollectorResult:
 
     return CollectorResult(
         findings=findings,
-        status="ok",
+        status="timeout" if deadline_hit else "ok",
+        notes=(
+            f"scan time budget reached after {scanned_files} files; "
+            "remaining files not checked for size-cap violations"
+            if deadline_hit
+            else ""
+        ),
         source_collector="file_size_cap",
         dimension="quality",
         scanned_paths=[str(repo_path)],

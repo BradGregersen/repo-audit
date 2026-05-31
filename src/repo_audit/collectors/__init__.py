@@ -14,6 +14,7 @@ wrap their own bodies in try/except and return CollectorResult(status=
 """
 from __future__ import annotations
 
+import inspect
 import time
 from pathlib import Path
 from typing import Callable
@@ -33,6 +34,20 @@ def register_collector(fn: CollectorFn) -> CollectorFn:
 
 def get_registry() -> tuple[CollectorFn, ...]:
     return tuple(_REGISTRY)
+
+
+def _accepts_deadline(fn: CollectorFn) -> bool:
+    """True when ``fn`` declares a ``deadline`` parameter.
+
+    Used so ``run_collectors`` only threads the shared scan deadline into
+    collectors that opt in (the read-heavy / subprocess ones). Collectors and
+    test doubles with the plain ``(repo_path, repo_index)`` signature are called
+    unchanged. Inspection failures degrade to "does not accept" (safe default).
+    """
+    try:
+        return "deadline" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 def run_collectors(
@@ -55,6 +70,17 @@ def run_collectors(
     ``status != 'ok'`` result already flows to the ledger's unavailable
     section and flips the scan to partial. ``deadline=None`` (the default)
     preserves the exact prior behaviour for every existing caller/test.
+
+    05.1-gap (per-collector self-bounding): the between-collector check above
+    cannot interrupt a single collector once it is running. On a 40 GB repo the
+    content-read / subprocess collectors (todo_markers, secret_detection,
+    loc_inventory) each ran 110-145 s unbounded. So ``deadline`` is now ALSO
+    threaded INTO each collector that declares a ``deadline`` keyword parameter;
+    those collectors poll it from inside their own loops / cap their subprocess
+    timeouts at the remaining budget and self-report ``status != 'ok'`` when a
+    bound trips. Collectors without the parameter (and the monkeypatched test
+    doubles) are called exactly as before — the keyword is passed conditionally
+    via signature inspection so no collector contract is forced to change.
     """
     results: list[CollectorResult] = []
     budget_exceeded = False
@@ -74,7 +100,10 @@ def run_collectors(
             continue
         t0 = time.perf_counter()
         try:
-            r = fn(repo_path, repo_index)
+            if _accepts_deadline(fn):
+                r = fn(repo_path, repo_index, deadline=deadline)
+            else:
+                r = fn(repo_path, repo_index)
         except Exception as exc:
             r = CollectorResult(
                 status="unavailable",

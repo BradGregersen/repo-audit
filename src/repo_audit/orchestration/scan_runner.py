@@ -48,13 +48,26 @@ from repo_audit.trend.delta import compute_trend
 from repo_audit.walker import build_repo_index
 
 
-# SCAN-BOUND-01 (D-051-06) — per-scan wall-clock budget. Matches the
-# documented 5-minute scan budget. Threaded into run_collectors as a deadline
-# so that ANY future pathology terminates: once the budget passes, remaining
-# collectors are marked status='timeout' deterministically (no mid-flight
-# kill). With the Task-1 per-file byte ceiling this deadline is rarely-hit
-# insurance, but D-051-06 wants it explicit.
-TIME_BUDGET_S: float = 300.0
+# SCAN-BOUND-01 (D-051-06) — per-scan wall-clock budget threaded into
+# run_collectors as a deadline.
+#
+# 05.1-gap: lowered from 300 s and now ENFORCED INSIDE the read-heavy /
+# subprocess collectors, not only between them. The Blocker-A bottleneck was
+# secret_detection spawning a gitleaks subprocess PER text file: on the 40 GB
+# adapt (~13.7 k text files) that never finished inside the 120 s acceptance
+# canary. The between-collector check (the prior mechanism) could not interrupt
+# it once running. Each read-heavy collector now polls THIS deadline from inside
+# its own loop (and caps any subprocess timeout at the remaining budget), so the
+# whole deterministic scan reliably finishes well under the canary while any
+# truncated collector self-reports status!='ok' (-> partial banner + scope
+# ledger disclosure, SAFE-08). 95 s is the COLLECTOR-phase budget: with the
+# walker (~1 s), the stack adapters, and the render/secret-lint/write tail
+# (~10-15 s on adapt) layered on top, the whole `repo-audit scan --no-agent` finishes
+# comfortably under the 120 s acceptance canary while staying a tight tripwire
+# (well below the documented 300 s ceiling). The per-file gitleaks subprocess is
+# additionally capped at the budget remaining (see secret_detection.run), so the
+# collector phase cannot overshoot this deadline by a full gitleaks timeout.
+TIME_BUDGET_S: float = 95.0
 
 
 @dataclass
