@@ -34,8 +34,6 @@ falls through to ``status='unavailable'`` until Wave 2 lands.
 from __future__ import annotations
 
 import importlib
-import subprocess
-import time
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +43,7 @@ from repo_audit.adapters.base import AdapterResult, InvocationResult
 from repo_audit.adapters.cache_env import build_scan_env, scan_tempdir
 from repo_audit.adapters.registry import register_adapter
 from repo_audit.adapters.resolution import resolve_tool
+from repo_audit.adapters.toolops import EXEC_FAILED, run_tool
 from repo_audit.adapters.typescript.detection import detect_eslint_config
 from repo_audit.schema.detection import DetectionResult
 
@@ -119,47 +118,32 @@ def _invoke_subprocess(
 ) -> InvocationResult:
     """Run ``[tool_bin, *extra_args]`` under the supplied env.
 
-    T-03-02 + T-03-04 structural mitigations:
-        * ``shell=False`` enforced; argv is a list, never a string.
-        * Explicit ``timeout`` — TimeoutExpired is caught here and
-          surfaced via ``returncode=-2`` so the caller emits a
-          ``status='timeout'`` AdapterResult.
-        * ``capture_output=True, text=True`` — stdout/stderr bounded
-          by the timeout; T-03-05 disposition: accept (Phase 7 may add
-          an explicit output cap once real workloads inform the size).
+    D-06-11: this now delegates to the single shared tool-ops wrapper
+    (``adapters/toolops.run_tool``) so there is ONE subprocess invocation
+    path across the whole codebase, not a per-adapter copy. The wrapper
+    enforces the same structural mitigations this helper used to roll itself:
+
+        * ``shell=False`` + ``list[str]`` argv (T-03-02 / T-06-01) — and now
+          additionally a ``TypeError`` guard if a str argv ever slips in.
+        * Explicit ``timeout`` with SIGTERM→5s→SIGKILL escalation (FND-04) —
+          a stronger no-hang guarantee than the prior bare
+          ``subprocess.run(timeout=…)``, which never gracefully escalated.
+        * ``returncode == -2`` timeout sentinel (unchanged) — the caller
+          (``_run_subprocess_tool``) flips it into ``status='timeout'``.
+        * ``returncode == -1`` exec-failed sentinel — the wrapper folds a
+          vanished/​un-exec'able binary into this instead of raising
+          ``FileNotFoundError``; the caller maps it to ``status='unavailable'``
+          (the same outcome the old ``except FileNotFoundError`` produced).
+        * stdout/stderr decoded utf-8/replace; output bounded by the timeout
+          (T-03-05 disposition: accept).
     """
     argv = [str(tool_bin), *extra_args]
-    t0 = time.perf_counter()
-    try:
-        cp = subprocess.run(
-            argv,
-            shell=False,
-            env=env,
-            cwd=str(cwd),
-            timeout=timeout_seconds,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        duration_ms = (time.perf_counter() - t0) * 1000.0
-        return InvocationResult(
-            stdout=cp.stdout or "",
-            stderr=cp.stderr or "",
-            returncode=cp.returncode,
-            command=argv,
-            duration_ms=duration_ms,
-        )
-    except subprocess.TimeoutExpired as exc:
-        duration_ms = (time.perf_counter() - t0) * 1000.0
-        return InvocationResult(
-            stdout=exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or ""),
-            stderr=exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or ""),
-            # -2 is the structural sentinel for "timed out"; the
-            # caller flips this into AdapterResult(status='timeout').
-            returncode=-2,
-            command=argv,
-            duration_ms=duration_ms,
-        )
+    return run_tool(
+        argv,
+        env=env,
+        cwd=cwd,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 # --- per-tool result builders --------------------------------------------
@@ -216,6 +200,11 @@ def _run_subprocess_tool(
     elif tool_name == "tsc":
         extra_args.extend(["--tsBuildInfoFile", str(tempdir / ".tsbuildinfo")])
 
+    # _invoke_subprocess now delegates to the shared run_tool wrapper, which
+    # NEVER raises — a vanished/un-exec'able binary comes back as the -1
+    # exec-failed sentinel rather than a FileNotFoundError/OSError. The
+    # try/except below is retained as defence-in-depth (a future direct caller
+    # or a bug that re-raises) but the -1 mapping is the live path now.
     try:
         invocation = _invoke_subprocess(
             tool_bin,
@@ -224,13 +213,23 @@ def _run_subprocess_tool(
             timeout_seconds=timeout_seconds,
             cwd=repo_path,
         )
-    except FileNotFoundError as exc:
+    except FileNotFoundError as exc:  # pragma: no cover — run_tool folds this into -1
         return _make_unavailable(
             tool_name, dimension, f"binary disappeared between resolve and invoke: {exc}"
         )
-    except OSError as exc:
+    except OSError as exc:  # pragma: no cover — run_tool folds this into -1
         return _make_unavailable(
             tool_name, dimension, f"subprocess OSError: {exc}"
+        )
+
+    if invocation.returncode == EXEC_FAILED:
+        # -1: the shared wrapper could not exec the binary (vanished between
+        # resolve and invoke, or permission denied). Same outcome the old
+        # ``except FileNotFoundError`` produced — status='unavailable'.
+        return _make_unavailable(
+            tool_name,
+            dimension,
+            f"{tool_name} binary could not be executed: {invocation.stderr}",
         )
 
     if invocation.returncode == -2:
