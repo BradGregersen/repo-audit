@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "acme-scanner",
+          "version": "9.9.0",
+          "informationUri": "https://example.invalid/acme-scanner",
+          "rules": [
+            {
+              "id": "ACME-SQLI-001",
+              "name": "SqlInjection",
+              "shortDescription": {
+                "text": "Possible SQL injection via unsanitized input"
+              },
+              "properties": {
+                "security-severity": "9.3"
+              }
+            },
+            {
+              "id": "ACME-STYLE-014",
+              "name": "InconsistentNaming",
+              "shortDescription": {
+                "text": "Identifier does not follow naming convention"
+              },
+              "properties": {
+                "security-severity": "2.1"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "ACME-SQLI-001",
+          "level": "error",
+          "message": {
+            "text": "User input flows into a SQL query without parameterization."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/db/users.py"
+                },
+                "region": {
+                  "startLine": 42,
+                  "startColumn": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "ACME-STYLE-014",
+          "level": "note",
+          "message": {
+            "text": "Variable 'UserName' should be snake_case."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/db/users.py"
+                },
+                "region": {
+                  "startLine": 17
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
