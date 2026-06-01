@@ -1,0 +1,80 @@
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/cos02/schemas/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "dependency-cruiser",
+          "fullName": "dependency-cruiser - Validate and visualize dependencies",
+          "version": "16.3.10",
+          "informationUri": "https://github.com/sverweij/dependency-cruiser",
+          "rules": [
+            {
+              "id": "no-circular",
+              "shortDescription": {
+                "text": "This dependency is part of a circular relationship."
+              },
+              "fullDescription": {
+                "text": "Circular dependencies are forbidden."
+              },
+              "helpUri": "https://github.com/sverweij/dependency-cruiser/blob/main/doc/rules-reference.md#no-circular"
+            },
+            {
+              "id": "no-orphans",
+              "shortDescription": {
+                "text": "This is an orphan module - it's likely not used (anymore?)."
+              },
+              "fullDescription": {
+                "text": "Modules that are not imported anywhere are flagged as orphans."
+              },
+              "helpUri": "https://github.com/sverweij/dependency-cruiser/blob/main/doc/rules-reference.md#no-orphans"
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "no-circular",
+          "level": "error",
+          "message": {
+            "text": "no-circular: src/a.js → src/b.js → src/a.js"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/a.js"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "no-orphans",
+          "level": "warning",
+          "message": {
+            "text": "no-orphans: src/unused.js"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/unused.js"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

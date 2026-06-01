@@ -1,0 +1,78 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "toolExecutionNotifications": []
+        }
+      ],
+      "results": [
+        {
+          "fingerprints": {
+            "matchBasedId/v1": "requires login"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "vuln.py",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "endColumn": 36,
+                  "endLine": 4,
+                  "snippet": {
+                    "text": "    subprocess.run(cmd, shell=True)"
+                  },
+                  "startColumn": 5,
+                  "startLine": 4
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "subprocess called with shell=True is dangerous (command injection)."
+          },
+          "properties": {},
+          "ruleId": "dangerous-subprocess-shell-true"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "name": "Semgrep OSS",
+          "rules": [
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "subprocess called with shell=True is dangerous (command injection)."
+              },
+              "help": {
+                "markdown": "subprocess called with shell=True is dangerous (command injection).",
+                "text": "subprocess called with shell=True is dangerous (command injection)."
+              },
+              "id": "dangerous-subprocess-shell-true",
+              "name": "dangerous-subprocess-shell-true",
+              "properties": {
+                "precision": "very-high",
+                "tags": [
+                  "CWE-78: Improper Neutralization of Special Elements used in an OS Command",
+                  "security"
+                ],
+                "security-severity": "9.8"
+              },
+              "shortDescription": {
+                "text": "Semgrep Finding: dangerous-subprocess-shell-true"
+              }
+            }
+          ],
+          "semanticVersion": "1.163.0"
+        }
+      }
+    }
+  ],
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/schemas/sarif-schema-2.1.0.json"
+}

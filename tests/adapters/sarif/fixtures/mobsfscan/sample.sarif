@@ -1,0 +1,112 @@
+{
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "mobsfscan",
+          "rules": [
+            {
+              "id": "weak_cipher",
+              "name": "WeakCipher",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-327"
+                ]
+              },
+              "helpUri": "https://github.com/MobSF/owasp-mstg/blob/master/Document/0x04g-Testing-Cryptography.md#identifying-insecure-andor-deprecated-cryptographic-algorithms-mstg-crypto-4"
+            },
+            {
+              "id": "android_prevent_screenshot",
+              "name": "AndroidPreventScreenshot",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-200"
+                ]
+              },
+              "helpUri": "https://github.com/MobSF/owasp-mstg/blob/master/Document/0x05d-Testing-Data-Storage.md#finding-sensitive-information-in-auto-generated-screenshots-mstg-storage-9"
+            }
+          ],
+          "version": "0.4.5",
+          "informationUri": "https://github.com/MobSF/mobsfscan",
+          "semanticVersion": "0.4.5"
+        }
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "endTimeUtc": "2026-06-01T23:55:01Z"
+        }
+      ],
+      "results": [
+        {
+          "message": {
+            "text": "Weak encryption algorithm identified. This algorithm is vulnerable to cryptographic attacks."
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "requires login"
+                  },
+                  "endColumn": 58,
+                  "endLine": 6,
+                  "startColumn": 9,
+                  "startLine": 6
+                },
+                "artifactLocation": {
+                  "uri": "mobile/Crypto.java"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "owasp-mobile": "M5: Insufficient Cryptography",
+            "masvs": "MSTG-CRYPTO-4",
+            "cwe": "CWE-327: Use of a Broken or Risky Cryptographic Algorithm",
+            "reference": "https://github.com/MobSF/owasp-mstg/blob/master/Document/0x04g-Testing-Cryptography.md#identifying-insecure-andor-deprecated-cryptographic-algorithms-mstg-crypto-4"
+          },
+          "ruleId": "weak_cipher",
+          "ruleIndex": 0
+        },
+        {
+          "message": {
+            "text": "This app does not have capabilities to prevent against Screenshots from Recent Task History/ Now On Tap etc."
+          },
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "Missing Best Practice"
+                  },
+                  "endColumn": 1,
+                  "endLine": 1,
+                  "startColumn": 1,
+                  "startLine": 1
+                },
+                "artifactLocation": {
+                  "uri": "mobile"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "owasp-mobile": "M2: Insecure Data Storage",
+            "masvs": "MSTG-STORAGE-9",
+            "cwe": "CWE-200: Information Exposure",
+            "reference": "https://github.com/MobSF/owasp-mstg/blob/master/Document/0x05d-Testing-Data-Storage.md#finding-sensitive-information-in-auto-generated-screenshots-mstg-storage-9"
+          },
+          "ruleId": "android_prevent_screenshot",
+          "ruleIndex": 1
+        }
+      ]
+    }
+  ],
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json"
+}
