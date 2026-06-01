@@ -90,9 +90,18 @@ class TestRoundTrip:
         assert findings[0].rule_id == "NESTED-1"
 
 
-class TestCriticalStaticAutoCaveat:
-    def test_critical_static_gets_auto_caveat(self):
-        # level=error -> critical; static + candidate would be invalid WITHOUT a caveat.
+class TestCandidateSeverityCap:
+    """SC-2 contract (REVISED 2026-06-01, DI-06-01-01 Option A).
+
+    SCH-04 forbids confidence=candidate + severity in {critical, blocker}
+    REGARDLESS of any confidence_caveat (a caveat satisfies SAFE-01, not
+    SCH-04). Every SARIF Finding is candidate, so a faithful critical/blocker
+    is CAPPED to major at parse time, with the faithful severity preserved in
+    evidence.parsed_value and a caveat as the Phase-17 promotion breadcrumb.
+    """
+
+    def test_critical_faithful_severity_capped_to_major(self):
+        # level=error -> faithful critical; capped to major at candidate.
         findings = sarif_to_findings(
             _sarif([_result(level="error")]),
             source_tool="osv-scanner",
@@ -100,21 +109,41 @@ class TestCriticalStaticAutoCaveat:
             severity_map={},
         )
         f = findings[0]
-        assert f.severity == "critical"
+        assert f.severity == "major"          # capped, NOT critical
+        assert f.confidence == "candidate"
+        # The faithful (pre-cap) signal is preserved, not lost.
+        assert f.evidence.parsed_value["faithful_severity"] == "critical"
+        # A non-empty caveat is the Phase-17 promotion breadcrumb.
         assert f.confidence_caveat is not None
         assert f.confidence_caveat.strip() != ""
-        # source_tool should be threaded into the caveat for traceability.
+        # source_tool + faithful severity threaded into the caveat for traceability.
         assert "osv-scanner" in f.confidence_caveat
+        assert "critical" in f.confidence_caveat
 
-    def test_candidate_critical_without_caveat_would_raise(self):
-        # Documents WHY the auto-caveat path exists: this construction is illegal.
+    def test_non_capped_severity_keeps_faithful_value_and_no_caveat_required(self):
+        # warning -> major: allowed at candidate, no demotion, no caveat needed.
+        findings = sarif_to_findings(
+            _sarif([_result(level="warning")]),
+            source_tool="osv-scanner",
+            default_dimension="security",
+            severity_map={},
+        )
+        f = findings[0]
+        assert f.severity == "major"
+        assert f.evidence.parsed_value["faithful_severity"] == "major"
+        assert f.confidence_caveat is None
+
+    def test_candidate_critical_construction_would_raise(self):
+        # Documents WHY the cap exists: this construction is illegal even WITH a
+        # caveat (SCH-04 is absolute at the candidate rung). The parser never
+        # builds this — it caps to major first.
         with pytest.raises((ValidationError, ValueError)):
             Finding(
                 dimension="security",
                 severity="critical",
                 evidence_type="static",
                 confidence="candidate",
-                confidence_caveat=None,
+                confidence_caveat="a caveat satisfies SAFE-01 but not SCH-04",
                 evidence={"tool": "x"},
             )
 
@@ -179,8 +208,10 @@ class TestSecuritySeverityLookup:
             doc, source_tool="t", default_dimension="security", severity_map={}
         )
         f = findings[0]
-        assert f.severity == "critical"  # band 9.5 wins over warning
-        assert f.confidence_caveat  # critical+static auto-caveat present
+        # band 9.5 -> faithful critical, capped to major at candidate (SCH-04).
+        assert f.severity == "major"
+        assert f.evidence.parsed_value["faithful_severity"] == "critical"
+        assert f.confidence_caveat  # cap caveat present (Phase-17 breadcrumb)
         assert f.evidence.parsed_value["security_severity"] == "9.5"
 
     def test_security_severity_from_result_properties_used_when_no_rule(self):
