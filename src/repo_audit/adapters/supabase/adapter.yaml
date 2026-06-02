@@ -1,0 +1,51 @@
+# Supabase RLS / data-privacy adapter descriptor (Phase 08).
+#
+# Loaded by adapters/supabase/__init__.py via ruamel.yaml.YAML(typ='safe')
+# (T-03-01): the safe loader refuses !!python/object / !!python/name so a
+# poisoned YAML (future user-overlay scenario) cannot execute Python at load.
+#
+# This adapter IS registered (@register_adapter('supabase')) so the detector's
+# `supabase` stack dispatches to it — BUT the heavy RLS composition runs as a
+# dedicated CROSS-STACK scan_runner step (run_supabase), mirroring the Phase 7
+# SCA step, because the ephemeral-DB lifecycle + flag gating sit above per-stack
+# dispatch. The registered run() is a thin no-op marker (the cross-stack step is
+# the real entry); registration exists so the scope ledger + detector see the
+# adapter (D-40).
+#
+# Per-tool routing carries the declarative `default_dimension` + per-tool
+# timeouts. Severity maps live in code (splinter_collect.map_splinter_rows,
+# pgrls_collect.PGRLS_SEVERITY, squawk_collect._SQUAWK_LEVEL_TO_SEVERITY) — the
+# yaml carries the timeouts + dimension routing only.
+name: supabase
+
+stack: supabase
+
+tools:
+  # psql migration-apply against the ephemeral supabase/postgres (moderate).
+  psql:
+    default_dimension: security
+    timeout_ms: 120000
+
+  # splinter — the always-on RLS-01 floor lint over the live ephemeral catalog.
+  splinter:
+    default_dimension: security
+    severity_map: {}            # map lives in code (map_splinter_rows)
+    timeout_ms: 120000
+
+  # pgrls — the additive flag-gated (--rls-pgrls) RLS linter (Beta).
+  pgrls:
+    default_dimension: security
+    severity_map: {}            # PGRLS_SEVERITY in code; SARIF parser caps
+    timeout_ms: 120000
+
+  # squawk — the RLS-02 migration-safety static lint (no DB).
+  squawk:
+    default_dimension: correctness
+    severity_map: {}            # _SQUAWK_LEVEL_TO_SEVERITY in code
+    timeout_ms: 60000
+
+  # runtime two-account RLS test — the SOLE runtime emitter (--rls-runtime).
+  # Generous timeout: it signs two users in/out against live Supabase.
+  rls-two-account:
+    default_dimension: security
+    timeout_ms: 300000
