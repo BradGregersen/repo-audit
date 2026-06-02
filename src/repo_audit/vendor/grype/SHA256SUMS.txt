@@ -1,0 +1,7 @@
+# SHA256 hashes of vendored grype binary (grype 0.112.0 upstream)
+# Each line:  <hash>  <relative-path-from-vendor/grype>
+# Source: github.com/anchore/grype releases v0.112.0 asset grype_0.112.0_linux_amd64.tar.gz.
+# Upstream grype_0.112.0_checksums.txt publishes the TARBALL hash
+# (acb14a030010fe9bdb9594b4ae108d9d14ef2f926d936aa0916dc62c89c058ea), verified at vendor time.
+# The hash below is of the EXTRACTED grype binary so a future tamper of the vendored file is detectable (V6 integrity control).
+d515f53bd5ee4930e144c6ea14a2659084763c336a1833b723db0b05080fcaf5  grype

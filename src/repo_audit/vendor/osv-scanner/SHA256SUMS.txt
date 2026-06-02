@@ -1,0 +1,5 @@
+# SHA256 hashes of vendored osv-scanner binary (osv-scanner 2.3.8 upstream)
+# Each line:  <hash>  <relative-path-from-vendor/osv-scanner>
+# Source: github.com/google/osv-scanner releases v2.3.8 asset osv-scanner_linux_amd64.
+# This hash matches the upstream osv-scanner_SHA256SUMS line for that asset (V6 integrity control).
+bc98e15319ed0d515e3f9235287ba53cdc5535d576d24fd573978ecfe9ab92dc  osv-scanner
