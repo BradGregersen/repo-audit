@@ -12,6 +12,10 @@ Key invariants
 - ``confidence = "candidate"`` — pre-verification (D-06-03). Phase 17
   corroboration is what promotes findings up the confidence ladder.
 - ``source_tool`` is threaded onto every Finding (BYO-01 traceability).
+- **Level resolution (D-10-03):** when ``result.level`` is absent, severity
+  falls back to ``rule.defaultConfiguration.level``. This is generic and gated
+  on ``result.level is None`` — it fires only for tools (e.g. Semgrep) that omit
+  the result-level level, so tools that set ``result.level`` are unchanged.
 - **Candidate severity cap (D-06-02/D-06-03, REVISED 2026-06-01):** every
   emitted Finding sits at ``confidence="candidate"``. SCH-04 forbids
   ``candidate`` + severity in ``{critical, blocker}`` *regardless of a
@@ -151,6 +155,14 @@ def _result_to_finding(
     rule_id = result.get("ruleId") or (result.get("rule") or {}).get("id") or ""
     message = ((result.get("message") or {}).get("text")) or ""
     level = result.get("level")
+    if level is None:
+        # D-10-03: Semgrep sets result.level = null and carries faithful
+        # severity on rule.defaultConfiguration.level. Generic & gated — fires
+        # ONLY when the result omits a level, so tools that set result.level
+        # (the existing 8-tool corpus) are untouched.
+        rule = rules_by_id.get(rule_id) or {}
+        default_cfg = rule.get("defaultConfiguration") or {}
+        level = default_cfg.get("level")
     file, line = _extract_location(result)
     security_severity = _lookup_security_severity(result, rules_by_id)
 
