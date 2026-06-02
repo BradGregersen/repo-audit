@@ -32,6 +32,7 @@ from repo_audit.doctor.self_test import run_secret_lint_self_test
 # @register_adapter(...) so the detector's stack dispatch + the scope ledger see
 # it (the same one-line pattern Phase 3 set for typescript, closing DI-03-03-01).
 import repo_audit.adapters.mobile  # noqa: F401, E402
+import repo_audit.adapters.sast  # noqa: F401, E402
 import repo_audit.adapters.supabase  # noqa: F401, E402
 from repo_audit.fleet.dashboard import render_fleet_dashboard
 from repo_audit.fleet.sweep import run_fleet
@@ -167,6 +168,14 @@ def scan(
         "--apk",
         help="Explicit path to a debug APK for --mobsf (Tier 3a).",
     ),
+    no_sast: bool = typer.Option(
+        False,
+        "--no-sast",
+        help=(
+            "Skip the Semgrep SAST pass (default: on; degrades to unavailable "
+            "when semgrep/network absent)."
+        ),
+    ),
 ) -> None:
     """Scan a repo and emit a state report + JSON sidecar (CLI-02 / SC-3).
 
@@ -231,6 +240,7 @@ def scan(
         mobsf=mobsf,
         mobsf_build=mobsf_build,
         apk=apk,
+        sast=not no_sast,
     )
 
     # render refused (secret-lint rc=2 / completion-honesty rc=3) → sidecar

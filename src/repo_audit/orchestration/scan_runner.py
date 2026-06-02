@@ -35,6 +35,7 @@ from repo_audit import __version__
 from repo_audit.adapters import run_adapters
 from repo_audit.adapters.cache_env import build_scan_env, scan_tempdir
 from repo_audit.adapters.mobile import run_mobile
+from repo_audit.adapters.sast import run_sast
 from repo_audit.adapters.sca import run_sca
 from repo_audit.adapters.supabase import run_supabase
 from repo_audit.collectors import run_collectors
@@ -215,6 +216,7 @@ def run_scan(
     mobsf: bool = False,
     mobsf_build: bool = False,
     apk: Path | None = None,
+    sast: bool = True,
 ) -> ScanResult:
     """Run the full single-repo scan pipeline and return a :class:`ScanResult`.
 
@@ -327,6 +329,28 @@ def run_scan(
             apk=apk,
         )
 
+    # Phase 10 (Plan 10-04): CROSS-STACK SAST step (mirrors the Phase 7 SCA +
+    # Phase 8 RLS + Phase 9 Mobile steps). Like them, run_sast runs ONCE per repo
+    # regardless of the detected stacks — it selects the Semgrep ruleset packs
+    # from `detection` (always p/owasp-top-ten + p/secrets; +p/typescript /
+    # +p/react per stack), runs collect_semgrep under a per-scan tempdir scan env,
+    # and stamps a D-10-02 FeedProvenance entry (runtime-fetch; db_snapshot_date
+    # =None). Default ON; --no-sast skips it (degrades to a benign 'unavailable'
+    # SastScanResult so the dimension is honestly disclosed). Called via the
+    # module attribute so tests can monkeypatch scan_runner.run_sast (same
+    # patchable-attribute pattern as run_sca / run_supabase / run_mobile).
+    if sast:
+        with scan_tempdir() as _sast_td:
+            sast_base_env = build_scan_env(_sast_td)
+            sast_result = _THIS_MODULE.run_sast(
+                repo_path, base_env=sast_base_env, detection=detection
+            )
+    else:
+        from repo_audit.adapters.sast import SastScanResult
+        sast_result = SastScanResult(
+            status="unavailable", notes="SAST skipped (--no-sast)"
+        )
+
     # Aggregate findings across collectors + adapters + SCA + RLS (sequential
     # preserves ledger order). SCA + RLS findings are appended deterministically
     # so SC-5 determinism holds. Built BEFORE the refresh sub-steps below so the
@@ -337,6 +361,7 @@ def run_scan(
         + list(sca_result.findings)
         + list(rls_result.findings)
         + list(mob_result.findings)
+        + list(sast_result.findings)
     )
 
     # Sub-step C + D: --refresh-coverage opt-in wiring (D-41' / Decision A).
@@ -368,6 +393,7 @@ def run_scan(
         or sca_result.status != "ok"
         or rls_result.status != "ok"
         or mob_result.status != "ok"
+        or sast_result.status != "ok"
     )
 
     # Fold the SCA status/notes into the scope ledger so the SCA dimension's
@@ -410,6 +436,18 @@ def run_scan(
         else:
             scope_ledger.notes = mob_note_text
 
+    # Fold the SAST status/notes into the scope ledger so the SAST dimension's
+    # availability is disclosed honestly (SAFE-08), mirroring the SCA fold. A
+    # SAST dimension unavailable/timeout (semgrep absent / offline registry /
+    # --no-sast) is DISCLOSED here; the scan still completes (graceful
+    # degradation) and the partial flag flips above.
+    if sast_result.notes:
+        sast_note = f"SAST ({sast_result.status}): {sast_result.notes}"
+        if scope_ledger.notes:
+            scope_ledger.notes += "; " + sast_note
+        else:
+            scope_ledger.notes = sast_note
+
     # Plan 05-01 / TREND-01: baseline_run is conditional on a prior sidecar.
     # find_prior_sidecar returns the most-recent JSON sidecar with
     # meta.scan_date strictly before today (or None — same-day re-run, no
@@ -426,7 +464,13 @@ def run_scan(
         detected_stacks=detection.stacks,
         baseline_run=(prior_sidecar is None),  # Plan 05-01: conditional (TREND-01)
         partial=partial,
-        feed_provenance=sca_result.feed_provenance,  # Plan 07-05 (FND-02)
+        # Plan 07-05 (FND-02) SCA stamp EXTENDED with the Plan 10-04 SAST stamp
+        # (D-10-02) — both feeds join the header; the SAST entry is present only
+        # when the Semgrep run succeeded (build_sast_provenance returns [] on a
+        # non-ok run, so a skipped/absent SAST contributes nothing here).
+        feed_provenance=(
+            list(sca_result.feed_provenance) + list(sast_result.feed_provenance)
+        ),
     )
 
     # Plan 05-03 / TREND-02: compute the TrendDelta when a prior sidecar exists.
