@@ -109,3 +109,21 @@ def test_wheel_ships_no_semgrep_artifact_at_all(wheel_namelist: list[str]):
         "Wheel must ship NO Semgrep artifact (CRIT-7). "
         f"Offending entries: {offenders}"
     )
+
+
+def test_wheel_ships_osv_and_grype_binaries(wheel_namelist: list[str]):
+    """The standard build SHIPS the vendored osv-scanner + grype binaries (SCA-01/02).
+
+    These are the Phase-7 vulnerability scanners, vendored at the flat
+    ``vendor/<tool>/<tool>`` layout ``resolve_tool`` reads (D-07-09). They are
+    Apache-2.0 (license text ships alongside each), so — unlike CodeQL / Semgrep —
+    they are fine to redistribute in the standard wheel. This positive assertion
+    guards against a packaging change silently dropping them: without the binaries
+    in the wheel, an installed ``arch`` falls back to PATH/unavailable for SCA.
+    """
+    assert any(
+        n.endswith("vendor/osv-scanner/osv-scanner") for n in wheel_namelist
+    ), "osv-scanner binary missing from wheel"
+    assert any(
+        n.endswith("vendor/grype/grype") for n in wheel_namelist
+    ), "grype binary missing from wheel"
