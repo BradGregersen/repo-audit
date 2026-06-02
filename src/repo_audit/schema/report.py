@@ -9,7 +9,7 @@ additive changes don't bump the version, but renames/removals/retypes do.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,6 +31,26 @@ from repo_audit.schema.scope_ledger import ScopeLedger
 # ref that Pydantic resolves once both packages are fully initialized.
 if TYPE_CHECKING:  # pragma: no cover - typing aid only
     from repo_audit.agent.schema import FaithfulnessViolation
+
+
+class FeedProvenance(BaseModel):
+    """Per-source vuln-feed reproducibility stamp (FND-02 / D-07-02).
+
+    One entry per scanner (osv-scanner, grype). queried_at is
+    reproducibility METADATA and lives here, NEVER on a Finding
+    (RESEARCH Pitfall 7 — a queried_at leaking onto a finding breaks
+    SC-5 bit-identical re-runs). advisory_count is Optional: ship None
+    rather than invent a number when a tool does not report it
+    (carried constraint — deterministic collectors own all numbers).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    feed: str
+    scanner: str
+    scanner_version: str
+    db_snapshot_date: date | None = None
+    queried_at: datetime
+    advisory_count: int | None = None
 
 
 class ReportMeta(BaseModel):
@@ -130,6 +150,13 @@ class ReportMeta(BaseModel):
     # stays "1" (D-21): additive Optional list, forward-compatible with the
     # Phase 5 fleet aggregator.
     entropy_redactions: list[dict[str, object]] = Field(default_factory=list)
+
+    # FND-02 / D-07-02 — per-source vuln-feed reproducibility stamp. One
+    # entry per scanner (osv, grype). Additive Optional list; schema_version
+    # stays "1" (D-21), forward-compatible with the Phase 5 fleet aggregator.
+    # Default empty list so Phase 1-6 sidecars (which have no feed_provenance
+    # key) still round-trip-validate.
+    feed_provenance: list[FeedProvenance] = Field(default_factory=list)
 
 
 class ScanReport(BaseModel):
