@@ -100,8 +100,11 @@ def _db_seeded() -> bool:
     db_dir = sca_db_dir()
     osv_dir = db_dir / "osv"
     grype_dir = db_dir / "grype"
-    osv_has = osv_dir.is_dir() and any(osv_dir.rglob("*"))
-    grype_has = grype_dir.is_dir() and any(grype_dir.rglob("*"))
+    # Require an actual DB FILE, not merely an empty subdir — osv/grype create
+    # their nested ecosystem/schema directories before the download lands, so a
+    # path-existence check would false-positive on a half-created tree.
+    osv_has = osv_dir.is_dir() and any(p.is_file() for p in osv_dir.rglob("*"))
+    grype_has = grype_dir.is_dir() and any(p.is_file() for p in grype_dir.rglob("*"))
     return osv_has and grype_has
 
 
