@@ -297,3 +297,45 @@ def mock_ts_tools_subprocess(fp, recorded_tool_output):
             )
 
     return _register
+
+
+# --- Phase 9 (Mobile Pentest) fixtures -------------------------------------
+
+
+@pytest.fixture
+def expo_android_repo(tmp_path) -> Path:
+    """A synthetic Expo->Android repo built under ``tmp_path``.
+
+    Delegates to the Plan 09-00 factory
+    (``tests/adapters/fixtures/mobile/expo_repo_factory.make_expo_android_repo``)
+    which seeds the secret-leak surfaces the Phase 9 Tier-2 bundled-secrets pass
+    (Plan 02) and the mobsfscan integration run (Plan 01) exercise: a hardcoded
+    ``service_role`` JWT (``app.config.js``), the PUBLIC anon key (``.env``), an
+    ``sb_secret_`` value (``eas.json``), a native ``strings.xml`` api_key, and a
+    secret-free client ``Login.tsx``. All secrets are synthetic (PROVENANCE.md).
+
+    Imported lazily (inside the fixture body) so the conftest has no import-time
+    dependency on the fixtures package.
+    """
+    import sys
+
+    mobile_dir = FIXTURES_ROOT / "mobile"
+    if str(mobile_dir) not in sys.path:
+        sys.path.insert(0, str(mobile_dir))
+    from expo_repo_factory import make_expo_android_repo  # noqa: E402
+
+    return make_expo_android_repo(tmp_path / "expo-fixture")
+
+
+@pytest.fixture
+def mobsf_report_json() -> dict:
+    """The hand-authored MobSF ``StaticAnalyzerAndroid`` ``report_json`` fixture (A4).
+
+    Returns the parsed JSON document from
+    ``tests/adapters/fixtures/mobile/mobsf_report_json.json`` — the Tier-3a
+    mapper (Plan 03) consumes its ``secrets`` / ``possible_secrets`` / ``findings``
+    keys. Secrets inside are synthetic (PROVENANCE.md, A4: re-record live when the
+    MobSF Docker image is pulled).
+    """
+    path = FIXTURES_ROOT / "mobile" / "mobsf_report_json.json"
+    return json.loads(path.read_text(encoding="utf-8"))
