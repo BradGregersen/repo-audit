@@ -1,0 +1,51 @@
+# Mobile pentest & bundled-secrets adapter descriptor (Phase 09).
+#
+# Loaded by adapters/mobile/__init__.py via ruamel.yaml.YAML(typ='safe')
+# (T-03-01): the safe loader refuses !!python/object / !!python/name so a
+# poisoned YAML (future user-overlay scenario) cannot execute Python at load.
+#
+# This adapter IS registered (@register_adapter('mobile')) so the detector sees
+# a `mobile` adapter and the scope ledger lists it — BUT the heavy three-tier
+# composition runs as a dedicated CROSS-STACK scan_runner step (run_mobile),
+# mirroring the Phase 7 SCA + Phase 8 RLS steps, because the per-tier flag
+# gating (--mobsf / --mobsf-build / --apk) sits ABOVE per-stack dispatch. The
+# registered run() is a thin no-op marker; the cross-stack step is the real
+# entry. The step runs regardless of the precise detected stack tag: the same
+# Tier-1/2 passes apply to Expo AND react-native repos (stack: expo below is the
+# nominal tag; native_root resolution is what actually gates Tier 1).
+#
+# Per-tool routing carries the declarative `default_dimension` + per-tier
+# timeouts. Severity maps live in code (mobsfscan -> sarif_to_findings faithful
+# default; mobsf -> mobsf._MOBSF_SEVERITY; bundled-secrets -> heuristic).
+name: mobile
+
+stack: expo
+
+tools:
+  # Tier 1 — mobsfscan static SAST over the native android/ source (no build,
+  # no Docker; always-on default). 180 s wall-clock bound.
+  mobsfscan:
+    default_dimension: security
+    severity_map: {}            # faithful default in sarif_to_findings
+    timeout_ms: 180000
+
+  # Tier 3a — MobSF Docker static scan of an EXISTING debug APK (--mobsf only).
+  # Generous bound: container boot + upload + static scan over a real APK.
+  mobsf:
+    default_dimension: security
+    severity_map: {}            # _MOBSF_SEVERITY in mobsf.py (high->major cap)
+    timeout_ms: 600000
+
+  # Tier 3b — Gradle assembleDebug diagnostic build in a THROWAWAY COPY, the
+  # ONLY path that produces an APK (--mobsf-build only). A cold first build with
+  # no warm cache can take minutes; 900 s bounds a hang (T-09-06).
+  gradle-assemble-debug:
+    default_dimension: security
+    timeout_ms: 900000
+
+# Pinned MobSF image by tag@digest (Phase-8 tag@digest discipline; never ship an
+# unpinned image silently). Resolved 2026-06-02 via
+#   docker buildx imagetools inspect opensecurity/mobile-security-framework-mobsf:v4.4.6
+# v4.4.6 is the latest MobSF release (March 2026). collect_mobsf receives this as
+# image_ref (T-09-10 — Plan 05 owns the pin, the collector never hard-codes it).
+mobsf_image: "opensecurity/mobile-security-framework-mobsf:v4.4.6@sha256:72311e3553ca2c21043923cace27ed99f800cd641e9368160406779516dd774e"
