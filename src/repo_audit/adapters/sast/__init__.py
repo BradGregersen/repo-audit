@@ -25,14 +25,14 @@ Plan 10-03 ADDS ``run_sast`` / ``collect_semgrep`` to this package.
 """
 from __future__ import annotations
 
+from repo_audit.adapters.sast.anon import drop_anon_key_secrets
+from repo_audit.adapters.sast.noise import apply_noise_floor
 from repo_audit.adapters.sast.owasp import annotate_owasp
 from repo_audit.adapters.sast.rulesets import select_packs
 
-# noise.apply_noise_floor (SAST-02) and anon.drop_anon_key_secrets (SAST-03)
-# land in Task 2 of this plan and are appended to the imports + __all__ there;
-# the gated Wave-0 test modules import those submodules directly
-# (sast.noise / sast.anon), so the package import stays valid in between.
 __all__ = [
     "select_packs",
+    "apply_noise_floor",
+    "drop_anon_key_secrets",
     "annotate_owasp",
 ]
