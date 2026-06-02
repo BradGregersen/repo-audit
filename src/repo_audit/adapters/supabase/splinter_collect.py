@@ -192,6 +192,16 @@ def run_splinter(dsn: str, *, timeout_seconds: float = 120.0) -> list[dict[str, 
         importlib.resources.files(_SPLINTER_PACKAGE) / _SPLINTER_RESOURCE
     ).read_text(encoding="utf-8")
 
+    # splinter.sql is a `set local search_path = '';` prefix followed by ONE
+    # big `( with … select … )` result query. psycopg3 returns only the LAST
+    # statement's result set from a multi-statement execute, and that final
+    # state can land on the SET ("the last operation didn't produce records;
+    # command status: SET"). Split the leading SET off and run the SELECT alone
+    # so fetchall() always targets the lint query. The SET is applied at session
+    # scope first (search_path = '' so unqualified names never resolve, matching
+    # splinter's intent).
+    setup_stmts, query = _split_splinter_sql(sql)
+
     # connect_timeout bounds the handshake; statement_timeout (ms) bounds the
     # lint query itself so a pathological catalog never hangs the scan.
     connect_kwargs: dict[str, Any] = {
@@ -202,9 +212,44 @@ def run_splinter(dsn: str, *, timeout_seconds: float = 120.0) -> list[dict[str, 
             setup_cur.execute(
                 f"SET statement_timeout = {int(max(1, timeout_seconds) * 1000)}"
             )
+            # search_path = '' (and any other leading session SET splinter ships).
+            setup_cur.execute("SET search_path = ''")
+            for stmt in setup_stmts:
+                setup_cur.execute(stmt)
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            cur.execute(sql)
+            cur.execute(query)
             return list(cur.fetchall())
+
+
+def _split_splinter_sql(sql: str) -> tuple[list[str], str]:
+    """Split splinter.sql into leading session SETs + the final result query.
+
+    Strips SQL comment lines, then peels any leading ``SET …;`` statements off
+    the front (run at session scope) so the remaining ``( with … select … )``
+    is executed alone and ``fetchall()`` targets it. Returns
+    ``(setup_statements, query)``. Robust to the SET being absent.
+    """
+    # Drop full-line comments so they don't confuse the SET-prefix detection.
+    body_lines = [
+        line for line in sql.splitlines() if not line.lstrip().startswith("--")
+    ]
+    body = "\n".join(body_lines).strip()
+
+    setup: list[str] = []
+    # Peel leading `set …;` statements (case-insensitive) off the front.
+    remaining = body
+    while True:
+        stripped = remaining.lstrip()
+        if stripped[:4].lower() != "set ":
+            break
+        semi = stripped.find(";")
+        if semi == -1:
+            break
+        setup.append(stripped[: semi + 1])
+        remaining = stripped[semi + 1 :]
+
+    query = remaining.strip()
+    return setup, query
 
 
 __all__ = [
