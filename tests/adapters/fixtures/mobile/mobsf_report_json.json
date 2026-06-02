@@ -1,0 +1,54 @@
+{
+  "title": "Static Analysis Report",
+  "version": "4.0.7",
+  "file_name": "expo-fixture-debug.apk",
+  "app_name": "expo-fixture",
+  "package_name": "com.fixture.expo",
+  "md5": "00000000000000000000000000000000",
+  "secrets": [
+    "service_role : eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UifQ.c3ludGhldGljLWZpeHR1cmUtc2lnbmF0dXJl",
+    "android_api_key : AIzaSyFIXTUREdummyAndroidNativeKey000000"
+  ],
+  "possible_secrets": [
+    "SUPABASE_SERVICE_ROLE_KEY=sb_secret_0000fixture0000synthetic0000notreal"
+  ],
+  "findings": {
+    "Hardcoded secret token found in the APK": {
+      "severity": "high",
+      "files": {
+        "res/values/strings.xml": "string/api_key"
+      },
+      "metadata": {
+        "cvss": 7.4,
+        "cwe": "CWE-312: Cleartext Storage of Sensitive Information",
+        "owasp-mobile": "M2: Insecure Data Storage",
+        "masvs": "MSTG-STORAGE-14",
+        "description": "A hardcoded secret-bearing string ships inside the APK resources."
+      }
+    },
+    "App uses a weak cryptographic algorithm": {
+      "severity": "warning",
+      "files": {
+        "com/fixture/expo/Crypto.smali": "MD5"
+      },
+      "metadata": {
+        "cvss": 4.3,
+        "cwe": "CWE-327: Use of a Broken or Risky Cryptographic Algorithm",
+        "owasp-mobile": "M5: Insufficient Cryptography",
+        "masvs": "MSTG-CRYPTO-4",
+        "description": "A broken/risky cryptographic algorithm is referenced."
+      }
+    },
+    "Debuggable application": {
+      "severity": "info",
+      "files": {},
+      "metadata": {
+        "cvss": 0.0,
+        "cwe": "CWE-919: Weaknesses in Mobile Applications",
+        "owasp-mobile": "M1: Improper Platform Usage",
+        "masvs": "MSTG-CODE-2",
+        "description": "android:debuggable is set true (debug build, expected)."
+      }
+    }
+  }
+}
