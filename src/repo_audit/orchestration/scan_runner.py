@@ -25,6 +25,7 @@ flips it off).
 from __future__ import annotations
 
 import asyncio
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import date as _date
@@ -32,6 +33,8 @@ from pathlib import Path
 
 from repo_audit import __version__
 from repo_audit.adapters import run_adapters
+from repo_audit.adapters.cache_env import build_scan_env, scan_tempdir
+from repo_audit.adapters.sca import run_sca
 from repo_audit.collectors import run_collectors
 from repo_audit.detect.detector import detect_stacks
 from repo_audit.meta.git import NotAGitRepo, UNCOMMITTED_MARKER, head_sha
@@ -68,6 +71,11 @@ from repo_audit.walker import build_repo_index
 # additionally capped at the budget remaining (see secret_detection.run), so the
 # collector phase cannot overshoot this deadline by a full gitleaks timeout.
 TIME_BUDGET_S: float = 95.0
+
+# Self-reference so the cross-stack SCA step can be invoked via the module
+# attribute (``scan_runner.run_sca``), keeping it monkeypatchable in tests the
+# same way ``run_adapters`` is.
+_THIS_MODULE = sys.modules[__name__]
 
 
 @dataclass
@@ -198,6 +206,7 @@ def run_scan(
     *,
     no_agent: bool = False,
     refresh_coverage: bool = False,
+    refresh_vuln_db: bool = False,
     agent_budget: int | None = None,
 ) -> ScanResult:
     """Run the full single-repo scan pipeline and return a :class:`ScanResult`.
@@ -262,12 +271,29 @@ def run_scan(
     # Called via the module attribute so it stays patchable in tests.
     adapter_results = run_adapters(repo_path, detection)
 
-    # Aggregate findings across collectors + adapters (sequential preserves
-    # ledger order). Built BEFORE the refresh sub-steps below so the
-    # sub-steps can rewrite/extend this list in place.
+    # Phase 7 (Plan 07-05): CROSS-STACK SCA step (RESEARCH Open Q1). Unlike
+    # run_adapters (per-stack dispatch), SCA runs ONCE per repo regardless of
+    # the detected stacks, so it is its OWN step. osv is the floor + grype is
+    # optional; the persistent DB-cache env (build_sca_env) is layered INSIDE
+    # run_sca on top of the per-scan tempdir env we build here. Called via the
+    # module attribute so it stays patchable in tests. --refresh-vuln-db is the
+    # sole snapshot-advance path (threaded to run_sca(refresh=...)).
+    with scan_tempdir() as _sca_td:
+        sca_base_env = build_scan_env(_sca_td)
+        # Reference via the module so tests can monkeypatch
+        # scan_runner.run_sca (same patchable-attribute pattern as run_adapters).
+        sca_result = _THIS_MODULE.run_sca(
+            repo_path, base_env=sca_base_env, refresh=refresh_vuln_db
+        )
+
+    # Aggregate findings across collectors + adapters + SCA (sequential
+    # preserves ledger order). SCA findings are appended in the
+    # corroborate-sorted order so SC-5 determinism holds. Built BEFORE the
+    # refresh sub-steps below so the sub-steps can rewrite/extend this list.
     findings = (
         [f for r in collector_results for f in r.findings]
         + [f for r in adapter_results for f in r.findings]
+        + list(sca_result.findings)
     )
 
     # Sub-step C + D: --refresh-coverage opt-in wiring (D-41' / Decision A).
@@ -288,12 +314,26 @@ def run_scan(
         adapter_results=adapter_results,
     )
 
-    # D-31 partial-scan determination (Phase 3: adapter status considered).
+    # D-31 partial-scan determination (Phase 3: adapter status considered;
+    # Phase 7: SCA dimension unavailable also flips partial — Phase 2
+    # graceful-degradation contract). osv-unavailable disclosed via the scope
+    # ledger notes below; the scan still completes.
     partial = (
         walker_result.status != "ok"
         or any(r.status != "ok" for r in collector_results)
         or any(r.status != "ok" for r in adapter_results)
+        or sca_result.status != "ok"
     )
+
+    # Fold the SCA status/notes into the scope ledger so the SCA dimension's
+    # availability is disclosed honestly (SAFE-08 completion-honesty). osv
+    # unavailable → "SCA dimension unavailable" surfaced in the ledger.
+    if sca_result.notes:
+        sca_note = f"SCA ({sca_result.status}): {sca_result.notes}"
+        if scope_ledger.notes:
+            scope_ledger.notes += "; " + sca_note
+        else:
+            scope_ledger.notes = sca_note
 
     # Plan 05-01 / TREND-01: baseline_run is conditional on a prior sidecar.
     # find_prior_sidecar returns the most-recent JSON sidecar with
@@ -311,6 +351,7 @@ def run_scan(
         detected_stacks=detection.stacks,
         baseline_run=(prior_sidecar is None),  # Plan 05-01: conditional (TREND-01)
         partial=partial,
+        feed_provenance=sca_result.feed_provenance,  # Plan 07-05 (FND-02)
     )
 
     # Plan 05-03 / TREND-02: compute the TrendDelta when a prior sidecar exists.

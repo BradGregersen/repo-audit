@@ -90,6 +90,15 @@ def scan(
             "(default: off; see adapter.yaml coverage_refresh.mode)."
         ),
     ),
+    refresh_vuln_db: bool = typer.Option(
+        False,
+        "--refresh-vuln-db",
+        help=(
+            "Advance the pinned vuln-DB snapshot (osv + grype) before scanning; "
+            "the ONLY path that updates feeds (FND-03 / CRIT-3). Default off: "
+            "scans are pinned/offline against the existing snapshot."
+        ),
+    ),
     no_agent: bool = typer.Option(
         False,
         "--no-agent",
@@ -165,6 +174,7 @@ def scan(
         Path(path).resolve(),
         no_agent=no_agent,
         refresh_coverage=refresh_coverage,
+        refresh_vuln_db=refresh_vuln_db,
         agent_budget=agent_budget,
     )
 
