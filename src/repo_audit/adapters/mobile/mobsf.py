@@ -35,6 +35,7 @@ import secrets
 import socket
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -251,10 +252,367 @@ map_report_json = map_mobsf_report
 map_mobsf_json = map_mobsf_report
 
 
+# --- Task 2: Docker REST client + collect_mobsf orchestration ----------------
+
+# Default overall wall-clock bound for a MobSF static scan (Pitfall 3 / T-09-03).
+_MOBSF_TIMEOUT_SECONDS: float = 600.0
+# Bound for the container START (docker run -d returns the id quickly).
+_DOCKER_START_TIMEOUT_SECONDS: float = 120.0
+# Bound for the container STOP (teardown must itself never hang).
+_DOCKER_STOP_TIMEOUT_SECONDS: float = 60.0
+# Wall-clock cap for the readiness poll loop after the container starts.
+_READINESS_WAIT_SECONDS: float = 60.0
+# Per-HTTP-call socket timeout so no single REST call can hang the tier.
+_HTTP_TIMEOUT_SECONDS: float = 30.0
+# Host port the MobSF REST API is published on (container always listens on 8000).
+_HOST_PORT: int = 8000
+_CONTAINER_PORT: int = 8000
+
+# The conventional debug-APK output path (Open-Q1). A Gradle/Expo Android build
+# writes the debug APK here; we rglob for it so a monorepo subdir is found.
+_DEBUG_APK_GLOB = "android/app/build/outputs/apk/debug/*.apk"
+
+
+class _MobsfHttpError(Exception):
+    """An HTTP/JSON error talking to the MobSF REST API (mapped to unavailable)."""
+
+
+def find_debug_apk(repo: Path, supplied: Path | None) -> Path | None:
+    """Return an existing debug APK to scan, or ``None``.
+
+    Resolution order (Open-Q1):
+      1. ``supplied`` if it exists (caller passed ``--mobsf-apk`` / a build out).
+      2. the first match of the conventional Gradle/Expo debug-APK path under
+         ``repo`` (``android/app/build/outputs/apk/debug/*.apk``).
+      3. ``None`` — no APK; the caller degrades to ``unavailable`` (never builds
+         one here; producing a build artifact is out of this module's scope).
+    """
+    if supplied is not None and Path(supplied).exists():
+        return Path(supplied)
+    try:
+        for match in Path(repo).rglob(_DEBUG_APK_GLOB):
+            if match.is_file():
+                return match
+    except OSError:
+        return None
+    return None
+
+
+def _base_url(host_port: int) -> str:
+    return f"http://127.0.0.1:{host_port}"
+
+
+def _http_post(
+    url: str,
+    *,
+    api_key: str,
+    fields: dict[str, str] | None = None,
+    file_field: tuple[str, str, bytes] | None = None,
+) -> dict:
+    """POST to a MobSF endpoint via stdlib ``urllib`` and return parsed JSON.
+
+    No new HTTP dependency (T — stdlib urllib keeps the surface shell-free and
+    minimal). ``file_field`` is ``(field_name, filename, content)`` for the
+    multipart upload; ``fields`` are form-encoded for the other calls. Every
+    call carries the ``Authorization: <api_key>`` header and a socket timeout so
+    it cannot hang. Any error raises :class:`_MobsfHttpError`.
+    """
+    headers = {"Authorization": api_key}
+    if file_field is not None:
+        boundary = uuid.uuid4().hex
+        field_name, filename, content = file_field
+        body = bytearray()
+        body += f"--{boundary}\r\n".encode()
+        body += (
+            f'Content-Disposition: form-data; name="{field_name}"; '
+            f'filename="{filename}"\r\n'
+        ).encode()
+        body += b"Content-Type: application/octet-stream\r\n\r\n"
+        body += content
+        body += f"\r\n--{boundary}--\r\n".encode()
+        data = bytes(body)
+        headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+    else:
+        data = urllib.parse.urlencode(fields or {}).encode()
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT_SECONDS) as resp:
+            raw = resp.read()
+    except (urllib.error.URLError, socket.timeout, OSError) as exc:
+        raise _MobsfHttpError(f"POST {url} failed: {type(exc).__name__}: {exc}") from exc
+    try:
+        return json.loads(raw.decode("utf-8", errors="replace"))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise _MobsfHttpError(f"POST {url} returned non-JSON: {exc}") from exc
+
+
+def _wait_ready(base_url: str, *, deadline: float) -> bool:
+    """Poll the MobSF root until it answers (bounded by ``deadline``).
+
+    A short-timeout GET against the API root; once the server answers without a
+    connection error we consider it ready. Returns ``False`` if the wall-clock
+    ``deadline`` passes first — the caller then degrades to ``unavailable``
+    rather than hanging.
+    """
+    while time.perf_counter() < deadline:
+        try:
+            request = urllib.request.Request(base_url + "/", method="GET")
+            with urllib.request.urlopen(request, timeout=5.0):
+                return True
+        except urllib.error.HTTPError:
+            # The server answered (any HTTP status) → it is up.
+            return True
+        except (urllib.error.URLError, socket.timeout, OSError):
+            time.sleep(2.0)
+    return False
+
+
+def _docker_stop(container_id: str, *, env: dict[str, str], cwd: str | Path) -> None:
+    """Guaranteed-teardown ``docker stop`` (Pitfall 3) — never raises.
+
+    Always invoked from the ``finally`` of :func:`collect_mobsf`. ``--rm`` on the
+    run means a stopped container is also removed, so this single call both stops
+    and reaps. Routed through ``run_tool`` (shell=False); any failure is
+    swallowed — teardown best-effort must not mask the primary result.
+    """
+    if not container_id:
+        return
+    try:
+        run_tool(
+            ["docker", "stop", container_id],
+            env=env,
+            cwd=cwd,
+            timeout_seconds=_DOCKER_STOP_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001 — teardown is best-effort, never raises
+        pass
+
+
+def collect_mobsf(
+    apk: Path | None,
+    *,
+    env: dict[str, str],
+    image_ref: str,
+    timeout_seconds: float = _MOBSF_TIMEOUT_SECONDS,
+) -> AdapterResult:
+    """Run MobSF (Docker, static) against ``apk`` and map the report (redacted).
+
+    Lifecycle (guaranteed-teardown, T-09-03 / Pitfall 3):
+      1. ``apk is None`` → ``unavailable`` ("no debug APK") immediately.
+      2. Generate a per-run API key via ``secrets.token_hex(32)`` (T-09-09 —
+         NEVER scraped from logs/UI), inject it via ``MOBSF_API_KEY`` env on the
+         container.
+      3. Start the container through ``run_tool`` (``docker run -d --rm`` with
+         the pinned ``image_ref``, ``MOBSF_API_KEY`` + ``MOBSF_API_ONLY`` env).
+         ``EXEC_FAILED`` → ``unavailable`` (docker not installed / daemon down);
+         capture the container id from stdout.
+      4. ``try``: poll readiness (bounded), then upload → scan → report_json →
+         delete_scan over stdlib ``urllib``; map the report (redacted).
+         ``finally``: ALWAYS ``docker stop`` the container (even on HTTP error).
+      5. Any HTTP/JSON/timeout error → ``unavailable`` / ``timeout``; a top-level
+         backstop guarantees the function never raises.
+
+    Args:
+        apk: an EXISTING debug APK path (or ``None`` → unavailable). This module
+            never builds one.
+        env: child environment passed verbatim to every ``run_tool`` docker call.
+        image_ref: the pinned MobSF image (``…@sha256:<digest>``), supplied by
+            Plan 05. Never hard-coded here (T-09-10 — Plan 05 owns the pin).
+        timeout_seconds: overall wall-clock bound for the scan phase.
+
+    Returns:
+        ``AdapterResult`` — ``status="ok"`` with redacted findings on success,
+        else ``status="unavailable"|"timeout"``. NEVER raises, NEVER hangs.
+    """
+    base_kwargs = dict(
+        source_adapter=_SOURCE_ADAPTER,
+        source_tool=_SOURCE_TOOL,
+        dimension=_DIMENSION,
+    )
+
+    if apk is None:
+        return AdapterResult(
+            status="unavailable",
+            notes="no debug APK (pass --mobsf-build to produce one)",
+            **base_kwargs,
+        )
+
+    try:
+        apk = Path(apk)
+        if not apk.exists():
+            return AdapterResult(
+                status="unavailable",
+                notes=f"debug APK not found at {apk}",
+                **base_kwargs,
+            )
+
+        # Per-run, unguessable API key — injected via env, never scraped (T-09-09).
+        api_key = secrets.token_hex(32)
+
+        start = run_tool(
+            [
+                "docker", "run", "-d", "--rm",
+                "-p", f"{_HOST_PORT}:{_CONTAINER_PORT}",
+                "-e", f"MOBSF_API_KEY={api_key}",
+                "-e", "MOBSF_API_ONLY=1",
+                image_ref,
+            ],
+            env=env,
+            cwd=apk.parent,
+            timeout_seconds=_DOCKER_START_TIMEOUT_SECONDS,
+        )
+        if start.returncode == EXEC_FAILED:
+            return AdapterResult(
+                status="unavailable",
+                notes="docker not available to run MobSF (not installed / daemon down)",
+                **base_kwargs,
+            )
+        if start.returncode == TIMED_OUT:
+            return AdapterResult(
+                status="timeout",
+                notes=f"docker run exceeded {_DOCKER_START_TIMEOUT_SECONDS:.0f}s",
+                **base_kwargs,
+            )
+        if start.returncode != 0:
+            return AdapterResult(
+                status="unavailable",
+                notes=f"docker run failed: {start.stderr.strip()[:200]}",
+                **base_kwargs,
+            )
+
+        container_id = start.stdout.strip().splitlines()[0].strip() if start.stdout.strip() else ""
+        if not container_id:
+            return AdapterResult(
+                status="unavailable",
+                notes="docker run returned no container id",
+                **base_kwargs,
+            )
+
+        base_url = _base_url(_HOST_PORT)
+        try:
+            ready = _wait_ready(
+                base_url,
+                deadline=time.perf_counter() + _READINESS_WAIT_SECONDS,
+            )
+            if not ready:
+                return AdapterResult(
+                    status="unavailable",
+                    notes=f"MobSF did not become ready within {_READINESS_WAIT_SECONDS:.0f}s",
+                    **base_kwargs,
+                )
+
+            report_json = _run_static_scan(base_url, api_key=api_key, apk=apk)
+            findings = map_mobsf_report(report_json)
+            return AdapterResult(
+                findings=findings,
+                status="ok",
+                notes=f"mobsf static: {len(findings)} finding(s) (secrets redacted)",
+                scanned_paths=[str(apk)],
+                **base_kwargs,
+            )
+        except _MobsfHttpError as exc:
+            return AdapterResult(
+                status="unavailable",
+                notes=f"MobSF REST error: {str(exc)[:200]}",
+                **base_kwargs,
+            )
+        finally:
+            # GUARANTEED teardown — runs even on an HTTP error above (Pitfall 3).
+            _docker_stop(container_id, env=env, cwd=apk.parent)
+    except Exception as exc:  # noqa: BLE001 — absolute never-raise backstop
+        return AdapterResult(
+            status="unavailable",
+            notes=f"mobsf collection failed: {type(exc).__name__}: {exc}",
+            **base_kwargs,
+        )
+
+
+def _run_static_scan(base_url: str, *, api_key: str, apk: Path) -> dict:
+    """upload → scan → report_json → delete_scan over the MobSF REST API.
+
+    Returns the parsed ``report_json`` document (the ``StaticAnalyzerAndroid``
+    shape :func:`map_mobsf_report` consumes). Raises :class:`_MobsfHttpError` on
+    any HTTP/JSON failure (mapped to ``unavailable`` by the caller). The
+    ``delete_scan`` cleanup is best-effort and never masks a successful report.
+    """
+    content = apk.read_bytes()
+    upload = _http_post(
+        base_url + "/api/v1/upload",
+        api_key=api_key,
+        file_field=("file", apk.name, content),
+    )
+    file_hash = str(upload.get("hash", "")).strip()
+    if not file_hash:
+        raise _MobsfHttpError("MobSF upload returned no hash")
+
+    _http_post(base_url + "/api/v1/scan", api_key=api_key, fields={"hash": file_hash})
+    report = _http_post(
+        base_url + "/api/v1/report_json", api_key=api_key, fields={"hash": file_hash}
+    )
+
+    # Best-effort cleanup of the scan inside MobSF — never masks the report.
+    try:
+        _http_post(
+            base_url + "/api/v1/delete_scan", api_key=api_key, fields={"hash": file_hash}
+        )
+    except _MobsfHttpError:
+        pass
+
+    return report
+
+
+def run_mobsf(
+    apk_path: Path | None = None,
+    *,
+    repo: Path | None = None,
+    image_ref: str | None = None,
+    timeout_seconds: float = _MOBSF_TIMEOUT_SECONDS,
+) -> AdapterResult:
+    """Convenience entry point: resolve an APK, build a default env, run MobSF.
+
+    Mirrors ``mobsfscan.run_mobsfscan`` — a thin wrapper so the standalone/live
+    path (and the Wave-0 ``test_unavailable``) can invoke the collector without
+    plumbing a scan env. Plan 05 calls :func:`collect_mobsf` directly with the
+    shared scan env + the pinned image instead.
+
+    With ``apk_path=None`` and no ``repo`` (the docker-absent test path), this
+    short-circuits to ``unavailable`` ("no debug APK") without ever touching
+    docker — honest and hang-free.
+    """
+    from repo_audit.adapters.cache_env import build_scan_env, scan_tempdir
+
+    apk = apk_path
+    if apk is None and repo is not None:
+        apk = find_debug_apk(Path(repo), None)
+
+    if apk is None:
+        return AdapterResult(
+            status="unavailable",
+            source_adapter=_SOURCE_ADAPTER,
+            source_tool=_SOURCE_TOOL,
+            dimension=_DIMENSION,
+            notes="no debug APK (pass --mobsf-build to produce one)",
+        )
+
+    with scan_tempdir() as tempdir:
+        env = build_scan_env(tempdir)
+        return collect_mobsf(
+            Path(apk),
+            env=env,
+            image_ref=image_ref or "",
+            timeout_seconds=timeout_seconds,
+        )
+
+
 __all__ = [
     "_MOBSF_SEVERITY",
     "map_mobsf_report",
     "report_json_to_findings",
     "map_report_json",
     "map_mobsf_json",
+    "collect_mobsf",
+    "find_debug_apk",
+    "run_mobsf",
 ]
