@@ -153,7 +153,11 @@ def test_scan_runner_stamps_feed_provenance(monkeypatch, tmp_path):
         cwd=tmp_path, check=True,
     )
 
-    result = sr.run_scan(tmp_path, no_agent=True)
+    # sast=False isolates this Phase-7 assertion to the SCA stamp: Plan 10-04
+    # added a cross-stack SAST step that EXTENDS meta.feed_provenance with its own
+    # entry when semgrep is resolvable, which would otherwise make the count 2 on
+    # a host that has semgrep installed.
+    result = sr.run_scan(tmp_path, no_agent=True, sast=False)
     assert captured.get("called") is True
     assert len(result.scan_report.meta.feed_provenance) == 1
     # The SCA finding flowed into the merged set.

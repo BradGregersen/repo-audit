@@ -70,25 +70,63 @@ def test_unavailable(monkeypatch, sast_vuln_repo):
 
 @pytest.mark.integration
 def test_live_semgrep(sast_vuln_repo):
-    """Live Semgrep over the vuln fixture -> >=1 OWASP static/candidate finding (SAST-01).
+    """Live Semgrep end-to-end (SAST-01/02/03) over the synthetic vuln repo.
 
-    Skips cleanly when the semgrep binary is not resolvable; otherwise runs the
-    real collector with ``--config p/owasp-top-ten --sarif --metrics off`` over
-    the synthetic OS-command-injection repo and asserts >=1 OWASP-mapped
-    static/candidate finding.
+    The full live path (Plan 10-04 phase gate): detect the fixture's stacks,
+    select the registry packs from the detection (the exact Plan-04 wiring —
+    ``select_packs`` yields ``p/owasp-top-ten`` + ``p/secrets`` plus ``p/react``
+    for the Expo/RN package.json), then run the REAL ``collect_semgrep`` against a
+    cache-redirected scan env. Asserts:
+
+      * status == "ok",
+      * >=1 finding with ``dimension=="security"``, ``evidence_type=="static"``,
+        ``confidence=="candidate"``, and a non-empty ``parsed_value["owasp"]``
+        (SAST-01/the OS-command-injection in ``src/vuln.py`` maps to OWASP), and
+      * NO finding's snippet contains the synthetic ``EXPO_PUBLIC_SUPABASE_ANON_KEY``
+        value (SAST-03 — the public anon key is never flagged as a leak).
+
+    Skips cleanly when the semgrep binary is not resolvable (the test is
+    integration-gated; it never runs in the default unit tier).
     """
     if not hasattr(semgrep, "run_semgrep"):
         pytest.skip("Wave 2 run_semgrep entry point not yet landed")
 
-    result = semgrep.run_semgrep(sast_vuln_repo, packs=["p/owasp-top-ten"])
+    from repo_audit.adapters.cache_env import build_scan_env, scan_tempdir
+    from repo_audit.adapters.sast.rulesets import select_packs
+    from repo_audit.detect.detector import detect_stacks
+
+    # The synthetic public anon key the SAST-03 drop must NOT surface (mirrors the
+    # value the factory writes into the fixture's .env).
+    _ANON_KEY = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJyb2xlIjoiYW5vbiIsImlzcyI6InN5bnRoZXRpYy1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwfQ."
+        "FAKE_SYNTHETIC_ANON_SIGNATURE_DO_NOT_USE"
+    )
+
+    detection = detect_stacks(sast_vuln_repo)
+    packs = select_packs(detection)
+
+    with scan_tempdir() as tempdir:
+        env = build_scan_env(tempdir)
+        result = semgrep.collect_semgrep(sast_vuln_repo, env, packs=packs)
+
     status = getattr(result, "status", None)
     if status in {"unavailable", "timeout"}:
         pytest.skip("semgrep binary not resolvable in this environment")
 
+    assert status == "ok"
+
     findings = getattr(result, "findings", result)
     assert any(
-        f.evidence_type == "static"
+        f.dimension == "security"
+        and f.evidence_type == "static"
         and f.confidence == "candidate"
         and f.evidence.parsed_value.get("owasp")
         for f in findings
-    ), "live semgrep must produce >=1 OWASP-mapped static/candidate finding"
+    ), "live semgrep must produce >=1 OWASP-mapped static/candidate finding (SAST-01)"
+
+    # SAST-03: the public anon key is allowlisted — its raw value must never reach
+    # a finding's snippet (the drop redacts/removes it before report).
+    assert all(
+        _ANON_KEY not in (f.evidence.output_snippet or "") for f in findings
+    ), "the public anon key must NEVER be flagged as a leak (SAST-03)"

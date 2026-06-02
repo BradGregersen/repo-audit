@@ -11,8 +11,13 @@ What the repo contains and WHY:
   detector classifies the repo as ``expo`` / ``react-native`` and the Wave-2
   ruleset table selects ``p/react`` (in addition to the OWASP pack).
 * ``src/vuln.py`` — an OBVIOUS OS-command-injection
-  (``os.system("rm -rf " + user_input)``) so the live ``p/owasp-top-ten`` run
-  has a real, deterministically-detected OWASP-A03 (Injection) finding to map.
+  (``subprocess.run("ls " + user_input, shell=True)``) so the live
+  ``p/owasp-top-ten`` run has a real, deterministically-detected OWASP-A03
+  (Injection) finding to map. ``shell=True`` on a string command is the
+  ``python.lang.security.audit.subprocess-shell-true`` rule, which is in the
+  current ``p/owasp-top-ten`` pack and carries an ``OWASP-A03:2021 - Injection``
+  tag (the bare ``os.system(... + input)`` shape is NOT in the current pack —
+  verified live during Plan 10-04).
 * ``src/component.tsx`` — a benign React surface (no secret, no injection) so
   the React pack has something to parse without producing a guaranteed finding.
 * ``.env`` — carries a SYNTHETIC ``EXPO_PUBLIC_SUPABASE_ANON_KEY`` (the PUBLIC
@@ -51,25 +56,28 @@ _PACKAGE_JSON = json.dumps(
     indent=2,
 )
 
-# OBVIOUS OS-command-injection: user input concatenated into os.system().
-# OWASP-A03 (Injection) — the live p/owasp-top-ten run detects this.
+# OBVIOUS OS-command-injection: user input concatenated into a shell command
+# run with shell=True. OWASP-A03 (Injection) — the live p/owasp-top-ten run's
+# `python.lang.security.audit.subprocess-shell-true` rule detects this and tags
+# it OWASP-A03:2021 - Injection (verified live during Plan 10-04).
 _VULN_PY = (
-    "import os\n"
+    "import subprocess\n"
     "import sys\n"
     "\n"
     "\n"
-    "def cleanup(user_input: str) -> None:\n"
-    '    """Delete a user-named path. INTENTIONALLY VULNERABLE (fixture).\n'
+    "def list_dir(user_input: str) -> None:\n"
+    '    """List a user-named path. INTENTIONALLY VULNERABLE (fixture).\n'
     "\n"
-    "    Builds an OS command from unsanitized user input — command injection\n"
-    "    (OWASP-A03). This exists ONLY to give the live Semgrep run a real,\n"
-    "    deterministic OWASP finding to map. Never ship this shape.\n"
+    "    Builds a shell command from unsanitized user input and runs it with\n"
+    "    shell=True — command injection (OWASP-A03). This exists ONLY to give the\n"
+    "    live Semgrep run a real, deterministic OWASP finding to map. Never ship\n"
+    "    this shape.\n"
     '    """\n'
-    '    os.system("rm -rf " + user_input)\n'
+    '    subprocess.run("ls " + user_input, shell=True)\n'
     "\n"
     "\n"
     'if __name__ == "__main__":\n'
-    "    cleanup(sys.argv[1])\n"
+    "    list_dir(sys.argv[1])\n"
 )
 
 # A benign React surface — no secret, no injection.
