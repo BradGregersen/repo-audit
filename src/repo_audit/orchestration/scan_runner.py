@@ -35,6 +35,7 @@ from repo_audit import __version__
 from repo_audit.adapters import run_adapters
 from repo_audit.adapters.cache_env import build_scan_env, scan_tempdir
 from repo_audit.adapters.sca import run_sca
+from repo_audit.adapters.supabase import run_supabase
 from repo_audit.collectors import run_collectors
 from repo_audit.detect.detector import detect_stacks
 from repo_audit.meta.git import NotAGitRepo, UNCOMMITTED_MARKER, head_sha
@@ -208,6 +209,8 @@ def run_scan(
     refresh_coverage: bool = False,
     refresh_vuln_db: bool = False,
     agent_budget: int | None = None,
+    rls_runtime: bool = False,
+    rls_pgrls: bool = False,
 ) -> ScanResult:
     """Run the full single-repo scan pipeline and return a :class:`ScanResult`.
 
@@ -286,14 +289,32 @@ def run_scan(
             repo_path, base_env=sca_base_env, refresh=refresh_vuln_db
         )
 
-    # Aggregate findings across collectors + adapters + SCA (sequential
-    # preserves ledger order). SCA findings are appended in the
-    # corroborate-sorted order so SC-5 determinism holds. Built BEFORE the
-    # refresh sub-steps below so the sub-steps can rewrite/extend this list.
+    # Phase 8 (Plan 08-05): CROSS-STACK RLS step (mirrors the Phase 7 SCA step).
+    # Like run_sca, run_supabase runs ONCE per repo (the ephemeral-DB lifecycle +
+    # the --rls-pgrls / --rls-runtime flag gating sit ABOVE per-stack dispatch),
+    # so it is its OWN step right after run_sca and BEFORE the findings merge.
+    # splinter is the always-on floor; pgrls runs only when --rls-pgrls; the
+    # runtime two-account probe runs only when --rls-runtime (and its own
+    # six-name gate). Called via the module attribute so tests can monkeypatch
+    # scan_runner.run_supabase (same patchable-attribute pattern as run_sca).
+    with scan_tempdir() as _rls_td:
+        rls_base_env = build_scan_env(_rls_td)
+        rls_result = _THIS_MODULE.run_supabase(
+            repo_path,
+            base_env=rls_base_env,
+            rls_pgrls=rls_pgrls,
+            rls_runtime=rls_runtime,
+        )
+
+    # Aggregate findings across collectors + adapters + SCA + RLS (sequential
+    # preserves ledger order). SCA + RLS findings are appended deterministically
+    # so SC-5 determinism holds. Built BEFORE the refresh sub-steps below so the
+    # sub-steps can rewrite/extend this list.
     findings = (
         [f for r in collector_results for f in r.findings]
         + [f for r in adapter_results for f in r.findings]
         + list(sca_result.findings)
+        + list(rls_result.findings)
     )
 
     # Sub-step C + D: --refresh-coverage opt-in wiring (D-41' / Decision A).
@@ -323,6 +344,7 @@ def run_scan(
         or any(r.status != "ok" for r in collector_results)
         or any(r.status != "ok" for r in adapter_results)
         or sca_result.status != "ok"
+        or rls_result.status != "ok"
     )
 
     # Fold the SCA status/notes into the scope ledger so the SCA dimension's
@@ -334,6 +356,21 @@ def run_scan(
             scope_ledger.notes += "; " + sca_note
         else:
             scope_ledger.notes = sca_note
+
+    # Fold the RLS status + ledger notes (the D-08-05 not-run posture + the
+    # D-08-09/16 reproducibility provenance) into the scope ledger so the RLS
+    # dimension's availability + provenance is disclosed honestly (SAFE-08). An
+    # RLS dimension unavailable (e.g. no migrations / docker down) is DISCLOSED
+    # here; the scan still completes (graceful degradation).
+    rls_notes = list(rls_result.ledger_notes)
+    if rls_result.notes:
+        rls_notes.insert(0, f"RLS ({rls_result.status}): {rls_result.notes}")
+    if rls_notes:
+        rls_note_text = "; ".join(rls_notes)
+        if scope_ledger.notes:
+            scope_ledger.notes += "; " + rls_note_text
+        else:
+            scope_ledger.notes = rls_note_text
 
     # Plan 05-01 / TREND-01: baseline_run is conditional on a prior sidecar.
     # find_prior_sidecar returns the most-recent JSON sidecar with

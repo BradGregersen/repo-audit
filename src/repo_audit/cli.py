@@ -27,6 +27,11 @@ import typer
 
 from repo_audit.detect.detector import detect_stacks
 from repo_audit.doctor.self_test import run_secret_lint_self_test
+
+# Per-adapter side-effect imports: importing the adapter package triggers its
+# @register_adapter(...) so the detector's stack dispatch + the scope ledger see
+# it (the same one-line pattern Phase 3 set for typescript, closing DI-03-03-01).
+import repo_audit.adapters.supabase  # noqa: F401, E402
 from repo_audit.fleet.dashboard import render_fleet_dashboard
 from repo_audit.fleet.sweep import run_fleet
 from repo_audit.meta.paths import fleet_report_paths
@@ -117,6 +122,25 @@ def scan(
             "disconnects when running tokens cross this threshold."
         ),
     ),
+    rls_runtime: bool = typer.Option(
+        False,
+        "--rls-runtime",
+        help=(
+            "Run the two-account RUNTIME RLS enforcement test (the ONLY source "
+            "of runtime/enforced evidence). This TOUCHES THE LIVE Supabase "
+            "project and requires the six AUDIT_TEST_USER_* + EXPO_PUBLIC_"
+            "SUPABASE_* env names (D-08-01). Off by default — splinter (static) "
+            "is the always-on floor; credentials alone never trigger it."
+        ),
+    ),
+    rls_pgrls: bool = typer.Option(
+        False,
+        "--rls-pgrls",
+        help=(
+            "Run the additive pgrls RLS linter (Beta, flag-gated; splinter is "
+            "the always-on floor). Off by default (D-08-06)."
+        ),
+    ),
 ) -> None:
     """Scan a repo and emit a state report + JSON sidecar (CLI-02 / SC-3).
 
@@ -176,6 +200,8 @@ def scan(
         refresh_coverage=refresh_coverage,
         refresh_vuln_db=refresh_vuln_db,
         agent_budget=agent_budget,
+        rls_runtime=rls_runtime,
+        rls_pgrls=rls_pgrls,
     )
 
     # render refused (secret-lint rc=2 / completion-honesty rc=3) → sidecar
