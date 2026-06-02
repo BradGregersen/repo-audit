@@ -1,0 +1,45 @@
+# Cross-stack SAST (Semgrep) adapter descriptor (Phase 10).
+#
+# Loaded under ruamel.yaml.YAML(typ='safe') (T-03-01): the safe loader refuses
+# !!python/object / !!python/name so a poisoned YAML (future user-overlay
+# scenario) cannot execute Python at load.
+#
+# This adapter is CROSS-STACK — it has no per-stack `name` @register_adapter
+# entry (like adapters/sca + adapters/mobile). Plan 10-04 wires collect_semgrep
+# into scan_runner.run_scan as a dedicated repo-wide scan step. collect_semgrep
+# does NOT load this file in Plan 10-03 — it is informational + the future
+# override surface (Plan 10-04 may read the noise overrides from here / the
+# repo's `.repo-audit.yaml` sast block).
+#
+# Per-tool routing follows the Phase-6 SARIF precedent: the tool supplies a
+# `default_dimension` + `severity_map`. Semgrep carries no numeric
+# security-severity band, so the parser's faithful level map (with the Wave-1
+# defaultConfiguration.level fallback) governs severity — `severity_map: {}` is
+# sufficient.
+name: sast
+
+tools:
+  semgrep:
+    command: semgrep              # resolved via resolve_tool -> vendor -> node_modules/.bin -> PATH
+    default_dimension: security    # every SAST finding lands in the security dimension
+    severity_map: {}               # faithful parser level map + Wave-1 fallback suffices
+    timeout_ms: 180000             # mirrors _SAST_TIMEOUT_SECONDS (Pitfall 5)
+
+# Default noise floor (SAST-02 / CRIT-2) — documented here for discoverability;
+# the authoritative defaults live in adapters/sast/noise.py (DEFAULT_EXCLUDES /
+# DEFAULT_SEVERITY_FLOOR). An `.repo-audit.yaml` `sast` block (exclude_paths
+# / severity_floor) REPLACES these at call time (scoped-read posture, no central
+# config loader).
+noise_floor:
+  severity_floor: minor           # drop findings strictly below 'minor' (i.e. 'info')
+  excludes:                       # path SEGMENT / dotted-substring matches
+    - node_modules
+    - build
+    - .expo
+    - dist
+    - vendor
+    - __tests__
+    - __mocks__
+    - __fixtures__
+    - generated
+    - .generated.

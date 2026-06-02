@@ -99,14 +99,30 @@ def test_wheel_ships_no_semgrep_rule_yaml(wheel_namelist: list[str]):
 
 
 def test_wheel_ships_no_semgrep_artifact_at_all(wheel_namelist: list[str]):
-    """Belt-and-suspenders: no wheel entry references Semgrep by name (CRIT-7).
+    """Belt-and-suspenders: no BUNDLED Semgrep artifact in the wheel (CRIT-7).
 
     Catches a bundled Semgrep binary or support file even if it is not a YAML
-    rule pack. The project ships no Semgrep artifacts in the standard build.
+    rule pack. The project ships no third-party Semgrep artifacts in the standard
+    build — Semgrep is invoked only as a host/PATH-resolved subprocess.
+
+    Our OWN ``.py`` source under ``repo_audit/adapters/sast/`` (e.g.
+    ``semgrep.py``, the collector that SHELLS OUT to host-resolved Semgrep) is
+    NOT a bundled Semgrep artifact — it is our Apache-licensed source code and
+    bundles nothing proprietary. The test docstring's "do not false-positive on
+    the project's own legitimate artifacts" contract (Plan 10-03) requires
+    excluding it; a vendored Semgrep binary/pack would land under ``vendor/`` or
+    as a non-``.py`` data file and is still caught.
     """
-    offenders = [name for name in wheel_namelist if "semgrep" in name.lower()]
+    offenders = [
+        name
+        for name in wheel_namelist
+        if "semgrep" in name.lower()
+        and not (
+            name.startswith("repo_audit/") and name.lower().endswith(".py")
+        )
+    ]
     assert not offenders, (
-        "Wheel must ship NO Semgrep artifact (CRIT-7). "
+        "Wheel must ship NO bundled Semgrep artifact (CRIT-7). "
         f"Offending entries: {offenders}"
     )
 
