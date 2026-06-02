@@ -15,6 +15,14 @@ dependencies = [
     "ruamel.yaml>=0.18",
     "claude-agent-sdk>=0.2.87",
     "defusedxml>=0.7",
+    # Phase 08 (Supabase RLS / data-privacy) — runtime deps, NOT dev-only:
+    # they execute during a real `repo-audit scan --rls-*` (ephemeral-PG lifecycle,
+    # splinter row-fetch, pgrls SARIF, squawk migration-safety). Exact pins
+    # per 08-RESEARCH §"Standard Stack".
+    "testcontainers[postgres]>=4.14.2",
+    "psycopg>=3.3.4",
+    "pgrls>=0.14.0",
+    "squawk-cli>=2.55.0",
 ]
 
 [project.scripts]
