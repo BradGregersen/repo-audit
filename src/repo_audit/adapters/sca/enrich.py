@@ -80,19 +80,43 @@ _PKG_AT_VERSION_RE = re.compile(r"'(?P<name>[^'@]+)@(?P<version>[^']+)'")
 
 
 def enrichment_key_for(finding: Finding) -> EnrichmentKey:
-    """Derive the ``(cve, pkg, version)`` enrichment key from a SARIF Finding.
+    """Derive the ``(cve, pkg, version)`` enrichment + corroboration key.
 
-    - CVE: ``finding.rule_id`` (osv SARIF ruleId is the bare CVE, per the
-      recorded fixture and PROVENANCE.md).
-    - package + version: parsed from ``finding.evidence.output_snippet`` (the
-      SARIF ``message.text``: ``Package 'urllib3@1.23.0' is vulnerable to …``).
-      Falls back to ``evidence.parsed_value['package']`` / ``['version']`` if
-      already stamped there.
+    This is the ONE keying function shared by osv enrichment (Plan 03) AND grype
+    corroboration (Plan 04) — there is deliberately no fork, so the two tools'
+    findings union on byte-identical keys.
 
-    Returns a key with empty package/version strings when the message shape
-    does not match — an unmatched key simply finds no enrichment entry, leaving
-    the finding intact (the apply step defaults ``direct=None``).
+    Key sources, in priority order:
+
+    - **Pre-stamped identity (grype, Pitfall 2):** when ``evidence.parsed_value``
+      already carries a ``cve`` (and ``package``/``version``), those win. grype's
+      SARIF ``ruleId`` is the COMPOSITE ``{vulnID}-{pkg}`` (NOT the bare CVE), so
+      ``collect_grype`` re-extracts the canonical CVE/package/version into
+      ``parsed_value`` and this branch reads them. This is what lets a grype
+      finding key identically to the CVE-keyed osv finding.
+    - **osv SARIF shape:** otherwise the CVE is ``finding.rule_id`` (osv's SARIF
+      ruleId IS the bare CVE) and the package + version are parsed from
+      ``evidence.output_snippet`` (``Package 'urllib3@1.23.0' is vulnerable …``).
+    - **parsed_value package/version fallback:** if the message shape does not
+      match, ``parsed_value['package']`` / ``['version']`` are used.
+
+    Returns a key with empty package/version strings when nothing matches — an
+    unmatched key simply finds no enrichment entry / no corroboration partner,
+    leaving the finding intact at ``candidate`` (the apply step defaults
+    ``direct=None``).
     """
+    pv = finding.evidence.parsed_value or {}
+
+    # Pre-stamped identity wins (grype path, Pitfall 2). The presence of an
+    # explicit `cve` in parsed_value signals the rule_id is NOT the bare CVE.
+    stamped_cve = pv.get("cve")
+    if isinstance(stamped_cve, str) and stamped_cve:
+        pkg_raw = pv.get("package")
+        version_raw = pv.get("version")
+        pkg = normalize_pkg(pkg_raw) if isinstance(pkg_raw, str) else ""
+        version = version_raw.strip() if isinstance(version_raw, str) else ""
+        return (normalize_cve(stamped_cve), pkg, version)
+
     cve = normalize_cve(finding.rule_id or "")
 
     snippet = finding.evidence.output_snippet or ""
@@ -103,7 +127,6 @@ def enrichment_key_for(finding: Finding) -> EnrichmentKey:
         return (cve, pkg, version)
 
     # Fallback: a prior pass may have stamped package/version in parsed_value.
-    pv = finding.evidence.parsed_value or {}
     pkg_raw = pv.get("package")
     version_raw = pv.get("version")
     pkg = normalize_pkg(pkg_raw) if isinstance(pkg_raw, str) else ""
