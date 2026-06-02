@@ -1,0 +1,525 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "grype",
+          "version": "0.112.0",
+          "informationUri": "https://github.com/anchore/grype",
+          "rules": [
+            {
+              "id": "GHSA-mh33-7rrq-662w-urllib3",
+              "name": "PythonMatcherExactDirectMatch",
+              "shortDescription": {
+                "text": "GHSA-mh33-7rrq-662w high vulnerability for urllib3 package"
+              },
+              "fullDescription": {
+                "text": "Improper Certificate Validation in urllib3"
+              },
+              "helpUri": "https://github.com/advisories/GHSA-mh33-7rrq-662w",
+              "help": {
+                "text": "Vulnerability GHSA-mh33-7rrq-662w\nSeverity: high\nPackage: urllib3\nVersion: 1.23.0\nFix Version: 1.24.2\nType: python\nLocation: /requirements.txt\nData Namespace: github:language:python\nLink: [GHSA-mh33-7rrq-662w](https://github.com/advisories/GHSA-mh33-7rrq-662w)",
+                "markdown": "**Vulnerability GHSA-mh33-7rrq-662w**\n| Severity | Package | Version | Fix Version | Type | Location | Data Namespace | Link |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| high  | urllib3  | 1.23.0  | 1.24.2  | python  | /requirements.txt  | github:language:python  | [GHSA-mh33-7rrq-662w](https://github.com/advisories/GHSA-mh33-7rrq-662w)  |\n"
+              },
+              "properties": {
+                "purls": [
+                  "pkg:pypi/urllib3@1.23.0"
+                ],
+                "security-severity": "8.7"
+              }
+            },
+            {
+              "id": "GHSA-v845-jxx5-vc9f-urllib3",
+              "name": "PythonMatcherExactDirectMatch",
+              "shortDescription": {
+                "text": "GHSA-v845-jxx5-vc9f high vulnerability for urllib3 package"
+              },
+              "fullDescription": {
+                "text": "`Cookie` HTTP header isn't stripped on cross-origin redirects"
+              },
+              "helpUri": "https://github.com/advisories/GHSA-v845-jxx5-vc9f",
+              "help": {
+                "text": "Vulnerability GHSA-v845-jxx5-vc9f\nSeverity: high\nPackage: urllib3\nVersion: 1.23.0\nFix Version: 1.26.17\nType: python\nLocation: /requirements.txt\nData Namespace: github:language:python\nLink: [GHSA-v845-jxx5-vc9f](https://github.com/advisories/GHSA-v845-jxx5-vc9f)",
+                "markdown": "**Vulnerability GHSA-v845-jxx5-vc9f**\n| Severity | Package | Version | Fix Version | Type | Location | Data Namespace | Link |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| high  | urllib3  | 1.23.0  | 1.26.17  | python  | /requirements.txt  | github:language:python  | [GHSA-v845-jxx5-vc9f](https://github.com/advisories/GHSA-v845-jxx5-vc9f)  |\n"
+              },
+              "properties": {
+                "purls": [
+                  "pkg:pypi/urllib3@1.23.0"
+                ],
+                "security-severity": "7.4"
+              }
+            },
+            {
+              "id": "GHSA-r64q-w8jr-g9qp-urllib3",
+              "name": "PythonMatcherExactDirectMatch",
+              "shortDescription": {
+                "text": "GHSA-r64q-w8jr-g9qp medium vulnerability for urllib3 package"
+              },
+              "fullDescription": {
+                "text": "Improper Neutralization of CRLF Sequences in urllib3 library for Python"
+              },
+              "helpUri": "https://github.com/advisories/GHSA-r64q-w8jr-g9qp",
+              "help": {
+                "text": "Vulnerability GHSA-r64q-w8jr-g9qp\nSeverity: medium\nPackage: urllib3\nVersion: 1.23.0\nFix Version: 1.24.3\nType: python\nLocation: /requirements.txt\nData Namespace: github:language:python\nLink: [GHSA-r64q-w8jr-g9qp](https://github.com/advisories/GHSA-r64q-w8jr-g9qp)",
+                "markdown": "**Vulnerability GHSA-r64q-w8jr-g9qp**\n| Severity | Package | Version | Fix Version | Type | Location | Data Namespace | Link |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| medium  | urllib3  | 1.23.0  | 1.24.3  | python  | /requirements.txt  | github:language:python  | [GHSA-r64q-w8jr-g9qp](https://github.com/advisories/GHSA-r64q-w8jr-g9qp)  |\n"
+              },
+              "properties": {
+                "purls": [
+                  "pkg:pypi/urllib3@1.23.0"
+                ],
+                "security-severity": "6.1"
+              }
+            },
+            {
+              "id": "GHSA-wqvq-5m8c-6g24-urllib3",
+              "name": "PythonMatcherExactDirectMatch",
+              "shortDescription": {
+                "text": "GHSA-wqvq-5m8c-6g24 medium vulnerability for urllib3 package"
+              },
+              "fullDescription": {
+                "text": "CRLF injection in urllib3"
+              },
+              "helpUri": "https://github.com/advisories/GHSA-wqvq-5m8c-6g24",
+              "help": {
+                "text": "Vulnerability GHSA-wqvq-5m8c-6g24\nSeverity: medium\nPackage: urllib3\nVersion: 1.23.0\nFix Version: 1.25.9\nType: python\nLocation: /requirements.txt\nData Namespace: github:language:python\nLink: [GHSA-wqvq-5m8c-6g24](https://github.com/advisories/GHSA-wqvq-5m8c-6g24)",
+                "markdown": "**Vulnerability GHSA-wqvq-5m8c-6g24**\n| Severity | Package | Version | Fix Version | Type | Location | Data Namespace | Link |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| medium  | urllib3  | 1.23.0  | 1.25.9  | python  | /requirements.txt  | github:language:python  | [GHSA-wqvq-5m8c-6g24](https://github.com/advisories/GHSA-wqvq-5m8c-6g24)  |\n"
+              },
+              "properties": {
+                "purls": [
+                  "pkg:pypi/urllib3@1.23.0"
+                ],
+                "security-severity": "6.9"
+              }
+            },
+            {
+              "id": "GHSA-gwvm-45gx-3cf8-urllib3",
+              "name": "PythonMatcherExactDirectMatch",
+              "shortDescription": {
+                "text": "GHSA-gwvm-45gx-3cf8 medium vulnerability for urllib3 package"
+              },
+              "fullDescription": {
+                "text": "Authorization Header forwarded on redirect"
+              },
+              "helpUri": "https://github.com/advisories/GHSA-gwvm-45gx-3cf8",
+              "help": {
+                "text": "Vulnerability GHSA-gwvm-45gx-3cf8\nSeverity: medium\nPackage: urllib3\nVersion: 1.23.0\nFix Version: 1.24.2\nType: python\nLocation: /requirements.txt\nData Namespace: github:language:python\nLink: [GHSA-gwvm-45gx-3cf8](https://github.com/advisories/GHSA-gwvm-45gx-3cf8)",
+                "markdown": "**Vulnerability GHSA-gwvm-45gx-3cf8**\n| Severity | Package | Version | Fix Version | Type | Location | Data Namespace | Link |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| medium  | urllib3  | 1.23.0  | 1.24.2  | python  | /requirements.txt  | github:language:python  | [GHSA-gwvm-45gx-3cf8](https://github.com/advisories/GHSA-gwvm-45gx-3cf8)  |\n"
+              },
+              "properties": {
+                "purls": [
+                  "pkg:pypi/urllib3@1.23.0"
+                ],
+                "security-severity": "6.1"
+              }
+            },
+            {
+              "id": "GHSA-34jh-p97f-mpxf-urllib3",
+              "name": "PythonMatcherExactDirectMatch",
+              "shortDescription": {
+                "text": "GHSA-34jh-p97f-mpxf medium vulnerability for urllib3 package"
+              },
+              "fullDescription": {
+                "text": "urllib3's Proxy-Authorization request header isn't stripped during cross-origin redirects"
+              },
+              "helpUri": "https://github.com/advisories/GHSA-34jh-p97f-mpxf",
+              "help": {
+                "text": "Vulnerability GHSA-34jh-p97f-mpxf\nSeverity: medium\nPackage: urllib3\nVersion: 1.23.0\nFix Version: 1.26.19\nType: python\nLocation: /requirements.txt\nData Namespace: github:language:python\nLink: [GHSA-34jh-p97f-mpxf](https://github.com/advisories/GHSA-34jh-p97f-mpxf)",
+                "markdown": "**Vulnerability GHSA-34jh-p97f-mpxf**\n| Severity | Package | Version | Fix Version | Type | Location | Data Namespace | Link |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| medium  | urllib3  | 1.23.0  | 1.26.19  | python  | /requirements.txt  | github:language:python  | [GHSA-34jh-p97f-mpxf](https://github.com/advisories/GHSA-34jh-p97f-mpxf)  |\n"
+              },
+              "properties": {
+                "purls": [
+                  "pkg:pypi/urllib3@1.23.0"
+                ],
+                "security-severity": "4.4"
+              }
+            },
+            {
+              "id": "GHSA-pq67-6m6q-mj2v-urllib3",
+              "name": "PythonMatcherExactDirectMatch",
+              "shortDescription": {
+                "text": "GHSA-pq67-6m6q-mj2v medium vulnerability for urllib3 package"
+              },
+              "fullDescription": {
+                "text": "urllib3 redirects are not disabled when retries are disabled on PoolManager instantiation"
+              },
+              "helpUri": "https://github.com/advisories/GHSA-pq67-6m6q-mj2v",
+              "help": {
+                "text": "Vulnerability GHSA-pq67-6m6q-mj2v\nSeverity: medium\nPackage: urllib3\nVersion: 1.23.0\nFix Version: 2.5.0\nType: python\nLocation: /requirements.txt\nData Namespace: github:language:python\nLink: [GHSA-pq67-6m6q-mj2v](https://github.com/advisories/GHSA-pq67-6m6q-mj2v)",
+                "markdown": "**Vulnerability GHSA-pq67-6m6q-mj2v**\n| Severity | Package | Version | Fix Version | Type | Location | Data Namespace | Link |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| medium  | urllib3  | 1.23.0  | 2.5.0  | python  | /requirements.txt  | github:language:python  | [GHSA-pq67-6m6q-mj2v](https://github.com/advisories/GHSA-pq67-6m6q-mj2v)  |\n"
+              },
+              "properties": {
+                "purls": [
+                  "pkg:pypi/urllib3@1.23.0"
+                ],
+                "security-severity": "5.3"
+              }
+            },
+            {
+              "id": "GHSA-g4mx-q9vg-27p4-urllib3",
+              "name": "PythonMatcherExactDirectMatch",
+              "shortDescription": {
+                "text": "GHSA-g4mx-q9vg-27p4 medium vulnerability for urllib3 package"
+              },
+              "fullDescription": {
+                "text": "urllib3's request body not stripped after redirect from 303 status changes request method to GET"
+              },
+              "helpUri": "https://github.com/advisories/GHSA-g4mx-q9vg-27p4",
+              "help": {
+                "text": "Vulnerability GHSA-g4mx-q9vg-27p4\nSeverity: medium\nPackage: urllib3\nVersion: 1.23.0\nFix Version: 1.26.18\nType: python\nLocation: /requirements.txt\nData Namespace: github:language:python\nLink: [GHSA-g4mx-q9vg-27p4](https://github.com/advisories/GHSA-g4mx-q9vg-27p4)",
+                "markdown": "**Vulnerability GHSA-g4mx-q9vg-27p4**\n| Severity | Package | Version | Fix Version | Type | Location | Data Namespace | Link |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| medium  | urllib3  | 1.23.0  | 1.26.18  | python  | /requirements.txt  | github:language:python  | [GHSA-g4mx-q9vg-27p4](https://github.com/advisories/GHSA-g4mx-q9vg-27p4)  |\n"
+              },
+              "properties": {
+                "purls": [
+                  "pkg:pypi/urllib3@1.23.0"
+                ],
+                "security-severity": "5.7"
+              }
+            },
+            {
+              "id": "GHSA-38jv-5279-wg99-urllib3",
+              "name": "PythonMatcherExactDirectMatch",
+              "shortDescription": {
+                "text": "GHSA-38jv-5279-wg99 high vulnerability for urllib3 package"
+              },
+              "fullDescription": {
+                "text": "Decompression-bomb safeguards bypassed when following HTTP redirects (streaming API)"
+              },
+              "helpUri": "https://github.com/advisories/GHSA-38jv-5279-wg99",
+              "help": {
+                "text": "Vulnerability GHSA-38jv-5279-wg99\nSeverity: high\nPackage: urllib3\nVersion: 1.23.0\nFix Version: 2.6.3\nType: python\nLocation: /requirements.txt\nData Namespace: github:language:python\nLink: [GHSA-38jv-5279-wg99](https://github.com/advisories/GHSA-38jv-5279-wg99)",
+                "markdown": "**Vulnerability GHSA-38jv-5279-wg99**\n| Severity | Package | Version | Fix Version | Type | Location | Data Namespace | Link |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| high  | urllib3  | 1.23.0  | 2.6.3  | python  | /requirements.txt  | github:language:python  | [GHSA-38jv-5279-wg99](https://github.com/advisories/GHSA-38jv-5279-wg99)  |\n"
+              },
+              "properties": {
+                "purls": [
+                  "pkg:pypi/urllib3@1.23.0"
+                ],
+                "security-severity": "8.9"
+              }
+            },
+            {
+              "id": "GHSA-2xpw-w6gg-jr37-urllib3",
+              "name": "PythonMatcherExactDirectMatch",
+              "shortDescription": {
+                "text": "GHSA-2xpw-w6gg-jr37 high vulnerability for urllib3 package"
+              },
+              "fullDescription": {
+                "text": "urllib3 streaming API improperly handles highly compressed data"
+              },
+              "helpUri": "https://github.com/advisories/GHSA-2xpw-w6gg-jr37",
+              "help": {
+                "text": "Vulnerability GHSA-2xpw-w6gg-jr37\nSeverity: high\nPackage: urllib3\nVersion: 1.23.0\nFix Version: 2.6.0\nType: python\nLocation: /requirements.txt\nData Namespace: github:language:python\nLink: [GHSA-2xpw-w6gg-jr37](https://github.com/advisories/GHSA-2xpw-w6gg-jr37)",
+                "markdown": "**Vulnerability GHSA-2xpw-w6gg-jr37**\n| Severity | Package | Version | Fix Version | Type | Location | Data Namespace | Link |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| high  | urllib3  | 1.23.0  | 2.6.0  | python  | /requirements.txt  | github:language:python  | [GHSA-2xpw-w6gg-jr37](https://github.com/advisories/GHSA-2xpw-w6gg-jr37)  |\n"
+              },
+              "properties": {
+                "purls": [
+                  "pkg:pypi/urllib3@1.23.0"
+                ],
+                "security-severity": "8.9"
+              }
+            },
+            {
+              "id": "GHSA-qccp-gfcp-xxvc-urllib3",
+              "name": "PythonMatcherExactDirectMatch",
+              "shortDescription": {
+                "text": "GHSA-qccp-gfcp-xxvc high vulnerability for urllib3 package"
+              },
+              "fullDescription": {
+                "text": "urllib3: Sensitive headers forwarded across origins in proxied low-level redirects"
+              },
+              "helpUri": "https://github.com/advisories/GHSA-qccp-gfcp-xxvc",
+              "help": {
+                "text": "Vulnerability GHSA-qccp-gfcp-xxvc\nSeverity: high\nPackage: urllib3\nVersion: 1.23.0\nFix Version: 2.7.0\nType: python\nLocation: /requirements.txt\nData Namespace: github:language:python\nLink: [GHSA-qccp-gfcp-xxvc](https://github.com/advisories/GHSA-qccp-gfcp-xxvc)",
+                "markdown": "**Vulnerability GHSA-qccp-gfcp-xxvc**\n| Severity | Package | Version | Fix Version | Type | Location | Data Namespace | Link |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| high  | urllib3  | 1.23.0  | 2.7.0  | python  | /requirements.txt  | github:language:python  | [GHSA-qccp-gfcp-xxvc](https://github.com/advisories/GHSA-qccp-gfcp-xxvc)  |\n"
+              },
+              "properties": {
+                "purls": [
+                  "pkg:pypi/urllib3@1.23.0"
+                ],
+                "security-severity": "8.2"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "GHSA-mh33-7rrq-662w-urllib3",
+          "level": "error",
+          "message": {
+            "text": "A high vulnerability in python package: urllib3, version 1.23.0 was found at: /requirements.txt"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/requirements.txt"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1,
+                  "endLine": 1,
+                  "endColumn": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "85921939c8baabf555328b2390aaf0fea00023551822e67361e8e616e285c696:1"
+          }
+        },
+        {
+          "ruleId": "GHSA-v845-jxx5-vc9f-urllib3",
+          "level": "error",
+          "message": {
+            "text": "A high vulnerability in python package: urllib3, version 1.23.0 was found at: /requirements.txt"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/requirements.txt"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1,
+                  "endLine": 1,
+                  "endColumn": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "85921939c8baabf555328b2390aaf0fea00023551822e67361e8e616e285c696:1"
+          }
+        },
+        {
+          "ruleId": "GHSA-r64q-w8jr-g9qp-urllib3",
+          "level": "warning",
+          "message": {
+            "text": "A medium vulnerability in python package: urllib3, version 1.23.0 was found at: /requirements.txt"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/requirements.txt"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1,
+                  "endLine": 1,
+                  "endColumn": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "85921939c8baabf555328b2390aaf0fea00023551822e67361e8e616e285c696:1"
+          }
+        },
+        {
+          "ruleId": "GHSA-wqvq-5m8c-6g24-urllib3",
+          "level": "warning",
+          "message": {
+            "text": "A medium vulnerability in python package: urllib3, version 1.23.0 was found at: /requirements.txt"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/requirements.txt"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1,
+                  "endLine": 1,
+                  "endColumn": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "85921939c8baabf555328b2390aaf0fea00023551822e67361e8e616e285c696:1"
+          }
+        },
+        {
+          "ruleId": "GHSA-gwvm-45gx-3cf8-urllib3",
+          "level": "warning",
+          "message": {
+            "text": "A medium vulnerability in python package: urllib3, version 1.23.0 was found at: /requirements.txt"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/requirements.txt"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1,
+                  "endLine": 1,
+                  "endColumn": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "85921939c8baabf555328b2390aaf0fea00023551822e67361e8e616e285c696:1"
+          }
+        },
+        {
+          "ruleId": "GHSA-34jh-p97f-mpxf-urllib3",
+          "level": "warning",
+          "message": {
+            "text": "A medium vulnerability in python package: urllib3, version 1.23.0 was found at: /requirements.txt"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/requirements.txt"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1,
+                  "endLine": 1,
+                  "endColumn": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "85921939c8baabf555328b2390aaf0fea00023551822e67361e8e616e285c696:1"
+          }
+        },
+        {
+          "ruleId": "GHSA-pq67-6m6q-mj2v-urllib3",
+          "level": "warning",
+          "message": {
+            "text": "A medium vulnerability in python package: urllib3, version 1.23.0 was found at: /requirements.txt"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/requirements.txt"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1,
+                  "endLine": 1,
+                  "endColumn": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "85921939c8baabf555328b2390aaf0fea00023551822e67361e8e616e285c696:1"
+          }
+        },
+        {
+          "ruleId": "GHSA-g4mx-q9vg-27p4-urllib3",
+          "level": "warning",
+          "message": {
+            "text": "A medium vulnerability in python package: urllib3, version 1.23.0 was found at: /requirements.txt"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/requirements.txt"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1,
+                  "endLine": 1,
+                  "endColumn": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "85921939c8baabf555328b2390aaf0fea00023551822e67361e8e616e285c696:1"
+          }
+        },
+        {
+          "ruleId": "GHSA-38jv-5279-wg99-urllib3",
+          "level": "error",
+          "message": {
+            "text": "A high vulnerability in python package: urllib3, version 1.23.0 was found at: /requirements.txt"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/requirements.txt"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1,
+                  "endLine": 1,
+                  "endColumn": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "85921939c8baabf555328b2390aaf0fea00023551822e67361e8e616e285c696:1"
+          }
+        },
+        {
+          "ruleId": "GHSA-2xpw-w6gg-jr37-urllib3",
+          "level": "error",
+          "message": {
+            "text": "A high vulnerability in python package: urllib3, version 1.23.0 was found at: /requirements.txt"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/requirements.txt"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1,
+                  "endLine": 1,
+                  "endColumn": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "85921939c8baabf555328b2390aaf0fea00023551822e67361e8e616e285c696:1"
+          }
+        },
+        {
+          "ruleId": "GHSA-qccp-gfcp-xxvc-urllib3",
+          "level": "error",
+          "message": {
+            "text": "A high vulnerability in python package: urllib3, version 1.23.0 was found at: /requirements.txt"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/requirements.txt"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 1,
+                  "endLine": 1,
+                  "endColumn": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "85921939c8baabf555328b2390aaf0fea00023551822e67361e8e616e285c696:1"
+          }
+        }
+      ]
+    }
+  ]
+}
