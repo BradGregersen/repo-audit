@@ -339,3 +339,60 @@ def mobsf_report_json() -> dict:
     """
     path = FIXTURES_ROOT / "mobile" / "mobsf_report_json.json"
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+# --- Phase 10 (SAST — Semgrep) fixtures ------------------------------------
+
+
+@pytest.fixture
+def sast_vuln_repo(tmp_path) -> Path:
+    """A synthetic vulnerable Expo/RN repo built under ``tmp_path``.
+
+    Delegates to the Plan 10-00 factory
+    (``tests/adapters/fixtures/sast/vuln_repo_factory.make_sast_vuln_repo``)
+    which seeds an obvious OS-command-injection (``src/vuln.py``, OWASP-A03), a
+    benign React surface (``src/component.tsx``), a ``package.json`` declaring
+    react/react-native/expo (so the detector selects ``p/react``), and a ``.env``
+    carrying the SYNTHETIC public anon key (the key the SAST-03 drop must NOT
+    surface as a leak). The Wave-3 ``-m integration`` live Semgrep run scans it.
+    All secrets are synthetic (PROVENANCE.md).
+
+    Imported lazily (inside the fixture body) so the conftest has no import-time
+    dependency on the fixtures package.
+    """
+    import sys
+
+    sast_dir = FIXTURES_ROOT / "sast"
+    if str(sast_dir) not in sys.path:
+        sys.path.insert(0, str(sast_dir))
+    from vuln_repo_factory import make_sast_vuln_repo  # noqa: E402
+
+    return make_sast_vuln_repo(tmp_path / "sast-vuln-fixture")
+
+
+@pytest.fixture
+def owasp_sarif() -> dict:
+    """The hand-authored Semgrep owasp-top-ten SARIF fixture (Pitfall-1 shape).
+
+    Returns the parsed JSON from
+    ``tests/adapters/fixtures/sast/owasp_top_ten.sarif`` — ``result.level=null``
+    + ``rule.defaultConfiguration.level`` (error/warning) + OWASP/CWE tags, no
+    ``security-severity``. Pins the severity-collapse the D-10-03 parser fix
+    (Wave 1) repairs. Secrets-free.
+    """
+    path = FIXTURES_ROOT / "sast" / "owasp_top_ten.sarif"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def secrets_anon_sarif() -> dict:
+    """The hand-authored Semgrep ``p/secrets`` SARIF fixture (SAST-03 shape).
+
+    Returns the parsed JSON from
+    ``tests/adapters/fixtures/sast/secrets_anon.sarif`` — two results: a PUBLIC
+    anon key (matches ``footguns._ANON_ALLOWLIST``, must be dropped) and a
+    genuine ``service_role`` secret (must be kept + redacted). All values are
+    synthetic (PROVENANCE.md).
+    """
+    path = FIXTURES_ROOT / "sast" / "secrets_anon.sarif"
+    return json.loads(path.read_text(encoding="utf-8"))
