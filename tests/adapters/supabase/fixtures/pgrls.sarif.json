@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "pgrls",
+          "informationUri": "https://github.com/pgrls/pgrls",
+          "version": "0.14.0",
+          "rules": [
+            {
+              "id": "rls-missing-policy",
+              "name": "RlsMissingPolicy",
+              "shortDescription": {
+                "text": "Table has RLS enabled but no policy grants access"
+              },
+              "helpUri": "https://github.com/pgrls/pgrls#rls-missing-policy",
+              "properties": {
+                "security-severity": "8.1"
+              }
+            },
+            {
+              "id": "rls-over-permissive-policy",
+              "name": "RlsOverPermissivePolicy",
+              "shortDescription": {
+                "text": "Policy USING (true) grants unconditional row access"
+              },
+              "helpUri": "https://github.com/pgrls/pgrls#rls-over-permissive-policy",
+              "properties": {
+                "security-severity": "9.3"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "rls-over-permissive-policy",
+          "level": "error",
+          "message": {
+            "text": "Policy `tasks_select_all` on `public.tasks` uses `USING (true)`, granting unconditional row access to the `authenticated` role. Present in the introspected schema; verify intended scope against expected tenant isolation."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "supabase/migrations/0001_schema.sql"
+                },
+                "region": {
+                  "startLine": 42,
+                  "startColumn": 1,
+                  "endLine": 44
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "rls-missing-policy",
+          "level": "warning",
+          "message": {
+            "text": "Table `public.audit_log` has RLS enabled but no policy grants `select`. No row is reachable for `authenticated`; verify this is the intended deny-all posture."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "supabase/migrations/0003_audit.sql"
+                },
+                "region": {
+                  "startLine": 7,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

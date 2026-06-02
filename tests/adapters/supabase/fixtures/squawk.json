@@ -1,0 +1,90 @@
+[
+  {
+    "file": "supabase/migrations/0009_destructive.sql",
+    "line": 1,
+    "column": 0,
+    "level": "Warning",
+    "message": "Missing `set lock_timeout` before potentially slow operations",
+    "help": "Configure a `lock_timeout` before this statement.",
+    "rule_name": "require-timeout-settings",
+    "column_end": 51,
+    "line_end": 1
+  },
+  {
+    "file": "supabase/migrations/0009_destructive.sql",
+    "line": 1,
+    "column": 0,
+    "level": "Warning",
+    "message": "Missing `set statement_timeout` before potentially slow operations",
+    "help": "Configure a `statement_timeout` before this statement",
+    "rule_name": "require-timeout-settings",
+    "column_end": 51,
+    "line_end": 1
+  },
+  {
+    "file": "supabase/migrations/0009_destructive.sql",
+    "line": 1,
+    "column": 25,
+    "level": "Warning",
+    "message": "Dropping a column may break existing clients.",
+    "help": null,
+    "rule_name": "ban-drop-column",
+    "column_end": 50,
+    "line_end": 1
+  },
+  {
+    "file": "supabase/migrations/0009_destructive.sql",
+    "line": 1,
+    "column": 25,
+    "level": "Warning",
+    "message": "Missing `IF EXISTS`, the migration can't be rerun if it fails part way through.",
+    "help": null,
+    "rule_name": "prefer-robust-stmts",
+    "column_end": 50,
+    "line_end": 1
+  },
+  {
+    "file": "supabase/migrations/0009_destructive.sql",
+    "line": 3,
+    "column": 0,
+    "level": "Warning",
+    "message": "Missing `IF NOT EXISTS`, the migration can't be rerun if it fails part way through.",
+    "help": "Use an explicit name for a concurrently created index",
+    "rule_name": "prefer-robust-stmts",
+    "column_end": 56,
+    "line_end": 3
+  },
+  {
+    "file": "supabase/migrations/0009_destructive.sql",
+    "line": 3,
+    "column": 0,
+    "level": "Warning",
+    "message": "During normal index creation, table updates are blocked, but reads are still allowed.",
+    "help": "Use `concurrently` to avoid blocking writes.",
+    "rule_name": "require-concurrent-index-creation",
+    "column_end": 56,
+    "line_end": 3
+  },
+  {
+    "file": "supabase/migrations/0009_destructive.sql",
+    "line": 5,
+    "column": 25,
+    "level": "Warning",
+    "message": "Missing `IF NOT EXISTS`, the migration can't be rerun if it fails part way through.",
+    "help": null,
+    "rule_name": "prefer-robust-stmts",
+    "column_end": 71,
+    "line_end": 5
+  },
+  {
+    "file": "supabase/migrations/0009_destructive.sql",
+    "line": 5,
+    "column": 45,
+    "level": "Warning",
+    "message": "Using 32-bit integer fields can result in hitting the max `int` limit.",
+    "help": "Use 64-bit integer values instead to prevent hitting this limit.",
+    "rule_name": "prefer-bigint-over-int",
+    "column_end": 52,
+    "line_end": 5
+  }
+]

@@ -1,0 +1,50 @@
+[
+  {
+    "name": "rls_disabled_in_public",
+    "title": "RLS Disabled in Public",
+    "level": "ERROR",
+    "facing": "EXTERNAL",
+    "categories": ["SECURITY"],
+    "description": "Detects cases where row level security (RLS) has not been enabled on tables in schemas exposed to PostgREST",
+    "detail": "Table `public.tasks` is public, but RLS has not been enabled.",
+    "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public",
+    "metadata": {"schema": "public", "name": "tasks", "type": "table"},
+    "cache_key": "rls_disabled_in_public_public_tasks"
+  },
+  {
+    "name": "rls_references_user_metadata",
+    "title": "RLS references user metadata",
+    "level": "ERROR",
+    "facing": "EXTERNAL",
+    "categories": ["SECURITY"],
+    "description": "Detects when a row level security (RLS) policy references the `user_metadata` field, which is editable by end users and should never be used in a security context.",
+    "detail": "Table `public.projects` has a row level security policy `projects_owner_only` that references Supabase Auth `user_metadata`. `user_metadata` is editable by end users and should never be used in a security context.",
+    "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0015_rls_references_user_metadata",
+    "metadata": {"schema": "public", "name": "projects", "type": "table"},
+    "cache_key": "rls_references_user_metadata_public_projects_projects_owner_only"
+  },
+  {
+    "name": "security_definer_view",
+    "title": "Security Definer View",
+    "level": "ERROR",
+    "facing": "EXTERNAL",
+    "categories": ["SECURITY"],
+    "description": "Detects views defined with the SECURITY DEFINER property. These views enforce Postgres permissions and row level security policies (RLS) of the view creator, rather than that of the querying user.",
+    "detail": "View `public.task_summary` is defined with the SECURITY DEFINER property",
+    "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0010_security_definer_view",
+    "metadata": {"schema": "public", "name": "task_summary", "type": "view"},
+    "cache_key": "security_definer_view_public_task_summary"
+  },
+  {
+    "name": "auth_rls_initplan",
+    "title": "Auth RLS Initialization Plan",
+    "level": "WARN",
+    "facing": "EXTERNAL",
+    "categories": ["PERFORMANCE"],
+    "description": "Detects if calls to `current_setting()` and `auth.<function>()` in RLS policies are being unnecessarily re-evaluated for each row",
+    "detail": "Table `public.tasks` has a row level security policy `tasks_owner_only` that re-evaluates current_setting() or auth.<function>() for each row. This produces suboptimal query performance at scale. Replace `auth.<function>()` with `(select auth.<function>())`.",
+    "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0003_auth_rls_initplan",
+    "metadata": {"schema": "public", "name": "tasks", "type": "table"},
+    "cache_key": "auth_rls_initplan_public_tasks_tasks_owner_only"
+  }
+]
