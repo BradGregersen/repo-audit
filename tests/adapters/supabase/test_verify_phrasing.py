@@ -3,15 +3,21 @@
 The shared guard every Wave 1 static/heuristic supabase collector routes its
 findings through. Proves the contract:
 
-  * any NON-runtime Finding whose ``message`` carries an enforcement word
-    (the banned set) RAISES VerifyPhrasingViolation;
+  * any NON-runtime Finding whose report-visible prose carries an enforcement
+    word (the banned set) RAISES VerifyPhrasingViolation;
   * ``evidence_type='runtime'`` is the SOLE exemption (D-08-04 — the exit-1
     two-account runtime test is the only sanctioned source of enforcement
     language);
   * verify-phrasing ("verify enforcement") is ALLOWED — the guard is
     word-boundary + case-insensitive, not a naive substring scan;
-  * only the report-visible ``message`` field is scanned; an enforcement word
-    buried in ``evidence.parsed_value`` diagnostic blobs is exempt.
+  * the report-visible prose surface (recommendation / confidence_caveat /
+    evidence.output_snippet) is scanned; an enforcement word buried only in
+    ``evidence.parsed_value`` diagnostic blobs is exempt.
+
+NOTE: the Phase 1 ``Finding`` schema has no ``message`` field (the plan's
+interface note assumed one). The report-visible prose a collector controls is
+``recommendation`` (+ confidence_caveat + output_snippet); these tests drive
+the tripwire through ``recommendation``. See SUMMARY Rule-3 deviation.
 
 Findings are built with the Phase 1 schema. Static cases use
 ``confidence='candidate'`` + ``severity='major'`` to respect SCH-04 (no
@@ -28,8 +34,12 @@ from repo_audit.adapters.supabase.verify_phrasing import (
 from repo_audit.schema.finding import Evidence, Finding
 
 
-def _static_finding(message: str, *, parsed_value: dict | None = None) -> Finding:
-    """A representative non-runtime (static) supabase lint Finding."""
+def _static_finding(prose: str, *, parsed_value: dict | None = None) -> Finding:
+    """A representative non-runtime (static) supabase lint Finding.
+
+    ``prose`` flows into ``recommendation`` — the report-visible field the
+    tripwire scans.
+    """
     return Finding(
         dimension="security",
         severity="major",
@@ -37,11 +47,11 @@ def _static_finding(message: str, *, parsed_value: dict | None = None) -> Findin
         evidence_type="static",
         confidence="candidate",
         rule_id="rls_disabled_in_public",
-        message=message,
+        recommendation=prose,
     )
 
 
-def _runtime_finding(message: str) -> Finding:
+def _runtime_finding(prose: str) -> Finding:
     """A runtime Finding — the two-account probe path (D-08-04)."""
     return Finding(
         dimension="security",
@@ -50,7 +60,7 @@ def _runtime_finding(message: str) -> Finding:
         evidence_type="runtime",
         confidence="corroborated",
         rule_id="rls_cross_tenant_leak",
-        message=message,
+        recommendation=prose,
     )
 
 
@@ -94,11 +104,43 @@ def test_word_boundary_no_false_trip_on_substring():
     assert_verify_phrasing(findings)  # does not raise
 
 
+def test_enforcement_word_in_caveat_and_snippet_also_raises():
+    """The guard scans confidence_caveat + output_snippet too, not just recommendation."""
+    via_caveat = Finding(
+        dimension="security",
+        severity="major",
+        evidence=Evidence(tool="splinter"),
+        evidence_type="static",
+        confidence="candidate",
+        rule_id="rls_enabled_no_policy",
+        recommendation="policy present; verify enforcement",
+        confidence_caveat="tenant rows are secure across accounts",
+    )
+    with pytest.raises(VerifyPhrasingViolation):
+        assert_verify_phrasing([via_caveat])
+
+    via_snippet = Finding(
+        dimension="security",
+        severity="major",
+        evidence=Evidence(
+            tool="splinter",
+            output_snippet="catalog shows the table is protected",
+        ),
+        evidence_type="static",
+        confidence="candidate",
+        rule_id="security_definer_view",
+        recommendation="review the view's security mode",
+    )
+    with pytest.raises(VerifyPhrasingViolation):
+        assert_verify_phrasing([via_snippet])
+
+
 def test_enforcement_word_only_in_parsed_value_is_exempt():
-    """parsed_value diagnostic blobs are NOT scanned — only message is.
+    """parsed_value diagnostic blobs are NOT scanned — only report prose is.
 
     The tripwire guards the report-visible surface; a banned word inside a
-    diagnostic parsed_value blob (never rendered as prose) is exempt.
+    diagnostic parsed_value blob (a structured payload, not rendered prose) is
+    exempt.
     """
     findings = [
         _static_finding(
@@ -115,8 +157,9 @@ def test_violation_carries_rule_id_and_matched_word():
     with pytest.raises(VerifyPhrasingViolation) as exc_info:
         assert_verify_phrasing(findings)
     exc = exc_info.value
+    assert exc.rule_id == "rls_disabled_in_public"
+    assert exc.matched_word.lower() == "enforced"
     assert "rls_disabled_in_public" in str(exc)
-    assert "enforced" in str(exc).lower()
 
 
 def test_empty_list_does_not_raise():
