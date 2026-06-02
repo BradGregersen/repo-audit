@@ -34,6 +34,7 @@ from pathlib import Path
 from repo_audit import __version__
 from repo_audit.adapters import run_adapters
 from repo_audit.adapters.cache_env import build_scan_env, scan_tempdir
+from repo_audit.adapters.mobile import run_mobile
 from repo_audit.adapters.sca import run_sca
 from repo_audit.adapters.supabase import run_supabase
 from repo_audit.collectors import run_collectors
@@ -211,6 +212,9 @@ def run_scan(
     agent_budget: int | None = None,
     rls_runtime: bool = False,
     rls_pgrls: bool = False,
+    mobsf: bool = False,
+    mobsf_build: bool = False,
+    apk: Path | None = None,
 ) -> ScanResult:
     """Run the full single-repo scan pipeline and return a :class:`ScanResult`.
 
@@ -306,6 +310,23 @@ def run_scan(
             rls_runtime=rls_runtime,
         )
 
+    # Phase 9 (Plan 09-05): CROSS-STACK MOBILE step (mirrors the Phase 7 SCA +
+    # Phase 8 RLS steps). Like them, run_mobile runs ONCE per repo — the
+    # --mobsf / --mobsf-build / --apk flag gating sits ABOVE per-stack dispatch.
+    # Tier-1 mobsfscan + Tier-2 bundled-secrets run by DEFAULT (no build, no
+    # Docker); Tier-3a MobSF runs only when --mobsf + an APK; Tier-3b
+    # assembleDebug runs only when --mobsf-build. Called via the module attribute
+    # so tests can monkeypatch scan_runner.run_mobile (same patchable pattern).
+    with scan_tempdir() as _mob_td:
+        mob_base_env = build_scan_env(_mob_td)
+        mob_result = _THIS_MODULE.run_mobile(
+            repo_path,
+            base_env=mob_base_env,
+            mobsf=mobsf,
+            mobsf_build=mobsf_build,
+            apk=apk,
+        )
+
     # Aggregate findings across collectors + adapters + SCA + RLS (sequential
     # preserves ledger order). SCA + RLS findings are appended deterministically
     # so SC-5 determinism holds. Built BEFORE the refresh sub-steps below so the
@@ -315,6 +336,7 @@ def run_scan(
         + [f for r in adapter_results for f in r.findings]
         + list(sca_result.findings)
         + list(rls_result.findings)
+        + list(mob_result.findings)
     )
 
     # Sub-step C + D: --refresh-coverage opt-in wiring (D-41' / Decision A).
@@ -345,6 +367,7 @@ def run_scan(
         or any(r.status != "ok" for r in adapter_results)
         or sca_result.status != "ok"
         or rls_result.status != "ok"
+        or mob_result.status != "ok"
     )
 
     # Fold the SCA status/notes into the scope ledger so the SCA dimension's
@@ -371,6 +394,21 @@ def run_scan(
             scope_ledger.notes += "; " + rls_note_text
         else:
             scope_ledger.notes = rls_note_text
+
+    # Fold the MOBILE status + ledger notes (the per-tier not-run / unavailable
+    # disclosures) into the scope ledger so the mobile dimension's availability
+    # is disclosed honestly (SAFE-08). A tier unavailable (e.g. no native
+    # source / docker down / --mobsf without an APK) is DISCLOSED here; the scan
+    # still completes (graceful degradation), mirroring the RLS fold above.
+    mob_notes = list(mob_result.ledger_notes)
+    if mob_result.notes:
+        mob_notes.insert(0, f"Mobile ({mob_result.status}): {mob_result.notes}")
+    if mob_notes:
+        mob_note_text = "; ".join(mob_notes)
+        if scope_ledger.notes:
+            scope_ledger.notes += "; " + mob_note_text
+        else:
+            scope_ledger.notes = mob_note_text
 
     # Plan 05-01 / TREND-01: baseline_run is conditional on a prior sidecar.
     # find_prior_sidecar returns the most-recent JSON sidecar with

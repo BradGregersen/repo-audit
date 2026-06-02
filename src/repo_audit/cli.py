@@ -31,6 +31,7 @@ from repo_audit.doctor.self_test import run_secret_lint_self_test
 # Per-adapter side-effect imports: importing the adapter package triggers its
 # @register_adapter(...) so the detector's stack dispatch + the scope ledger see
 # it (the same one-line pattern Phase 3 set for typescript, closing DI-03-03-01).
+import repo_audit.adapters.mobile  # noqa: F401, E402
 import repo_audit.adapters.supabase  # noqa: F401, E402
 from repo_audit.fleet.dashboard import render_fleet_dashboard
 from repo_audit.fleet.sweep import run_fleet
@@ -141,6 +142,31 @@ def scan(
             "the always-on floor). Off by default (D-08-06)."
         ),
     ),
+    mobsf: bool = typer.Option(
+        False,
+        "--mobsf",
+        help=(
+            "Run the existing-APK static MobSF Docker scan (Tier 3a). Off by "
+            "default. Gates the Docker scan only; with no APK present pass "
+            "--mobsf-build to produce one, or --apk to supply an explicit path. "
+            "Tiers 1+2 (mobsfscan + bundled-secrets) run by default without it."
+        ),
+    ),
+    mobsf_build: bool = typer.Option(
+        False,
+        "--mobsf-build",
+        help=(
+            "The ONLY path that triggers a Gradle assembleDebug diagnostic "
+            "build (Tier 3b), built in a throwaway COPY so the target tree stays "
+            "read-only. Used with --mobsf to produce an APK when none exists. "
+            "Off by default."
+        ),
+    ),
+    apk: Path | None = typer.Option(
+        None,
+        "--apk",
+        help="Explicit path to a debug APK for --mobsf (Tier 3a).",
+    ),
 ) -> None:
     """Scan a repo and emit a state report + JSON sidecar (CLI-02 / SC-3).
 
@@ -202,6 +228,9 @@ def scan(
         agent_budget=agent_budget,
         rls_runtime=rls_runtime,
         rls_pgrls=rls_pgrls,
+        mobsf=mobsf,
+        mobsf_build=mobsf_build,
+        apk=apk,
     )
 
     # render refused (secret-lint rc=2 / completion-honesty rc=3) → sidecar
