@@ -1,0 +1,33 @@
+# Cross-stack SCA (dependency-CVE) adapter descriptor (Phase 7).
+#
+# Loaded by adapters/sca/__init__.py via ruamel.yaml.YAML(typ='safe')
+# (T-03-01): the safe loader refuses !!python/object / !!python/name so a
+# poisoned YAML (future user-overlay scenario) cannot execute Python at load.
+#
+# This adapter is CROSS-STACK — it has no `name` stack-key registration
+# (it is NOT a per-stack @register_adapter entry). Plan 05 wires collect_osv
+# into scan_runner.run_scan as a dedicated repo-wide scan step.
+#
+# Per-tool routing follows the Phase-6 SARIF precedent: each tool supplies a
+# `default_dimension` + `severity_map`. osv/grype carry a numeric
+# security-severity band in their SARIF, so `severity_map: {}` is sufficient
+# (the band override in adapters/sarif/severity.py wins).
+name: sca
+
+tools:
+  osv-scanner:
+    command: osv-scanner          # resolved via resolve_tool -> vendor/osv-scanner/osv-scanner
+    default_dimension: security    # D-06-05; osv -> security
+    severity_map: {}               # security-severity band suffices (Phase 6 precedent)
+    timeout_ms: 120000
+
+  grype:
+    command: grype                 # corroborating second source (Plan 04 wires it)
+    default_dimension: security
+    severity_map: {}
+    timeout_ms: 120000
+
+  # D-07-08 routing IF license is ever enabled (deferred this phase). Present
+  # for declarative completeness; no tool invocation hangs off it yet.
+  license:
+    default_dimension: quality
