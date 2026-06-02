@@ -228,6 +228,42 @@ _(no collectors invoked for this dimension yet — see ROADMAP Phase 3 (TypeScri
 _(no collectors invoked for this dimension yet — see ROADMAP Phase 3+ where this dimension becomes populated)_
 {%- endif %}
 
+{# Phase 8 (Plan 08-05): data-privacy / RLS subsection. Lists the verify-phrased
+   static RLS findings (splinter / pgrls / squawk / footguns) — DB lints land on
+   the security dimension above, migration-safety on correctness; this block
+   gathers the supabase-sourced findings into one labelled view — then renders
+   ONE of: the data-driven runtime result line (when the two-account test ran),
+   or the honest "runtime test not run" line (D-08-05 — quiet, no separate
+   UNPROVEN callout). The runtime PASS line is the ONLY place enforcement
+   language appears, and it is driven by a runtime-evidenced finding, never by
+   template prose. A small provenance line surfaces the reproducibility stamp. #}
+### 6a. Data privacy & RLS
+{% set rls_tools = ['splinter', 'pgrls', 'squawk', 'supabase-footguns', 'rls-two-account'] %}
+{% set rls_findings = report.findings | selectattr("source_tool", "in", rls_tools) | list %}
+{% set rls_static = rls_findings | rejectattr("evidence_type", "equalto", "runtime") | list %}
+{% set rls_runtime = rls_findings | selectattr("evidence_type", "equalto", "runtime") | list %}
+{% if rls_static -%}
+| Severity | File:line | Source | Rule | Evidence |
+|----------|-----------|--------|------|----------|
+{% for f in rls_static -%}
+| {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_n/a_{% endif %} | {{ f.source_tool }} | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }} |
+{% endfor %}
+{%- else -%}
+_(no static RLS findings — splinter floor / pgrls / squawk / service-role grep produced no findings, or were unavailable; see §2 Scope ledger for the RLS dimension's availability)_
+{%- endif %}
+
+{% if rls_runtime -%}
+{% for f in rls_runtime -%}
+**Runtime two-account test:** {{ f.recommendation }}
+{% endfor %}
+{%- else -%}
+_Runtime RLS enforcement test not run (not opted in / no creds) — no enforcement claim is made. Pass `--rls-runtime` with the six AUDIT_TEST_USER_* / EXPO_PUBLIC_SUPABASE_* env names to run the live two-account probe (the sole source of runtime enforcement evidence)._
+{%- endif %}
+
+{% if report.scope_ledger.notes and 'RLS provenance' in report.scope_ledger.notes %}
+> _RLS provenance: see the §2 Scope ledger note for the splinter SHA, pgrls/squawk versions, the pinned supabase/postgres image tag@digest, the matched migration layout, and the runtime posture (reproducibility stamp, D-08-09/16)._
+{% endif %}
+
 ## 7. Quality / perf / footprint / docs
 {{ dimension_narrative('quality') }}
 {% set findings_here = report.findings | selectattr("dimension", "equalto", "quality") | list %}
