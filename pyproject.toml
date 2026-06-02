@@ -66,3 +66,30 @@ addopts = "-ra --strict-markers"
 markers = [
     "integration: live-binary tests (TS toolchain in target_repo/node_modules/.bin/, or osv-scanner/grype SCA); excluded from the default unit tier",
 ]
+
+# D-10-01 — Semgrep SAST tool pin (ISOLATED install path; NOT a co-resolved dep).
+#
+# Semgrep CE is a Python tool (not a clean Go binary like scc/osv), so D-10-01
+# ships it as a PINNED pip install resolved on PATH via resolve_tool/run_tool.
+# It is invoked ONLY as a subprocess — never imported — so it must NOT share the
+# app's click/rich resolution. Co-resolving semgrep==1.163.0 with the runtime
+# `[project].dependencies` is UNSATISFIABLE: semgrep==1.163.0 pins
+# `click<8.2` (collides with Phase 8 pgrls's `click>=8.2`), and the newest
+# click>=8.2-compatible semgrep (1.121.0) pins `rich<13.6` (collides with this
+# project's `rich>=14.0` for Typer). uv co-resolves ALL dependency-groups AND
+# extras together with the runtime tree (a group-level `[tool.uv].conflicts`
+# fork still drags in the project's own pgrls), so the pin cannot live in
+# `[project].dependencies`, `[project.optional-dependencies]`, OR
+# `[dependency-groups]` without breaking `uv lock` / `uv run` for the whole repo.
+#
+# It therefore lives HERE, in a tool-owned table uv does not resolve, recording
+# the exact pin for reproducibility (D-10-01) while keeping the runtime tree
+# clean. Install it into its OWN isolated environment, on PATH:
+#
+#     uv tool install semgrep==1.163.0      # preferred (isolated tool venv)
+#     pipx install semgrep==1.163.0         # alternative
+#
+# See README.md "SAST (Semgrep) install" and 10-00-SUMMARY.md for the full
+# deviation rationale (resolved decision, Option A — isolated install path).
+[tool.repo_audit.sast]
+semgrep = "semgrep==1.163.0"

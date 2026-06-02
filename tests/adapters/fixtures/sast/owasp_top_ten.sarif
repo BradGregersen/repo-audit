@@ -1,0 +1,134 @@
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/schemas/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "toolExecutionNotifications": []
+        }
+      ],
+      "results": [
+        {
+          "fingerprints": {
+            "matchBasedId/v1": "owasp-injection-eval"
+          },
+          "level": null,
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/vuln.py",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "endColumn": 38,
+                  "endLine": 12,
+                  "snippet": {
+                    "text": "    os.system(\"rm -rf \" + user_input)"
+                  },
+                  "startColumn": 5,
+                  "startLine": 12
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Detected subprocess/OS command built from unsanitized user input (command injection). Faithful severity lives in rule.defaultConfiguration.level (error), NOT in result.level (null)."
+          },
+          "properties": {},
+          "ruleId": "python.lang.security.audit.dangerous-os-command.dangerous-os-command"
+        },
+        {
+          "fingerprints": {
+            "matchBasedId/v1": "owasp-xss-react"
+          },
+          "level": null,
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/component.tsx",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "endColumn": 54,
+                  "endLine": 8,
+                  "snippet": {
+                    "text": "  return <div dangerouslySetInnerHTML={{ __html: raw }} />;"
+                  },
+                  "startColumn": 10,
+                  "startLine": 8
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "User-controlled value flows into dangerouslySetInnerHTML (potential XSS). Faithful severity lives in rule.defaultConfiguration.level (warning), NOT in result.level (null)."
+          },
+          "properties": {},
+          "ruleId": "typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "name": "Semgrep OSS",
+          "rules": [
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Detected OS command built from unsanitized user input."
+              },
+              "help": {
+                "markdown": "Detected OS command built from unsanitized user input.",
+                "text": "Detected OS command built from unsanitized user input."
+              },
+              "id": "python.lang.security.audit.dangerous-os-command.dangerous-os-command",
+              "name": "python.lang.security.audit.dangerous-os-command.dangerous-os-command",
+              "properties": {
+                "precision": "very-high",
+                "tags": [
+                  "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')",
+                  "OWASP-A03:2021 - Injection",
+                  "security"
+                ]
+              },
+              "shortDescription": {
+                "text": "Semgrep Finding: python.lang.security.audit.dangerous-os-command.dangerous-os-command"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "User-controlled value flows into dangerouslySetInnerHTML."
+              },
+              "help": {
+                "markdown": "User-controlled value flows into dangerouslySetInnerHTML.",
+                "text": "User-controlled value flows into dangerouslySetInnerHTML."
+              },
+              "id": "typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml",
+              "name": "typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml",
+              "properties": {
+                "precision": "high",
+                "tags": [
+                  "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')",
+                  "OWASP-A03:2021 - Injection",
+                  "security"
+                ]
+              },
+              "shortDescription": {
+                "text": "Semgrep Finding: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml"
+              }
+            }
+          ],
+          "semanticVersion": "1.163.0"
+        }
+      }
+    }
+  ]
+}
