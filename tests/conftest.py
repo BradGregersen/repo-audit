@@ -158,7 +158,12 @@ def fake_repo_with_commits(tmp_path):
             f = repo_path / rel_path
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text(contents, encoding="utf-8")
-        today = _dt2.datetime(2026, 5, 28, 12, 0, 0)
+        # Anchor "today" to the real wall clock so the days_ago windows stay
+        # relative to *now* — the git_cadence collector buckets commits against
+        # datetime.now(), so a hardcoded date silently rots once real time drifts
+        # past a window boundary (a day-5 commit fell out of the 7d window once
+        # the clock passed it, flaking test_cadence_counts_commits_and_authors).
+        today = _dt2.datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
         parents: list[str] = []
         for i in range(n_commits):
             # Create a unique file per commit so the tree changes
