@@ -61,11 +61,102 @@ class _Inv:
         self.stderr = stderr
 
 
+# --- Task 2 (W1): not-applicable applicability probe -----------------------
+
+
+def test_run_kotlin_not_applicable_on_non_kotlin_repo(monkeypatch, tmp_path):
+    """W1: a repo with no gradle build files → run_kotlin status='not_applicable'.
+
+    detekt is NOT applicable when the repo has no ``build.gradle`` /
+    ``build.gradle.kts``; the step short-circuits to ``not_applicable`` (a
+    disclosed-but-non-degrading status) WITHOUT invoking collect_detekt. Fails on
+    the pre-change code where the absent tool mapped to ``unavailable``.
+    """
+
+    def _must_not_run(repo_path, env, **kwargs):
+        raise AssertionError("collect_detekt invoked on a non-Kotlin repo")
+
+    monkeypatch.setattr(test_depth, "collect_detekt", _must_not_run)
+    result = run_kotlin(tmp_path, base_env={})
+    assert result.status == "not_applicable"
+    assert result.findings == []
+    # The skip is disclosed in the ledger (SAFE-08 honesty).
+    assert any("not applicable" in n.lower() for n in result.ledger_notes)
+
+
+def test_run_kotlin_applicable_when_gradle_present(monkeypatch, tmp_path):
+    """W1: a build.gradle.kts present → the applicability probe lets detekt run.
+
+    Proves the probe does NOT swallow a real Kotlin repo: with a gradle build file
+    present, collect_detekt is invoked and its (unavailable) status is honored —
+    NOT short-circuited to not_applicable.
+    """
+    (tmp_path / "build.gradle.kts").write_text("plugins {}\n", encoding="utf-8")
+
+    def _no_detekt(repo_path, env, **kwargs):
+        return KotlinResult(status="unavailable", notes="java/JRE not found")
+
+    monkeypatch.setattr(test_depth, "collect_detekt", _no_detekt)
+    result = run_kotlin(tmp_path, base_env={})
+    assert result.status == "unavailable"  # genuine degradation, NOT not_applicable
+
+
+def test_run_expo_not_applicable_on_non_expo_repo(monkeypatch, tmp_path):
+    """W1: a repo with no app.json / app.config.* → run_expo status='not_applicable'.
+
+    expo-doctor is NOT applicable when the repo has no Expo manifest; the step
+    short-circuits to ``not_applicable`` WITHOUT invoking collect_expo_doctor.
+    """
+
+    def _must_not_run(repo_path, env, **kwargs):
+        raise AssertionError("collect_expo_doctor invoked on a non-Expo repo")
+
+    monkeypatch.setattr(test_depth, "collect_expo_doctor", _must_not_run)
+    result = run_expo(tmp_path, base_env={})
+    assert result.status == "not_applicable"
+    assert result.findings == []
+    assert any("not applicable" in n.lower() for n in result.ledger_notes)
+
+
+def test_run_expo_applicable_when_app_json_present(monkeypatch, tmp_path):
+    """W1: an app.json present → the probe lets expo-doctor run (status honored)."""
+    (tmp_path / "app.json").write_text('{"expo": {}}\n', encoding="utf-8")
+
+    def _no_expo(repo_path, env, **kwargs):
+        return [
+            Finding(
+                dimension="quality",
+                severity="minor",
+                evidence_type="unavailable",
+                confidence="candidate",
+                source_tool="expo-doctor",
+                source_collector="expo_doctor",
+                rule_id="expo_doctor_unavailable",
+                recommendation="expo-doctor not run.",
+                evidence=Evidence(
+                    tool="expo-doctor",
+                    output_snippet="absent",
+                    parsed_value={"reason": "expo_doctor_unavailable"},
+                ),
+            )
+        ]
+
+    monkeypatch.setattr(test_depth, "collect_expo_doctor", _no_expo)
+    result = run_expo(tmp_path, base_env={})
+    assert result.status == "unavailable"  # genuine degradation, NOT not_applicable
+
+
 # --- run_kotlin ------------------------------------------------------------
 
 
 def test_run_kotlin_absent_jre_unavailable(monkeypatch, tmp_path):
-    """No detekt/JRE resolves → run_kotlin status='unavailable', never raises."""
+    """No detekt/JRE resolves → run_kotlin status='unavailable', never raises.
+
+    A gradle build file is present so the W1 applicability probe treats this as a
+    real Kotlin repo; the absent JRE is then a GENUINE degradation (unavailable),
+    distinct from not_applicable.
+    """
+    (tmp_path / "build.gradle").write_text("plugins {}\n", encoding="utf-8")
 
     def _no_detekt(repo_path, env, **kwargs):
         return KotlinResult(status="unavailable", notes="java/JRE not found")
@@ -79,6 +170,7 @@ def test_run_kotlin_absent_jre_unavailable(monkeypatch, tmp_path):
 
 def test_run_kotlin_never_raises_on_exception(monkeypatch, tmp_path):
     """collect_detekt raising → run_kotlin folds to unavailable, never raises."""
+    (tmp_path / "build.gradle").write_text("plugins {}\n", encoding="utf-8")
 
     def _boom(repo_path, env, **kwargs):
         raise RuntimeError("detekt blew up")
@@ -92,7 +184,12 @@ def test_run_kotlin_never_raises_on_exception(monkeypatch, tmp_path):
 
 
 def test_expo_unavailable_completes(monkeypatch, tmp_path):
-    """expo-doctor absent → run_expo unavailable, no raise."""
+    """expo-doctor absent → run_expo unavailable, no raise.
+
+    An app.json is present so the W1 applicability probe treats this as a real
+    Expo repo; the absent tool is then a GENUINE degradation (unavailable).
+    """
+    (tmp_path / "app.json").write_text('{"expo": {}}\n', encoding="utf-8")
 
     def _no_expo(repo_path, env, **kwargs):
         return [

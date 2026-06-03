@@ -68,7 +68,36 @@ from repo_audit.schema.finding import Finding
 
 # --- envelope --------------------------------------------------------------
 
-TestDepthStatus = Literal["ok", "partial", "unavailable", "timeout"]
+TestDepthStatus = Literal["ok", "partial", "unavailable", "timeout", "not_applicable"]
+
+# W1 (T-11-07-01): manifest names that mark a repo as Kotlin / Expo. The
+# applicability probe below does READ-ONLY existence checks on these (no content
+# parsing) to distinguish "this step does not apply to this repo" (not_applicable,
+# excluded from partial) from "this step applies but its tool/artifact is absent"
+# (unavailable, a genuine degradation that DOES flip partial). Mirrors the
+# run_mobile precedent (_native_root): probe the manifest, never raise.
+_KOTLIN_MANIFESTS: tuple[str, ...] = ("build.gradle", "build.gradle.kts")
+_EXPO_MANIFESTS: tuple[str, ...] = (
+    "app.json",
+    "app.config.js",
+    "app.config.ts",
+    "app.config.json",
+)
+
+
+def _any_manifest_present(repo_path: Path, names: tuple[str, ...]) -> bool:
+    """READ-ONLY: True when any of ``names`` exists directly under ``repo_path``.
+
+    A best-effort existence probe (never raises) used to decide not_applicable vs
+    a genuine degradation. Any probe error is treated as "applicable" so we never
+    silently skip a step we could not prove inapplicable (fail-disclosed, not
+    fail-skipped).
+    """
+    try:
+        return any((Path(repo_path) / name).is_file() for name in names)
+    except OSError:
+        # Could not prove inapplicability → treat as applicable (disclose, don't skip).
+        return True
 
 # D-11-05 hard wall-clock cap for a Stryker mutation run (NOT the per-test ms flag).
 _MUTATION_TIMEOUT_S: float = 1800.0
@@ -121,7 +150,21 @@ def run_kotlin(
     Wraps Plan-02 ``collect_detekt``; maps its ``KotlinResult`` onto a
     :class:`TestDepthScanResult`. Any unexpected exception folds to
     ``status="unavailable"`` — NEVER raises (SAFE-08).
+
+    W1: when the repo has NO gradle build file, detekt is not applicable — return
+    ``status="not_applicable"`` (a disclosed-but-non-degrading status the scan
+    runner excludes from ``partial``) without invoking ``collect_detekt``. A
+    missing JRE/jar on an APPLICABLE Kotlin repo still degrades to ``unavailable``.
     """
+    if not _any_manifest_present(repo_path, _KOTLIN_MANIFESTS):
+        return TestDepthScanResult(
+            status="not_applicable",
+            notes="Kotlin/detekt not applicable: no gradle build files",
+            ledger_notes=[
+                "Kotlin/detekt not applicable: no build.gradle/build.gradle.kts"
+            ],
+        )
+
     try:
         result = collect_detekt(
             repo_path, base_env, attempt_typed=attempt_typed
@@ -159,7 +202,21 @@ def run_expo(
     Wraps Plan-04 ``collect_expo_doctor`` (which returns a ``list[Finding]``); a
     lone unavailable/timeout Finding derives the unavailable/timeout status.
     NEVER raises.
+
+    W1: when the repo has NO Expo manifest (``app.json`` / ``app.config.*``),
+    expo-doctor is not applicable — return ``status="not_applicable"`` (excluded
+    from ``partial``) without invoking ``collect_expo_doctor``. An absent tool on
+    an APPLICABLE Expo repo still degrades to ``unavailable``.
     """
+    if not _any_manifest_present(repo_path, _EXPO_MANIFESTS):
+        return TestDepthScanResult(
+            status="not_applicable",
+            notes="Expo/expo-doctor not applicable: no app.json / app.config.*",
+            ledger_notes=[
+                "Expo/expo-doctor not applicable: no app.json/app.config.*"
+            ],
+        )
+
     try:
         findings = collect_expo_doctor(repo_path, base_env)
     except Exception as exc:  # noqa: BLE001 — never crash the dimension

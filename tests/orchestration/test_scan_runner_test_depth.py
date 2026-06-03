@@ -155,6 +155,42 @@ def test_no_double_coverage_run_node_mutation(fake_repo_on_disk, monkeypatch):
 # --- W1: not-applicable does not force partial; degraded still does ---------
 
 
+def _stub_all_steps_ok(monkeypatch):
+    """Stub the NON-Phase-11 cross-stack steps to ok so the partial flag tracks
+    ONLY the Phase-11 (kotlin/expo/test_depth) statuses the test sets.
+
+    The real walker + collectors + adapters run on the bare committed
+    ``fake_repo_on_disk`` (all report ok / empty there), so they contribute
+    nothing to partial — only the cross-stack steps below could, and they are
+    pinned ok.
+    """
+    from dataclasses import dataclass, field as _field
+
+    from repo_audit.adapters.sast import SastScanResult
+
+    @dataclass
+    class _OkRes:
+        status: str = "ok"
+        findings: list = _field(default_factory=list)
+        feed_provenance: list = _field(default_factory=list)
+        ledger_notes: list = _field(default_factory=list)
+        notes: str = ""
+
+    # The forced typescript-node detection makes run_adapters run the TS adapter
+    # tiers, which self-report `unavailable` on a bare repo (no tsc/eslint) — an
+    # UNRELATED degradation. Stub it empty so partial tracks only the Phase-11 steps.
+    monkeypatch.setattr(scan_runner, "run_adapters", lambda repo, det: [])
+    monkeypatch.setattr(scan_runner, "run_sca", lambda repo, **kw: _OkRes(), raising=True)
+    monkeypatch.setattr(scan_runner, "run_supabase", lambda repo, **kw: _OkRes(), raising=True)
+    monkeypatch.setattr(scan_runner, "run_mobile", lambda repo, **kw: _OkRes(), raising=True)
+    monkeypatch.setattr(
+        scan_runner, "run_sast",
+        lambda repo, **kw: SastScanResult(status="ok"),
+        raising=True,
+    )
+    monkeypatch.setattr(scan_runner, "_maybe_refresh_coverage", lambda r, f: f)
+
+
 def test_not_applicable_kotlin_expo_no_partial(fake_repo_on_disk, monkeypatch):
     """W1: a pure-TS repo where kotlin/expo are not_applicable → partial is False.
 
@@ -163,8 +199,8 @@ def test_not_applicable_kotlin_expo_no_partial(fake_repo_on_disk, monkeypatch):
     don't apply. Fails on the pre-change code (status != 'ok' → partial=True).
     """
     _force_node_primary(monkeypatch, fake_repo_on_disk)
+    _stub_all_steps_ok(monkeypatch)
 
-    monkeypatch.setattr(scan_runner, "_maybe_refresh_coverage", lambda r, f: f)
     monkeypatch.setattr(
         scan_runner, "run_test_depth",
         lambda repo, **kw: TestDepthScanResult(status="ok"),
@@ -201,8 +237,8 @@ def test_genuine_degradation_still_flips_partial(fake_repo_on_disk, monkeypatch)
     still flips partial even though kotlin/expo are not_applicable.
     """
     _force_node_primary(monkeypatch, fake_repo_on_disk)
+    _stub_all_steps_ok(monkeypatch)
 
-    monkeypatch.setattr(scan_runner, "_maybe_refresh_coverage", lambda r, f: f)
     monkeypatch.setattr(
         scan_runner, "run_test_depth",
         lambda repo, **kw: TestDepthScanResult(
@@ -224,6 +260,18 @@ def test_genuine_degradation_still_flips_partial(fake_repo_on_disk, monkeypatch)
     result = scan_runner.run_scan(fake_repo_on_disk, no_agent=True)
 
     assert result.scan_report.meta.partial is True
+
+
+# --- W1: the partial-determination predicate (unit) ------------------------
+
+
+def test_phase11_step_degraded_predicate():
+    """ok / not_applicable are non-degrading; everything else degrades partial."""
+    assert scan_runner._phase11_step_degraded("ok") is False
+    assert scan_runner._phase11_step_degraded("not_applicable") is False
+    assert scan_runner._phase11_step_degraded("unavailable") is True
+    assert scan_runner._phase11_step_degraded("partial") is True
+    assert scan_runner._phase11_step_degraded("timeout") is True
 
 
 # --- W5: single _NODE_STACKS source ----------------------------------------

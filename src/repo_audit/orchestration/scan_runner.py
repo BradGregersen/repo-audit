@@ -82,6 +82,23 @@ TIME_BUDGET_S: float = 95.0
 # same way ``run_adapters`` is.
 _THIS_MODULE = sys.modules[__name__]
 
+# W1 (T-11-07-01): the Phase-11 cross-stack steps (run_kotlin / run_expo /
+# run_test_depth) may self-report ``not_applicable`` (the repo is not Kotlin / not
+# Expo). A not-applicable step is DISCLOSED via a ledger note but does NOT flip
+# the scan to ``partial`` — mirrors the run_mobile precedent. ``partial`` again
+# means "an APPLICABLE step degraded". Anything that is neither ``ok`` nor
+# ``not_applicable`` (unavailable / partial / timeout on an applicable step) is a
+# genuine degradation that DOES flip partial.
+_PHASE11_NON_PARTIAL_STATUSES = ("ok", "not_applicable")
+
+
+def _phase11_step_degraded(status: str) -> bool:
+    """True when a Phase-11 step status is a GENUINE degradation (flips partial).
+
+    ``ok`` and ``not_applicable`` are non-degrading; everything else degrades.
+    """
+    return status not in _PHASE11_NON_PARTIAL_STATUSES
+
 
 @dataclass
 class ScanResult:
@@ -498,6 +515,13 @@ def run_scan(
     # Phase 7: SCA dimension unavailable also flips partial — Phase 2
     # graceful-degradation contract). osv-unavailable disclosed via the scope
     # ledger notes below; the scan still completes.
+    #
+    # W1 (T-11-07-01): a Phase-11 step that self-reports ``not_applicable`` (the
+    # repo is not Kotlin / not Expo) is DISCLOSED via a ledger note but does NOT
+    # flip the scan to partial — mirrors the run_mobile precedent (see
+    # `_phase11_step_degraded`). ``partial`` again means "an APPLICABLE step
+    # degraded", not "this repo isn't Kotlin". A genuine degradation
+    # (unavailable/partial/timeout on an applicable step) still flips.
     partial = (
         walker_result.status != "ok"
         or any(r.status != "ok" for r in collector_results)
@@ -506,9 +530,9 @@ def run_scan(
         or rls_result.status != "ok"
         or mob_result.status != "ok"
         or sast_result.status != "ok"
-        or kotlin_result.status != "ok"
-        or expo_result.status != "ok"
-        or test_depth_result.status != "ok"
+        or _phase11_step_degraded(kotlin_result.status)
+        or _phase11_step_degraded(expo_result.status)
+        or _phase11_step_degraded(test_depth_result.status)
     )
 
     # Fold the SCA status/notes into the scope ledger so the SCA dimension's
