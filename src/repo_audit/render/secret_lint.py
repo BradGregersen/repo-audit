@@ -28,8 +28,10 @@ import math
 import re
 import shutil
 import subprocess
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 
 # D-05: detection thresholds
 ENTROPY_THRESHOLD_BITS_PER_CHAR: float = 4.5
@@ -88,6 +90,21 @@ class SecretHit:
     line: int
     rule_id: str  # gitleaks rule id, or "entropy-backstop"
     redacted_len: int
+    # Per-scanner attribution (Phase 12 Pitfall 4 fix). Set EXPLICITLY by the
+    # producing scanner -- there is intentionally NO default, so a missing
+    # attribution is a construction error rather than a silent "" that lets an
+    # entropy-backstop hit masquerade as a gitleaks hit. Producers:
+    #   scan_with_gitleaks / scan_working_tree -> "gitleaks"
+    #   scan_git_history                        -> "gitleaks-history"
+    #   scan_with_known_patterns / entropy      -> "in-process"
+    source: str
+    # Optional repo-relative file path, populated only by the gitleaks
+    # target-path modes (``scan_working_tree`` / ``scan_git_history``) whose JSON
+    # reports a ``File`` field. The stdin/in-process scanners operate on a single
+    # buffer with no file context and leave this ``None``. NOTE: a file PATH is
+    # not a secret value, so carrying it does not violate the value-blind
+    # contract (still NO value/secret/raw/match field).
+    file: str | None = None
 
 
 class SecretsDetected(Exception):
@@ -140,6 +157,7 @@ def scan_with_entropy(text: str) -> list[SecretHit]:
                         line=lineno,
                         rule_id="entropy-backstop",
                         redacted_len=len(token),
+                        source="in-process",
                     )
                 )
     # Compose with the known-pattern table so the in-process backstop catches
@@ -169,6 +187,7 @@ def scan_with_known_patterns(text: str) -> list[SecretHit]:
                         line=lineno,
                         rule_id=rule_id,
                         redacted_len=m.end() - m.start(),
+                        source="in-process",
                     )
                 )
     return hits
@@ -230,8 +249,37 @@ def scan_with_gitleaks(
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return []
 
-    # Parse JSON output. Empty/error -> no hits.
-    stdout = (result.stdout or "").strip()
+    # Parse JSON output via the shared value-blind helper (source="gitleaks").
+    return _parse_gitleaks_json(result.stdout or "", source="gitleaks")
+
+
+def _parse_gitleaks_json(stdout: str, *, source: str) -> list[SecretHit]:
+    """Parse gitleaks JSON output into value-blind ``SecretHit``s.
+
+    The ONE place gitleaks JSON becomes ``SecretHit``s -- shared verbatim by
+    ``scan_with_gitleaks`` (stdin mode), ``scan_working_tree`` (``gitleaks dir``)
+    and ``scan_git_history`` (``gitleaks git`` full-history mode) so the
+    column-derived ``redacted_len`` discipline is implemented exactly once.
+
+    ``redacted_len`` is derived from gitleaks's ``EndColumn - StartColumn`` JSON
+    fields -- i.e. the position-derived ORIGINAL token length on the matched
+    line -- NOT from the ``Secret`` field. With ``--redact`` gitleaks overwrites
+    ``Secret`` with a fixed placeholder (e.g. ``"REDACTED"`` = 8 chars), so
+    ``len(Secret)`` would lie about the true length. D-06 requires the diagnostic
+    to expose the real length so the user can tell a 40-char AWS key from a
+    5-char Slack token. We ONLY fall back to ``len(Secret)`` when both column
+    fields are absent or zero (defensive); the raw value is otherwise never read.
+
+    Args:
+        stdout: raw gitleaks JSON (a JSON array of finding dicts).
+        source: the per-scanner attribution stamped onto every returned
+            ``SecretHit.source`` (e.g. ``"gitleaks"`` or ``"gitleaks-history"``).
+
+    Returns:
+        A list of value-blind ``SecretHit``s; ``[]`` on empty/non-array/invalid
+        JSON.
+    """
+    stdout = (stdout or "").strip()
     if not stdout:
         return []
     try:
@@ -245,32 +293,127 @@ def scan_with_gitleaks(
     for f in findings:
         if not isinstance(f, dict):
             continue
-        # gitleaks emits ``Secret`` already redacted (--redact); we never
-        # store it. Derive the ORIGINAL token length from column positions on
-        # the matched line. The --redact flag overwrites ``Secret`` with a
-        # fixed placeholder (e.g. "REDACTED" = 8 chars), so len(Secret) would
-        # lie about the true length. Per D-06 the diagnostic must expose the
-        # real length so the user can tell a 40-char AWS key from a 5-char
-        # Slack token.
         start_col = int(f.get("StartColumn") or 0)
         end_col = int(f.get("EndColumn") or 0)
         col_span = end_col - start_col
         if col_span > 0:
             redacted_len = col_span
         else:
-            # Defensive fallback when columns are absent/zero in the JSON.
-            # We never want to handle the raw Secret value, but its
-            # placeholder length is the only remaining signal in this
-            # degraded case.
+            # Defensive fallback when columns are absent/zero in the JSON. We
+            # never want to handle the raw Secret value, but its placeholder
+            # length is the only remaining signal in this degraded case.
             redacted_len = len(str(f.get("Secret") or ""))
+        raw_file = f.get("File")
         hits.append(
             SecretHit(
                 line=int(f.get("StartLine") or 0),
                 rule_id=str(f.get("RuleID") or "gitleaks-unknown"),
                 redacted_len=redacted_len,
+                source=source,
+                file=str(raw_file) if raw_file else None,
             )
         )
     return hits
+
+
+def _run_gitleaks_target(
+    subcommand: str,
+    target: Path,
+    *,
+    timeout: float,
+    source: str,
+) -> list[SecretHit]:
+    """Run gitleaks in a target-path mode (``git`` history or ``dir`` tree).
+
+    INTENTIONAL subprocess discipline: this mirrors ``scan_with_gitleaks`` in
+    THIS module, which calls ``subprocess.run`` directly with manual
+    ``TimeoutExpired``/``FileNotFoundError`` handling. The ``secret_lint`` module
+    owns its own value-blind subprocess wrapper by design (the ``run_tool`` seam
+    is for the adapter layer); keeping these history/working-tree siblings
+    consistent with ``scan_with_gitleaks`` is the correct pattern, NOT a defect
+    to route through ``run_tool``.
+
+    Per CLAUDE.md hard rule: ``shell=False``, command as ``list[str]``, explicit
+    ``timeout``. Returns ``[]`` when gitleaks is absent (A1 graceful degrade) or
+    on timeout / a non-positive budget. The JSON report is written to a tempfile
+    and read back (A3 -- do NOT rely on ``/dev/stdout``).
+    """
+    if shutil.which("gitleaks") is None:
+        return []
+    if timeout <= 0:
+        return []
+
+    # gitleaks 8.30.1: ``gitleaks git <repo>`` walks FULL commit history;
+    # ``gitleaks dir <path>`` scans a no-git working tree (Pitfall 2 — the
+    # 8.18+ split of the legacy ``detect`` subcommand).
+    # VERIFY: confirmed against `gitleaks git --help` on 8.30.1 — subcommand is
+    # `git`; `--report-path` takes a file (use "-" for stdout). We write a
+    # tempfile and read it back (A3) rather than relying on stdout buffering.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        report_path = Path(tmpdir) / "gitleaks-report.json"
+        argv = [
+            "gitleaks",
+            subcommand,
+            str(target),
+            "--report-format",
+            "json",
+            "--report-path",
+            str(report_path),
+            "--redact",  # never emit raw values (mirrors scan_with_gitleaks)
+            "--no-banner",
+        ]
+        try:
+            subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                shell=False,  # CLAUDE.md hard rule
+                check=False,  # gitleaks exits non-zero when it finds secrets
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return []
+        try:
+            stdout = report_path.read_text(encoding="utf-8")
+        except OSError:
+            # gitleaks writes no report file when it finds nothing.
+            return []
+    return _parse_gitleaks_json(stdout, source=source)
+
+
+def scan_git_history(repo_path: Path, *, timeout: float) -> list[SecretHit]:
+    """HIST-01: gitleaks over a repo's FULL git history (committed-then-deleted
+    secrets still count).
+
+    Sibling of ``scan_with_gitleaks`` for the history-aware path. Runs
+    ``gitleaks git <repo_path>`` once over all commits, parses the JSON report
+    through the shared ``_parse_gitleaks_json`` helper, and stamps
+    ``source="gitleaks-history"`` so the report can distinguish a history hit
+    from a working-tree hit. Returns ``[]`` when gitleaks is not on PATH (the
+    Wave-1 history collector maps absence to ``unavailable``) or on timeout.
+
+    The value-blind contract is inherited verbatim from ``_parse_gitleaks_json``:
+    ``--redact`` is passed and the raw ``Secret`` value is never stored on a
+    returned ``SecretHit``.
+    """
+    return _run_gitleaks_target(
+        "git", Path(repo_path), timeout=timeout, source="gitleaks-history"
+    )
+
+
+def scan_working_tree(repo_path: Path, *, timeout: float) -> list[SecretHit]:
+    """COLL-03 one-shot working-tree scan via ``gitleaks dir <repo>``.
+
+    The working-tree equivalent of ``scan_git_history`` and the replacement for
+    the old per-file ``gitleaks stdin`` loop (the folded
+    "invoke-gitleaks-once-per-repo" todo: ~5,771 spawns / ~50 min on adapt
+    collapse to ONE invocation). Stamps ``source="gitleaks"`` so working-tree
+    hits keep their faithful attribution. Returns ``[]`` when gitleaks is absent
+    or on timeout.
+    """
+    return _run_gitleaks_target(
+        "dir", Path(repo_path), timeout=timeout, source="gitleaks"
+    )
 
 
 def lint_buffer(text: str, *, buffer_name: str) -> None:

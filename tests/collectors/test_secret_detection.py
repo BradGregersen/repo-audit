@@ -327,7 +327,7 @@ def test_scan_git_history_redacts_and_uses_column_span(fp, tmp_path):
     """scan_git_history points gitleaks at a repo, parses JSON, derives
     redacted_len from EndColumn-StartColumn, stamps source='gitleaks-history',
     and stores NO raw value."""
-    import shutil
+    from pathlib import Path
 
     from repo_audit.render import secret_lint
 
@@ -348,7 +348,7 @@ def test_scan_git_history_redacts_and_uses_column_span(fp, tmp_path):
             Path(report_path).write_text(_GITLEAKS_HISTORY_JSON, encoding="utf-8")
 
     fp.register(
-        [shutil.which("gitleaks") or "gitleaks", "git", fp.any()],
+        ["gitleaks", "git", fp.any()],
         callback=_fake_gitleaks,
         returncode=1,  # gitleaks exits 1 when it finds secrets
     )

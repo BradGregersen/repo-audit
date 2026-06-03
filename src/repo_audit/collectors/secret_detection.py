@@ -43,11 +43,13 @@ from ruamel.yaml import YAML
 from repo_audit.collectors import register_collector
 from repo_audit.collectors._budget import DeadlineGuard, remaining_seconds
 from repo_audit.collectors.base import CollectorResult
+from repo_audit.render import secret_lint as secret_lint_mod
 from repo_audit.render.secret_lint import (
     SecretHit,
     scan_with_entropy,
     scan_with_gitleaks,
     scan_with_known_patterns,
+    scan_working_tree,
 )
 from repo_audit.schema.finding import Evidence, Finding
 
@@ -168,17 +170,67 @@ def run(
 
     findings: list[Finding] = []
     scanned_files = 0
-    # 05.1-gap: shared-deadline guard so the per-file gitleaks subprocess loop
-    # can never run past the scan budget. Each iteration here may spawn a
-    # gitleaks subprocess (potentially seconds), so poll the clock on EVERY
-    # file (check_every=1) rather than the default batch interval.
+
+    def _emit(hit: SecretHit, rel_file: str) -> None:
+        # C13 / T-02-04-01: output_snippet is the HARD-CODED redacted template.
+        # The raw value never enters this f-string -- only rule_id (a label like
+        # 'aws-access-key-id') and the length. Folded Pitfall 4: source_tool and
+        # evidence.tool come from hit.source (the producing scanner) -- NEVER a
+        # blanket GITLEAKS_AVAILABLE stamp -- so an entropy-backstop hit can no
+        # longer masquerade as a gitleaks hit.
+        findings.append(Finding(
+            dimension="security",
+            severity="major",                  # SAFE-06: candidate caps at major
+            confidence="candidate",            # SAFE-06: requires corroboration
+            evidence_type="heuristic",         # SAFE-01: not a runtime probe
+            source_tool=hit.source,
+            source_collector="secret_detection",
+            file=rel_file,
+            line=hit.line,
+            rule_id=hit.rule_id,
+            recommendation=(
+                "investigate: this is a candidate heuristic match; "
+                "verify with the secret owner and rotate if real"
+            ),
+            evidence=Evidence(
+                tool=hit.source,
+                output_snippet=(
+                    f"{hit.rule_id} [REDACTED:{hit.redacted_len}] "
+                    f"at line {hit.line}"
+                ),
+                parsed_value={
+                    # SCH-08 + D-35: ONLY these two keys. NEVER 'value',
+                    # 'secret', 'match', 'raw', 'original', or 'token'.
+                    "rule_id": hit.rule_id,
+                    "redacted_len": hit.redacted_len,
+                },
+                line_range=(hit.line, hit.line),
+            ),
+        ))
+
+    # ONE gitleaks invocation for the WHOLE working tree (folded todo: the old
+    # per-file `gitleaks stdin` loop spawned 5,771 subprocesses / ~50 min on
+    # adapt). `scan_working_tree` runs `gitleaks dir <repo>` once and reports a
+    # File field per hit, which we use directly for attribution. Stamped
+    # source="gitleaks" inside scan_working_tree. remaining<=0 -> the sibling
+    # skips the call; the per-file in-process backstop below still runs.
+    if GITLEAKS_AVAILABLE:
+        rem = remaining_seconds(deadline)
+        gl_timeout = 30.0 if rem is None else min(30.0, rem)
+        for hit in scan_working_tree(repo_path, timeout=gl_timeout):
+            # gitleaks reports File as a repo-relative path already; default to
+            # "" when absent so the Finding still constructs.
+            _emit(hit, hit.file or "")
+
+    # 05.1-gap: shared-deadline guard so the per-file in-process loop can never
+    # run past the scan budget.
     guard = DeadlineGuard(deadline, check_every=1)
     deadline_hit = False
 
     for file_path, meta in repo_index.items():
-        # 05.1-gap: stop the (expensive, per-file-subprocess) sweep once the
-        # shared scan deadline is reached. Deterministic between-file check —
-        # never a mid-read kill. Surfaces as status='timeout' below.
+        # 05.1-gap: stop the sweep once the shared scan deadline is reached.
+        # Deterministic between-file check — never a mid-read kill. Surfaces as
+        # status='timeout' below.
         if guard.tick():
             deadline_hit = True
             break
@@ -209,18 +261,11 @@ def run(
         scanned_files += 1
 
         hits: list[SecretHit] = []
-        if GITLEAKS_AVAILABLE:
-            # 05.1-gap: cap this per-file gitleaks subprocess at the scan budget
-            # remaining (default 30 s when no deadline), so a call started near
-            # the deadline cannot overshoot it by a full 30 s. remaining<=0 makes
-            # scan_with_gitleaks skip the call; the in-process scans below still
-            # run, so every swept file keeps known-pattern coverage.
-            rem = remaining_seconds(deadline)
-            gl_timeout = 30.0 if rem is None else min(30.0, rem)
-            hits.extend(scan_with_gitleaks(text, timeout=gl_timeout))
         # 260530-gm9: Always-on, low-FP named-rule layer (AKIA/ghp_/sk_live_/...).
         # Called DIRECTLY so it survives independent of the entropy flag
-        # (CONTEXT: known-pattern detection is ALWAYS ON).
+        # (CONTEXT: known-pattern detection is ALWAYS ON). gitleaks-dir already
+        # ran once above for files it covers; the in-process backstop keeps
+        # coverage for everything (and for the gitleaks-absent path).
         hits.extend(scan_with_known_patterns(text))
         # OPT-IN heuristic (default OFF). scan_with_entropy() composes
         # scan_with_known_patterns at its tail, so to avoid double-counting the
@@ -237,38 +282,7 @@ def run(
                 # Path traversal attempt (T-02-04-05) -- structurally cannot
                 # happen if the walker did its job, but defend in depth.
                 continue
-            # C13 / T-02-04-01: output_snippet is the HARD-CODED redacted
-            # template. The raw value never enters this f-string -- only
-            # rule_id (a label like 'aws-access-key-id') and the length.
-            findings.append(Finding(
-                dimension="security",
-                severity="major",                  # SAFE-06: candidate caps at major
-                confidence="candidate",            # SAFE-06: requires corroboration
-                evidence_type="heuristic",         # SAFE-01: not a runtime probe
-                source_tool="gitleaks" if GITLEAKS_AVAILABLE else "in-process",
-                source_collector="secret_detection",
-                file=str(rel),
-                line=hit.line,
-                rule_id=hit.rule_id,
-                recommendation=(
-                    "investigate: this is a candidate heuristic match; "
-                    "verify with the secret owner and rotate if real"
-                ),
-                evidence=Evidence(
-                    tool="gitleaks" if GITLEAKS_AVAILABLE else "in-process",
-                    output_snippet=(
-                        f"{hit.rule_id} [REDACTED:{hit.redacted_len}] "
-                        f"at line {hit.line}"
-                    ),
-                    parsed_value={
-                        # SCH-08 + D-35: ONLY these two keys. NEVER 'value',
-                        # 'secret', 'match', 'raw', 'original', or 'token'.
-                        "rule_id": hit.rule_id,
-                        "redacted_len": hit.redacted_len,
-                    },
-                    line_range=(hit.line, hit.line),
-                ),
-            ))
+            _emit(hit, str(rel))
 
     # 05.1-gap: a deadline-truncated sweep is the collector's honest status —
     # it must surface as non-'ok' so the ledger flips partial and the report
