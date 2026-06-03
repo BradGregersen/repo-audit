@@ -1,0 +1,13 @@
+<?xml version="1.0" ?>
+<report name="Intellij coverage report">
+  <counter type="INSTRUCTION" missed="400" covered="1600"/>
+  <counter type="BRANCH" missed="10" covered="30"/>
+  <counter type="LINE" missed="20" covered="80"/>
+  <counter type="METHOD" missed="5" covered="15"/>
+  <package name="com/example/app">
+    <counter type="INSTRUCTION" missed="120" covered="380"/>
+    <counter type="BRANCH" missed="4" covered="6"/>
+    <counter type="LINE" missed="13" covered="7"/>
+    <counter type="METHOD" missed="2" covered="3"/>
+  </package>
+</report>

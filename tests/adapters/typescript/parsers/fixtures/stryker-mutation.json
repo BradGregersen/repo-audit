@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0",
+  "thresholds": {
+    "high": 80,
+    "low": 60
+  },
+  "files": {
+    "src/wellTested.ts": {
+      "language": "typescript",
+      "source": "export const add = (a: number, b: number): number => a + b;\n",
+      "mutants": [
+        { "id": "0", "mutatorName": "ArithmeticOperator", "status": "Killed", "location": { "start": { "line": 1, "column": 55 }, "end": { "line": 1, "column": 60 } } },
+        { "id": "1", "mutatorName": "ArithmeticOperator", "status": "Killed", "location": { "start": { "line": 1, "column": 55 }, "end": { "line": 1, "column": 60 } } },
+        { "id": "2", "mutatorName": "BlockStatement", "status": "Timeout", "location": { "start": { "line": 1, "column": 55 }, "end": { "line": 1, "column": 60 } } },
+        { "id": "3", "mutatorName": "ConditionalExpression", "status": "Survived", "location": { "start": { "line": 1, "column": 55 }, "end": { "line": 1, "column": 60 } } },
+        { "id": "4", "mutatorName": "StringLiteral", "status": "Ignored", "location": { "start": { "line": 1, "column": 55 }, "end": { "line": 1, "column": 60 } } }
+      ]
+    },
+    "src/weaklyTested.ts": {
+      "language": "typescript",
+      "source": "export const classify = (n: number): string => (n > 0 ? 'pos' : 'neg');\n",
+      "mutants": [
+        { "id": "5", "mutatorName": "ConditionalExpression", "status": "Survived", "location": { "start": { "line": 1, "column": 49 }, "end": { "line": 1, "column": 70 } } },
+        { "id": "6", "mutatorName": "EqualityOperator", "status": "Survived", "location": { "start": { "line": 1, "column": 49 }, "end": { "line": 1, "column": 70 } } },
+        { "id": "7", "mutatorName": "StringLiteral", "status": "NoCoverage", "location": { "start": { "line": 1, "column": 56 }, "end": { "line": 1, "column": 61 } } },
+        { "id": "8", "mutatorName": "StringLiteral", "status": "Killed", "location": { "start": { "line": 1, "column": 64 }, "end": { "line": 1, "column": 69 } } },
+        { "id": "9", "mutatorName": "BooleanLiteral", "status": "Ignored", "location": { "start": { "line": 1, "column": 49 }, "end": { "line": 1, "column": 70 } } }
+      ]
+    }
+  }
+}

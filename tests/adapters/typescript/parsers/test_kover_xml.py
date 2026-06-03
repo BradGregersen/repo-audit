@@ -1,0 +1,85 @@
+"""TST-01 (kover) — JaCoCo-XML coverage parser contract (Plan 11-01 Wave 0).
+
+SKIPPED until the Wave-1
+``repo_audit.adapters.typescript.parsers.kover_xml`` module lands, then
+activates automatically.
+
+kover's ``koverXmlReport`` emits JaCoCo-format XML, NOT lcov (11-RESEARCH
+Pitfall 9). The parser MUST read the REPORT-ROOT ``<counter type="LINE">`` (the
+whole-project total), not a nested ``<package>`` counter (RESEARCH Assumption
+A3). The fixture deliberately gives the root LINE counter (80 covered / 20
+missed -> 80.0%) DIFFERENT numbers from the nested package LINE counter (7
+covered / 13 missed -> 35.0%) so a parser that walks into the package counter
+fails this test.
+
+The fixture carries NO DOCTYPE/entities, so it parses cleanly through
+``safe_xml.parse_xml`` (defusedxml) — the XXE-safe seam the kover parser is
+contractually bound to (threat T-11-01-01).
+
+The kover parser mirrors the lcov parser's aggregate-Finding shape
+(``parsers/lcov.py``): one ``test_integrity`` Finding per scan whose
+``parsed_value`` carries ``line_pct``/``branch_pct``/``function_pct``. Its
+default report path is ``build/reports/kover/report.xml`` (Pitfall 9). The test
+exercises whichever entry point the Wave-1 module exposes — a direct
+XML-path helper if present, else the lcov-style ``parse_from_repo(repo_path)``
+against a staged ``build/reports/kover/report.xml``.
+"""
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+import pytest
+
+kover = pytest.importorskip(
+    "repo_audit.adapters.typescript.parsers.kover_xml",
+    reason="Wave 1 (plan 11-04) not yet landed — parsers.kover_xml missing",
+)
+
+_FIXTURE = Path(__file__).parent / "fixtures" / "kover-report.xml"
+_KOVER_RELATIVE = "build/reports/kover/report.xml"
+
+
+def _parse(target_xml: Path, repo_root: Path):
+    """Call the kover parser via whichever entry-point seam Wave 1 exposes.
+
+    Prefers a direct XML-path helper (``parse_xml_report`` /
+    ``parse_from_repo_xml`` / ``parse_kover_xml``); falls back to the lcov-style
+    ``parse_from_repo(repo_root)`` which reads ``build/reports/kover/report.xml``.
+    """
+    for name in ("parse_xml_report", "parse_from_repo_xml", "parse_kover_xml"):
+        fn = getattr(kover, name, None)
+        if fn is not None:
+            return fn(target_xml)
+    return kover.parse_from_repo(repo_root)
+
+
+def _staged_repo(tmp_path: Path, src_xml: Path | None) -> Path:
+    """Build a repo dir with the kover report staged at its conventional path."""
+    dest = tmp_path / _KOVER_RELATIVE
+    if src_xml is not None:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src_xml, dest)
+    return tmp_path
+
+
+def test_kover_xml_line_pct_from_report_root(tmp_path):
+    """Exactly one test_integrity Finding with line_pct from the REPORT-ROOT counter."""
+    repo = _staged_repo(tmp_path, _FIXTURE)
+    findings = _parse(_FIXTURE, repo)
+
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.dimension == "test_integrity"
+    # report-root LINE = 80 covered / 20 missed -> 80.0 (NOT the nested 35.0).
+    assert f.evidence.parsed_value["line_pct"] == 80.0
+
+
+def test_kover_missing_artifact_unavailable(tmp_path):
+    """A non-existent kover report path -> one unavailable Finding, no raise."""
+    missing_xml = tmp_path / "absent" / "report.xml"
+    repo = _staged_repo(tmp_path, None)  # no report staged
+    findings = _parse(missing_xml, repo)
+
+    assert len(findings) == 1
+    assert findings[0].evidence_type == "unavailable"
