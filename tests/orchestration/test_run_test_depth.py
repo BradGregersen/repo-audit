@@ -308,6 +308,97 @@ def test_weak_signal_emitted_on_gap(monkeypatch, tmp_path):
     assert "cross_link" in weak[0].evidence.parsed_value
 
 
+# --- Task 1 (B3): injected node coverage enables the WEAK signal ------------
+
+
+def test_injected_line_pct_enables_weak_signal_for_node(monkeypatch, tmp_path):
+    """B3: injected_line_pct + mutation → WEAK signal fires WITHOUT the in-step tier.
+
+    A node stack gates its in-step coverage tier OFF in scan_runner (the lcov
+    refresh runs out-of-band via ``_maybe_refresh_coverage``). So the only way the
+    D-11-06 WEAK signal can fire for node + --mutation is if the executed line_pct
+    is THREADED IN. With ``injected_line_pct=90.0`` and a mutation score of 50.0
+    (1 killed / 2 valid), the gap is 40 >= 25 → exactly one weak_tests Finding.
+
+    Fails on the pre-change code (no ``injected_line_pct`` param; coverage_line_pct
+    can never be populated for a node stack whose in-step coverage tier is skipped).
+    """
+    report = {
+        "files": {
+            "a.ts": {
+                "mutants": [{"status": "Killed"}, {"status": "Survived"}]
+            }
+        }
+    }
+    reports_dir = tmp_path / "reports" / "mutation"
+    reports_dir.mkdir(parents=True)
+    (reports_dir / "mutation.json").write_text(json.dumps(report), encoding="utf-8")
+
+    def _resolve(tool, repo):
+        return Path("/usr/bin/stryker") if tool == "stryker" else None
+
+    monkeypatch.setattr(test_depth, "resolve_tool", _resolve)
+    monkeypatch.setattr(test_depth, "run_tool", lambda argv, **kw: _Inv(0))
+    monkeypatch.setattr(test_depth, "snapshot_git_status", lambda repo: set())
+    monkeypatch.setattr(test_depth, "diff_git_status", lambda pre, post, **kw: [])
+
+    result = run_test_depth(
+        tmp_path,
+        base_env={},
+        refresh_coverage=False,  # node in-step coverage tier intentionally OFF
+        mutation=True,
+        stack="typescript-node",
+        injected_line_pct=90.0,
+    )
+    weak = [f for f in result.findings if f.rule_id == "weak_tests"]
+    assert len(weak) == 1
+    assert "cross_link" in weak[0].evidence.parsed_value
+
+
+def test_in_step_coverage_wins_over_injected_no_double_weak(monkeypatch, tmp_path):
+    """B3: when BOTH the in-step tier AND an injected value exist, exactly one WEAK.
+
+    The in-step measured value (this step's own coverage tier) takes precedence over
+    the injected one — they refer to the same metric. With the in-step tier yielding
+    90% and an injected 10% both present + a mutation score of 50, at most ONE
+    weak_tests Finding is emitted (the 90-vs-50 gap), never two.
+    """
+    report = {
+        "files": {
+            "a.ts": {
+                "mutants": [{"status": "Killed"}, {"status": "Survived"}]
+            }
+        }
+    }
+    reports_dir = tmp_path / "reports" / "mutation"
+    reports_dir.mkdir(parents=True)
+    (reports_dir / "mutation.json").write_text(json.dumps(report), encoding="utf-8")
+
+    def _resolve(tool, repo):
+        return Path("/usr/bin/stryker") if tool == "stryker" else None
+
+    monkeypatch.setattr(test_depth, "resolve_tool", _resolve)
+    monkeypatch.setattr(test_depth, "run_tool", lambda argv, **kw: _Inv(0))
+    monkeypatch.setattr(test_depth, "snapshot_git_status", lambda repo: set())
+    monkeypatch.setattr(test_depth, "diff_git_status", lambda pre, post, **kw: [])
+    # In-step coverage tier yields a 90% line_pct Finding (this wins over injected).
+    monkeypatch.setattr(
+        test_depth, "_run_coverage_tier",
+        lambda *a, **k: ([_coverage_finding(90.0)], "ok", []),
+    )
+
+    result = run_test_depth(
+        tmp_path,
+        base_env={},
+        refresh_coverage=True,  # in-step tier runs
+        mutation=True,
+        stack="python",
+        injected_line_pct=10.0,  # injected; must be superseded by the in-step 90%
+    )
+    weak = [f for f in result.findings if f.rule_id == "weak_tests"]
+    assert len(weak) == 1
+
+
 # --- run_test_depth: tripwire (D-11-02) ------------------------------------
 
 

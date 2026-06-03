@@ -39,6 +39,7 @@ from repo_audit.adapters.sast import run_sast
 from repo_audit.adapters.sca import run_sca
 from repo_audit.adapters.supabase import run_supabase
 from repo_audit.adapters.test_depth import run_expo, run_kotlin, run_test_depth
+from repo_audit.adapters.typescript.refresh import _NODE_STACKS
 from repo_audit.collectors import run_collectors
 from repo_audit.detect.detector import detect_stacks
 from repo_audit.meta.git import NotAGitRepo, UNCOMMITTED_MARKER, head_sha
@@ -373,11 +374,57 @@ def run_scan(
     # duplicate coverage Finding. The mutation + type-coverage tiers run
     # regardless of stack (mutation only under --mutation; type-coverage is
     # read-only and self-degrades to unavailable when the tool is absent).
-    _NODE_STACKS = {"typescript-node", "expo", "react-native"}
+    # W5: _NODE_STACKS is imported from refresh (single source of truth shared by
+    # this routing gate AND refresh's coverage-runner resolution) — no inline copy.
     primary_stack = (
         detection.stacks[0].stack if detection.stacks else "typescript-node"
     )
     td_refresh_coverage = refresh_coverage and primary_stack not in _NODE_STACKS
+
+    # B3 (D-11-06 reach): the node lcov coverage_summary Finding is produced by
+    # `_maybe_refresh_coverage` (called at the findings-merge step BELOW, after
+    # run_test_depth). For a node stack run with BOTH --refresh-coverage AND
+    # --mutation, run that node coverage refresh FIRST so its executed line_pct can
+    # be threaded into run_test_depth's mutation tier (the in-step coverage tier is
+    # gated OFF for node stacks to avoid a double coverage run). We refresh against
+    # the findings produced so far (collectors + adapters carry the lcov
+    # `coverage_unavailable` Finding that _maybe_refresh_coverage keys on), reuse
+    # the SAME refreshed list below (a flag skips the second call), and extract the
+    # node line_pct from the refreshed `coverage_summary` Finding. NEVER double-runs
+    # the coverage refresh — the original no-double-run intent is preserved.
+    node_mutation_path = (
+        refresh_coverage and mutation and primary_stack in _NODE_STACKS
+    )
+    injected_line_pct: float | None = None
+    coverage_refreshed_early = False
+    refreshed_node_findings: list | None = None
+    if node_mutation_path:
+        # The findings list the refresh keys on (collectors + adapters carry the
+        # lcov coverage Findings). SCA/RLS/mobile/SAST findings are appended below;
+        # the coverage refresh only inspects/rewrites the lcov coverage Finding, so
+        # refreshing against this prefix is sufficient and order-preserving.
+        pre_refresh_node_findings = (
+            [f for r in collector_results for f in r.findings]
+            + [f for r in adapter_results for f in r.findings]
+        )
+        refreshed_node_findings = _maybe_refresh_coverage(
+            repo_path, pre_refresh_node_findings
+        )
+        coverage_refreshed_early = True
+        injected_line_pct = next(
+            (
+                f.evidence.parsed_value.get("line_pct")
+                for f in refreshed_node_findings
+                if getattr(f, "rule_id", "") == "coverage_summary"
+                and isinstance(
+                    getattr(getattr(f, "evidence", None), "parsed_value", {}).get(
+                        "line_pct"
+                    ),
+                    (int, float),
+                )
+            ),
+            None,
+        )
 
     with scan_tempdir() as _kot_td:
         kot_base_env = build_scan_env(_kot_td)
@@ -395,15 +442,28 @@ def run_scan(
             refresh_coverage=td_refresh_coverage,
             mutation=mutation,
             stack=primary_stack,
+            injected_line_pct=injected_line_pct,
         )
 
     # Aggregate findings across collectors + adapters + SCA + RLS (sequential
     # preserves ledger order). SCA + RLS findings are appended deterministically
     # so SC-5 determinism holds. Built BEFORE the refresh sub-steps below so the
     # sub-steps can rewrite/extend this list.
+    #
+    # B3 no-double-run: when the node+mutation path already ran
+    # `_maybe_refresh_coverage` above (to thread the node line_pct into the
+    # mutation tier), reuse its refreshed collector+adapter prefix here instead of
+    # refreshing a second time. Otherwise build the prefix fresh and let the
+    # refresh sub-step below run as usual.
+    if coverage_refreshed_early and refreshed_node_findings is not None:
+        collector_adapter_prefix = list(refreshed_node_findings)
+    else:
+        collector_adapter_prefix = (
+            [f for r in collector_results for f in r.findings]
+            + [f for r in adapter_results for f in r.findings]
+        )
     findings = (
-        [f for r in collector_results for f in r.findings]
-        + [f for r in adapter_results for f in r.findings]
+        collector_adapter_prefix
         + list(sca_result.findings)
         + list(rls_result.findings)
         + list(mob_result.findings)
@@ -421,7 +481,10 @@ def run_scan(
     # refresh failure (does NOT remove the unavailable Finding — both
     # surface so the reader sees "no fresh artifact" AND "we tried; here's
     # why it failed").
-    if refresh_coverage:
+    #
+    # B3 no-double-run: skip when the node+mutation path already ran the refresh
+    # above (its result is already folded into `collector_adapter_prefix`).
+    if refresh_coverage and not coverage_refreshed_early:
         findings = _maybe_refresh_coverage(repo_path, findings)
 
     # D-30 scope ledger assembly (Phase 3: adapter_results folded).

@@ -420,6 +420,7 @@ def run_test_depth(
     override: Optional[dict] = None,
     weak_threshold: float = 25.0,
     mutation_timeout_s: float = _MUTATION_TIMEOUT_S,
+    injected_line_pct: Optional[float] = None,
 ) -> TestDepthScanResult:
     """Compose the coverage / mutation / type-coverage tiers (TST-01/02/03).
 
@@ -437,6 +438,14 @@ def run_test_depth(
         override: the ``.repo-audit.yaml`` coverage_refresh block, if any.
         weak_threshold: D-11-06 gap threshold for the WEAK-test signal.
         mutation_timeout_s: D-11-05 Stryker hard wall-clock cap (default 1800s).
+        injected_line_pct: B3 (D-11-06 reach) — when the caller already ran node
+            lcov coverage out-of-band (the Phase-3 ``_maybe_refresh_coverage``
+            path in ``scan_runner``), it passes the executed line_pct here so the
+            D-11-06 WEAK signal can cross-reference it for node stacks whose
+            in-step coverage tier is intentionally skipped (avoids a double
+            coverage run). The in-step coverage tier's measured value (when that
+            tier actually ran) takes precedence — both refer to the same metric
+            and the value measured in this step's own tier wins.
 
     Returns:
         A :class:`TestDepthScanResult`; never raises.
@@ -444,7 +453,11 @@ def run_test_depth(
     findings: list[Finding] = []
     ledger_notes: list[str] = []
     statuses: list[str] = []
-    coverage_line_pct: Optional[float] = None
+    # Seed from the injected (out-of-band) node line_pct; the in-step coverage
+    # tier below overrides it when that tier actually ran (in-step measured value
+    # wins — same metric, measured in this step). Keeps exactly one source and
+    # lets the WEAK guard fire for node + --mutation (B3).
+    coverage_line_pct: Optional[float] = injected_line_pct
 
     # --- COVERAGE tier (TST-01) -------------------------------------------
     if refresh_coverage:
