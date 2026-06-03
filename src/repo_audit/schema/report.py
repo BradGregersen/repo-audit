@@ -158,6 +158,17 @@ class ReportMeta(BaseModel):
     # key) still round-trip-validate.
     feed_provenance: list[FeedProvenance] = Field(default_factory=list)
 
+    # SUP-02 / D-12-07 — the REFERENCE path to the CycloneDX SBOM artifact that
+    # `run_supply_chain` generated for this scan. It is the gitignored tool-repo
+    # path (``{repo-audit}/reports/<slug>-sbom-<date>.json`` — OUTSIDE the
+    # read-only target repo); the SBOM DOCUMENT is NEVER inlined here (D-12-07:
+    # reference by path only). ``None`` when no SBOM was generated (Syft absent /
+    # no catalogable packages / SBOM step degraded). Additive Optional field;
+    # schema_version stays "1" (D-21), forward-compatible with the Phase 5 fleet
+    # aggregator — Phase 1-11 sidecars (no sbom_path key) round-trip-validate with
+    # the field defaulting to None.
+    sbom_path: str | None = None
+
 
 class ScanReport(BaseModel):
     """The structured scan report. Serialized as the JSON sidecar (SCH-06).
