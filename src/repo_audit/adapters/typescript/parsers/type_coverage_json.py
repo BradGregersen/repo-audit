@@ -43,8 +43,15 @@ def parse_type_coverage(data: dict) -> list[Finding]:
     correct = data.get("correctCount") if isinstance(data, dict) else None
     total = data.get("totalCount") if isinstance(data, dict) else None
 
-    if not isinstance(correct, (int, float)) or not isinstance(total, (int, float)) or total <= 0:
-        return [_unavailable_finding(detail=f"correctCount/totalCount missing or zero: {data!r}"[:512])]
+    if (
+        not isinstance(correct, (int, float))
+        or not isinstance(total, (int, float))
+        or total <= 0
+        or correct > total
+    ):
+        # W4: an inverted report (correctCount > totalCount) would drive pct>100 /
+        # negative any_density — degrade to unavailable rather than emit bad math.
+        return [_unavailable_finding(detail=f"correctCount/totalCount missing, zero, or inverted: {data!r}"[:512])]
 
     # D-11-08 derivation (the canonical form is any_density = 1 - data["correctCount"]
     # / data["totalCount"]); we operate on the validated `correct`/`total` locals so a

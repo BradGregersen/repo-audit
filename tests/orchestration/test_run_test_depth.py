@@ -427,3 +427,101 @@ def test_refresh_resolves_kover_for_kotlin_android(tmp_path):
         tmp_path, stack="kotlin-android"
     )
     assert cmd == ["./gradlew", "koverXmlReport"]
+
+
+# --- Task 3 (W2): node-gate the type-coverage npx fallback ------------------
+
+
+def test_type_coverage_no_npx_on_non_node_stack(monkeypatch, tmp_path):
+    """W2: non-node stack + no local binary → unavailable, NO npx egress.
+
+    On ``stack="python"`` with ``resolve_tool`` returning None, the type-coverage
+    tier must NOT shell out to ``npx type-coverage`` (a network fetch + arbitrary
+    package execution surface). It degrades to unavailable instead.
+    """
+    calls: list[list] = []
+
+    def _record(argv, **kw):
+        calls.append(list(argv))
+        return _Inv(0, stdout="")
+
+    monkeypatch.setattr(test_depth, "resolve_tool", lambda tool, repo: None)
+    monkeypatch.setattr(test_depth, "run_tool", _record)
+
+    result = run_test_depth(
+        tmp_path, base_env={}, refresh_coverage=False, mutation=False, stack="python"
+    )
+    npx_calls = [c for c in calls if c and "npx" in str(c[0])]
+    assert npx_calls == [], f"npx egress fired on a non-node stack: {npx_calls}"
+    assert isinstance(result, TestDepthScanResult)
+
+
+def test_type_coverage_npx_allowed_on_node_stack(monkeypatch, tmp_path):
+    """W2: node stack + no local binary → npx fallback still permitted.
+
+    type-coverage belongs to node — on ``stack="typescript-node"`` with no local
+    binary the npx fallback is allowed (an empty stdout still degrades gracefully,
+    but the argv must have been the npx invocation).
+    """
+    calls: list[list] = []
+
+    def _record(argv, **kw):
+        calls.append(list(argv))
+        return _Inv(0, stdout="")
+
+    monkeypatch.setattr(test_depth, "resolve_tool", lambda tool, repo: None)
+    monkeypatch.setattr(test_depth, "run_tool", _record)
+
+    run_test_depth(
+        tmp_path, base_env={}, refresh_coverage=False, mutation=False,
+        stack="typescript-node",
+    )
+    npx_calls = [c for c in calls if c and "npx" in str(c[0])]
+    assert len(npx_calls) == 1, f"expected the npx fallback on a node stack: {calls}"
+
+
+# --- Task 3 (W3): no stale coverage numbers on a failed refresh -------------
+
+
+def test_failed_refresh_does_not_emit_concrete_coverage(monkeypatch, tmp_path):
+    """W3: refresh status != 'ok' → no concrete-percentage coverage_summary Finding.
+
+    A failed coverage refresh must not present a pre-existing on-disk coverage
+    percentage as THIS run's result. The tier degrades (partial/unavailable) and the
+    parsed concrete-percentage Finding is NOT surfaced. Fails on the pre-change code
+    which parsed-and-emitted the on-disk artifact regardless of refresh status.
+    """
+    monkeypatch.setattr(
+        test_depth.refresh, "resolve_runner_command",
+        lambda repo, *, stack, override=None: ["pytest", "--cov"],
+    )
+
+    class _RR:
+        status = "failed"
+        lcov_produced = False
+
+    monkeypatch.setattr(
+        test_depth.refresh, "refresh_coverage", lambda repo, cfg, env: _RR()
+    )
+    # The on-disk artifact would parse to a concrete 80% — it must NOT be surfaced.
+    monkeypatch.setattr(
+        test_depth, "parse_from_repo", lambda repo: [_coverage_finding(80.0)]
+    )
+    monkeypatch.setattr(
+        test_depth, "parse_kover_xml", lambda repo: [_coverage_finding(80.0)]
+    )
+    monkeypatch.setattr(test_depth, "snapshot_git_status", lambda repo: set())
+    monkeypatch.setattr(test_depth, "diff_git_status", lambda pre, post, **kw: [])
+    monkeypatch.setattr(test_depth, "resolve_tool", lambda tool, repo: None)
+
+    result = run_test_depth(
+        tmp_path, base_env={}, refresh_coverage=True, mutation=False, stack="python"
+    )
+    concrete = [
+        f
+        for f in result.findings
+        if f.rule_id == "coverage_summary"
+        and isinstance(f.evidence.parsed_value.get("line_pct"), (int, float))
+    ]
+    assert concrete == [], "stale on-disk coverage percentage surfaced on a failed refresh"
+    assert result.status in {"partial", "unavailable"}

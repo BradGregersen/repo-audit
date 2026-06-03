@@ -52,6 +52,7 @@ from repo_audit.adapters.kotlin.detekt import collect_detekt
 from repo_audit.adapters.resolution import resolve_tool
 from repo_audit.adapters.toolops import EXEC_FAILED, TIMED_OUT, run_tool
 from repo_audit.adapters.typescript import refresh
+from repo_audit.adapters.typescript.refresh import _NODE_STACKS
 from repo_audit.adapters.typescript.parsers.kover_xml import parse_kover_xml
 from repo_audit.adapters.typescript.parsers.lcov import parse_from_repo
 from repo_audit.adapters.typescript.parsers.stryker_json import (
@@ -218,12 +219,32 @@ def _run_coverage_tier(
         refresh_cfg["timeout_ms"] = override["timeout_ms"]
     rr = refresh.refresh_coverage(repo_path, refresh_cfg, base_env)
     offenders = diff_git_status(pre, snapshot_git_status(repo_path))
+    rr_status = getattr(rr, "status", "")
 
-    status = "ok" if getattr(rr, "status", "") == "ok" else "partial"
-    if getattr(rr, "status", "") != "ok":
-        ledger_notes.append(f"coverage refresh {getattr(rr, 'status', '?')}")
+    # W3 (reproducibility / no-invent-numbers): only present the parsed concrete
+    # coverage percentage when the refresh ACTUALLY succeeded this run. A failed /
+    # timed-out refresh must NOT surface a pre-existing on-disk artifact's numbers
+    # as this run's result — degrade honestly with no concrete-percentage Finding.
+    if rr_status != "ok":
+        ledger_notes.append(
+            f"coverage refresh {rr_status or '?'}; not emitting stale on-disk "
+            "coverage numbers for this run"
+        )
+        # "partial" when the runner produced output but didn't succeed; "unavailable"
+        # when it never ran at all (no output/sentinel).
+        status = "partial" if rr_status else "unavailable"
+        # D-11-02 still applies: a tracked-file change names the offenders.
+        if offenders:
+            status = "partial"
+            ledger_notes.append(
+                "coverage runner modified tracked files (downgraded to partial): "
+                + "; ".join(offenders)
+            )
+        return ([], status, ledger_notes)
 
-    # Parse the produced artifact for the resolved stack.
+    status = "ok"
+
+    # Refresh succeeded — parse the produced artifact for the resolved stack.
     if stack == _KOTLIN_STACK:
         findings = parse_kover_xml(repo_path)
     else:
@@ -331,21 +352,34 @@ def _run_type_coverage_tier(
     repo_path: Path,
     *,
     base_env: dict[str, str],
+    stack: str,
 ) -> tuple[list[Finding], str, list[str]]:
     """TST-03 type-coverage tier (READ-ONLY — no tripwire needed).
 
-    Resolves ``type-coverage`` (falls back to the documented ``npx`` invocation),
-    runs ``--json-output`` through ``run_tool``, and parses the JSON from stdout
-    (falling back to the known output file). NEVER raises.
+    Resolves ``type-coverage``; a LOCAL binary runs on any stack. When no local
+    binary exists, the ``npx type-coverage`` network fallback is gated to node
+    stacks ONLY (W2 — T-11-06-01): on a non-node repo with no local binary the
+    tier degrades to ``unavailable`` rather than fetching + executing an arbitrary
+    npm package from the network. NEVER raises.
     """
     ledger_notes: list[str] = []
 
     tc = resolve_tool("type-coverage", repo_path)
-    argv = (
-        [str(tc), "--json-output"]
-        if tc is not None
-        else ["npx", "type-coverage", "--json-output"]
-    )
+    if tc is not None:
+        argv = [str(tc), "--json-output"]
+    elif stack in _NODE_STACKS:
+        argv = ["npx", "type-coverage", "--json-output"]
+    else:
+        # W2: no local binary AND non-node stack — never trigger an npx network
+        # download/execution on a repo where type-coverage doesn't belong.
+        return (
+            [],
+            "unavailable",
+            [
+                "type-coverage: no local binary and stack is not node — "
+                "skipping npx network fallback"
+            ],
+        )
     inv = run_tool(
         argv, env=base_env, cwd=repo_path, timeout_seconds=_TYPE_COVERAGE_TIMEOUT_S
     )
@@ -479,7 +513,7 @@ def run_test_depth(
     # --- TYPE-COVERAGE tier (TST-03, READ-ONLY) ---------------------------
     try:
         tc_findings, tc_status, tc_notes = _run_type_coverage_tier(
-            repo_path, base_env=base_env
+            repo_path, base_env=base_env, stack=stack
         )
     except Exception as exc:  # noqa: BLE001 — tier never crashes the step
         tc_findings, tc_status, tc_notes = (

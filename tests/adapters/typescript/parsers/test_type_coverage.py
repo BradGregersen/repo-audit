@@ -59,3 +59,23 @@ def test_any_density_finding():
     assert f.dimension in {"correctness", "quality"}
     assert f.evidence.parsed_value["any_density"] == 0.05
     assert f.evidence.parsed_value["type_coverage_pct"] == 95.0
+
+
+def test_correct_greater_than_total_clamps_to_unavailable():
+    """W4: a malformed correctCount > totalCount degrades, never pct>100 / negative.
+
+    A hostile/malformed report with correctCount=150 > totalCount=100 must not drive
+    ``type_coverage_pct=150.0`` / ``any_density=-0.5`` into a Finding. The parser
+    rejects the inversion (unavailable Finding) or clamps to a bounded value.
+    """
+    out = tc.parse_type_coverage({"correctCount": 150, "totalCount": 100})
+    assert isinstance(out, list) and len(out) == 1
+    f = out[0]
+    pv = f.evidence.parsed_value
+    if f.evidence_type == "unavailable":
+        # Degraded path — no derived percentage at all.
+        assert "type_coverage_pct" not in pv or pv.get("type_coverage_pct") is None
+    else:
+        # Clamped path — bounded values only.
+        assert pv["type_coverage_pct"] <= 100.0
+        assert pv["any_density"] >= 0.0
