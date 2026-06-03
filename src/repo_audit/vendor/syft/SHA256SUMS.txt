@@ -1,0 +1,7 @@
+# SHA256 hashes of vendored syft binary (syft 1.45.0 upstream)
+# Each line:  <hash>  <relative-path-from-vendor/syft>
+# Source: github.com/anchore/syft releases v1.45.0 asset syft_1.45.0_linux_amd64.tar.gz.
+# The tarball was verified against the release's published syft_1.45.0_checksums.txt
+# (sha256: cd5efa489e93ecde99c03a218db5dee8b3f03610466d7565cefd735610d1b28b), then the
+# extracted binary hash below was recorded (V6 integrity control).
+1a3ec573ff86d6336ba567e6b0817d71e42b16fa3fe1aa64e1f7dac27c36d8ef  syft
