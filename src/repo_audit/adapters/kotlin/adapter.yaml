@@ -1,0 +1,61 @@
+# Kotlin / Android adapter (KOT-01) — detekt tool descriptor.
+#
+# This YAML is DOCUMENTATION / CONTRACT, not the source of the collector's
+# behaviour: collect_detekt reads its own module constants (the argv, the
+# noise-floor prefixes, the timeout). The block below RECORDS the contract so an
+# .repo-audit.yaml user-overlay (future) and a human reader have one place
+# to see what detekt is invoked with and how its findings are de-noised. It is
+# intended to be loaded under ruamel.yaml.YAML(typ='safe') — T-03-01 mitigation:
+# 'safe' refuses !!python/object / !!python/name constructors so a poisoned YAML
+# cannot execute Python at load time.
+#
+# Pitfall guards (11-RESEARCH), all enforced in collect_detekt:
+#   * Pitfall 1: --build-upon-default-config ALWAYS (without it ALL rules are
+#     OFF and detekt emits an empty report). Recorded under tools.detekt.flags.
+#   * Pitfall 4: detekt writes SARIF to the FILE in `--report sarif:<path>`, NOT
+#     stdout. The collector allocates the file in a per-scan tempdir.
+#   * Pitfall 5: detekt EXITS NON-ZERO when it finds issues. The collector gates
+#     on whether the SARIF file PARSES, never on the returncode.
+#   * Pitfall 7 / D-11-08: detekt.style.* + detekt.formatting.* are pure-style
+#     noise — dropped by the noise_floor below before any finding reaches the
+#     report; potential-bugs / complexity / exceptions families are kept.
+
+name: kotlin-android
+
+tools:
+  detekt:
+    # Vendored detekt-cli fat jar, resolved via resolve_tool("detekt", repo)
+    # against the in-package vendor/ tree (D-06-10). The jar is NOT shipped by
+    # this plan; resolve_tool simply misses until it is vendored, and the
+    # collector then self-reports status='unavailable' (the never-raise floor).
+    jar: vendor/detekt/detekt-cli-all.jar
+    # The launcher detekt runs under; resolved via resolve_tool("java", repo).
+    launcher: java
+    # ALWAYS-ON flag (Pitfall 1, CRITICAL).
+    flags:
+      - --build-upon-default-config
+    # D-11-07 typed-analysis default: collect_detekt attempts a throwaway-copy
+    # gradle build to resolve the compile classpath and runs detekt with
+    # --classpath + --jvm-target 17 when it succeeds; standalone (no classpath)
+    # is the always-available KOT-01 floor it falls back to on ANY failure.
+    attempt_typed: true
+    jvm_target: 17
+    # detekt writes SARIF to a FILE (Pitfall 4); the collector reads that file.
+    output_format: sarif
+    # detekt findings land in the `quality` dimension (7-dimension taxonomy).
+    dimension: quality
+    # run_tool wall-clock bound (SIGTERM->5s->SIGKILL on expiry, T-11-02-03).
+    timeout_ms: 180000
+
+    # D-11-08 noise floor (Pitfall 7). Drop prefixes + severity floor are
+    # OVERRIDABLE via an .repo-audit.yaml `kotlin` block; the collector
+    # reads its own constants but this records the default contract.
+    noise_floor:
+      # Findings whose ruleId starts with any of these prefixes are dropped
+      # (pure-style / pure-formatting families with no audit signal).
+      drop_ruleset_prefixes:
+        - detekt.style.
+        - detekt.formatting.
+      # Findings strictly below this severity rung are dropped ('info' dropped,
+      # 'minor' and above kept).
+      severity_floor: minor
