@@ -1,0 +1,38 @@
+# Expo adapter (EXP-01) — expo-doctor tool descriptor.
+#
+# This YAML is DOCUMENTATION / CONTRACT, not the source of the collector's
+# behaviour: collect_expo_doctor reads its own module constants (the argv, the
+# timeout, the marker). The block below RECORDS the contract so an
+# .repo-audit.yaml user-overlay (future) and a human reader have one place
+# to see what expo-doctor is invoked with and how its TEXT output is parsed. It
+# is intended to be loaded under ruamel.yaml.YAML(typ='safe') — T-03-01
+# mitigation: 'safe' refuses !!python/object / !!python/name constructors so a
+# poisoned YAML cannot execute Python at load time.
+#
+# Pitfall guards (11-RESEARCH), enforced in collect_expo_doctor:
+#   * Pitfall 3: expo-doctor is TEXT-ONLY — there is NO --json / --sarif flag.
+#     The collector parses via exit code + "Issue:" line markers, with an
+#     aggregate-stdout-tail fallback when the line shape drifts (Assumption A1).
+#   * T-11-04-02: the aggregate-fallback / per-issue stdout is bounded AND run
+#     through the secret-lint primitive (refresh._redact_tail) before reaching a
+#     Finding.
+#   * T-11-04-03: prefer the target-local expo-doctor binary (resolve_tool) over
+#     an `npx expo-doctor` auto-download to limit network egress.
+
+name: expo
+
+tools:
+  expo_doctor:
+    # Resolved via resolve_tool("expo-doctor", repo); falls back to the
+    # documented `npx expo-doctor` invocation when no local binary exists.
+    command:
+      - npx
+      - expo-doctor
+    # run_tool wall-clock bound (SIGTERM->5s->SIGKILL on expiry, T-11-04-05).
+    timeout_ms: 120000
+    # expo-doctor findings land in the `quality` dimension (7-dimension taxonomy).
+    dimension: quality
+    # Output is TEXT only (Pitfall 3): parsed via exit-code + "Issue:" markers,
+    # with an aggregate stdout-tail fallback. There is no structured (JSON/SARIF)
+    # output format to request.
+    output_format: text
