@@ -143,3 +143,22 @@ def test_wheel_ships_osv_and_grype_binaries(wheel_namelist: list[str]):
     assert any(
         n.endswith("vendor/grype/grype") for n in wheel_namelist
     ), "grype binary missing from wheel"
+
+
+def test_wheel_ships_syft_binary(wheel_namelist: list[str]):
+    """The standard build SHIPS the vendored Syft binary + LICENSE (SUP-02).
+
+    Syft is the Phase-12 SBOM generator, vendored at the same flat
+    ``vendor/<tool>/<tool>`` layout ``resolve_tool`` reads (mirrors the Phase-7
+    osv-scanner / grype precedent). It is Apache-2.0 (the release LICENSE ships
+    alongside), so — unlike CodeQL / Semgrep — it is fine to redistribute in the
+    standard wheel. This positive assertion guards against a packaging change
+    silently dropping it: without the binary in the wheel, an installed ``arch``
+    falls back to PATH/unavailable for SBOM generation.
+    """
+    assert any(
+        n.endswith("vendor/syft/syft") for n in wheel_namelist
+    ), "syft binary missing from wheel"
+    assert any(
+        n.endswith("vendor/syft/LICENSE") for n in wheel_namelist
+    ), "syft LICENSE missing from wheel"
