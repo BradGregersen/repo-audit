@@ -241,3 +241,135 @@ def test_entropy_backstop_reappears_when_opted_in(fake_repo):
         "opt-in flag must re-enable the entropy backstop: "
         f"{[f.rule_id for f in result.findings]!r}"
     )
+
+
+# --- Phase 12 Plan 01 Task 1: per-scanner SecretHit.source attribution ---
+
+
+def test_known_pattern_hit_carries_in_process_source():
+    """scan_with_known_patterns stamps source='in-process' on every hit."""
+    from repo_audit.render.secret_lint import scan_with_known_patterns
+
+    hits = scan_with_known_patterns("KEY = 'AKIA" + "QWERTYUIOPASDFGH'\n")
+    assert hits, "expected a known-pattern AKIA hit"
+    assert all(h.source == "in-process" for h in hits), (
+        f"known-pattern hits must be 'in-process'; got "
+        f"{[h.source for h in hits]!r}"
+    )
+
+
+def test_entropy_hit_carries_in_process_source():
+    """scan_with_entropy stamps source='in-process' on its entropy-backstop hits."""
+    from repo_audit.render.secret_lint import scan_with_entropy
+
+    hits = [h for h in scan_with_entropy(_HIGH_ENTROPY_NO_KNOWN_PATTERN)
+            if h.rule_id == "entropy-backstop"]
+    assert hits, "expected at least one entropy-backstop hit"
+    assert all(h.source == "in-process" for h in hits), (
+        f"entropy hits must be 'in-process'; got {[h.source for h in hits]!r}"
+    )
+
+
+def test_secret_detection_source_tool_is_per_hit_not_blanket(monkeypatch, fake_repo):
+    """Folded Pitfall 4: an entropy-backstop hit is NEVER labeled 'gitleaks'.
+
+    With gitleaks 'available' (so the old blanket stamp would have labeled
+    everything 'gitleaks') but the gitleaks subprocess returning NO hits, the
+    only findings come from the in-process backstop and must carry the
+    producing scanner's label on BOTH source_tool and evidence.tool.
+    """
+    from repo_audit.collectors import secret_detection as sd
+    from repo_audit.walker import build_repo_index
+
+    # Pretend gitleaks is on PATH so the blanket-stamp bug (if present) would
+    # mislabel every in-process hit as 'gitleaks'...
+    monkeypatch.setattr(sd, "GITLEAKS_AVAILABLE", True)
+    # ...but make the gitleaks dir/stdin scan find nothing, so all hits are
+    # in-process.
+    monkeypatch.setattr(sd, "scan_with_gitleaks", lambda *a, **k: [])
+    monkeypatch.setattr(
+        sd.secret_lint_mod, "scan_working_tree", lambda *a, **k: []
+    )
+
+    repo = fake_repo(
+        {
+            "package-lock.json": _HIGH_ENTROPY_NO_KNOWN_PATTERN,
+            ".repo-audit.yaml": (
+                "secret_detection:\n  entropy_backstop: true\n"
+            ),
+        },
+        name="per-hit-source",
+    )
+    wr = build_repo_index(repo)
+    result = sd.run(repo, wr.index)
+    entropy_findings = [f for f in result.findings if f.rule_id == "entropy-backstop"]
+    assert entropy_findings, "expected entropy-backstop findings"
+    for f in entropy_findings:
+        assert f.source_tool == "in-process", (
+            f"entropy hit mislabeled: source_tool={f.source_tool!r}"
+        )
+        assert f.evidence.tool == "in-process", (
+            f"entropy hit mislabeled: evidence.tool={f.evidence.tool!r}"
+        )
+
+
+# --- Phase 12 Plan 01 Task 1: scan_git_history value-blind sibling ---
+
+
+_GITLEAKS_HISTORY_JSON = (
+    '[{"RuleID": "aws-access-key", "File": "old/config.py", '
+    '"StartLine": 7, "StartColumn": 11, "EndColumn": 31, '
+    '"Secret": "REDACTED", "Commit": "abc123"}]'
+)
+
+
+def test_scan_git_history_redacts_and_uses_column_span(fp, tmp_path):
+    """scan_git_history points gitleaks at a repo, parses JSON, derives
+    redacted_len from EndColumn-StartColumn, stamps source='gitleaks-history',
+    and stores NO raw value."""
+    import shutil
+
+    from repo_audit.render import secret_lint
+
+    repo = tmp_path / "histrepo"
+    repo.mkdir()
+
+    # The implementation writes the JSON report to a tempfile and reads it back
+    # (A3). Mock gitleaks to write that report to whichever --report-path it is
+    # given.
+    def _fake_gitleaks(process):
+        argv = process.args
+        # locate the --report-path value
+        report_path = None
+        for i, tok in enumerate(argv):
+            if tok in ("--report-path", "-r"):
+                report_path = argv[i + 1]
+        if report_path and report_path != "-":
+            Path(report_path).write_text(_GITLEAKS_HISTORY_JSON, encoding="utf-8")
+
+    fp.register(
+        [shutil.which("gitleaks") or "gitleaks", "git", fp.any()],
+        callback=_fake_gitleaks,
+        returncode=1,  # gitleaks exits 1 when it finds secrets
+    )
+
+    hits = secret_lint.scan_git_history(repo, timeout=30)
+    assert hits, "expected one history hit from the canned gitleaks JSON"
+    h = hits[0]
+    assert h.source == "gitleaks-history"
+    assert h.redacted_len == 31 - 11  # EndColumn - StartColumn
+    assert h.line == 7
+    # value-blind: SecretHit carries no raw-value field
+    assert not any(
+        attr in vars(h) for attr in ("value", "secret", "raw", "match")
+    )
+
+
+def test_scan_git_history_absent_gitleaks_returns_empty(monkeypatch, tmp_path):
+    """No gitleaks on PATH -> [] (Wave-1 collector maps absence to unavailable)."""
+    from repo_audit.render import secret_lint
+
+    monkeypatch.setattr(secret_lint.shutil, "which", lambda name: None)
+    repo = tmp_path / "r"
+    repo.mkdir()
+    assert secret_lint.scan_git_history(repo, timeout=30) == []
