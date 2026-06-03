@@ -296,7 +296,7 @@ def _run_mutation_tier(
     elif inv.returncode == EXEC_FAILED:
         ledger_notes.append(f"mutation: stryker could not be executed: {inv.stderr}")
         status = "unavailable"
-    else:
+    elif inv.returncode == 0:
         report = _read_mutation_report(repo_path)
         if report is not None:
             compute_mutation_score(report)  # validates shape; no exceptions
@@ -304,6 +304,18 @@ def _run_mutation_tier(
         else:
             ledger_notes.append("mutation ran but produced no parseable report")
             status = "unavailable"
+    else:
+        # Non-zero, non-sentinel exit (e.g. Stryker rc=1 error exit). A stale
+        # reports/mutation/mutation.json from a PRIOR run must NOT be trusted as
+        # this run's result — degrade honestly, never emit a confident score
+        # from a run that errored (no-invent-numbers / reproducibility constraint).
+        # `report` stays None so the WEAK-signal threading in run_test_depth also
+        # cannot fire off a failed run.
+        ledger_notes.append(
+            f"mutation: stryker exited non-zero ({inv.returncode}); "
+            "not trusting any on-disk report from this run"
+        )
+        status = "unavailable"
 
     if offenders:
         status = "partial"

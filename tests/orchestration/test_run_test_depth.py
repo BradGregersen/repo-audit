@@ -195,6 +195,81 @@ def test_mutation_timeout_partial(monkeypatch, tmp_path):
     assert mutation_findings[0].evidence.parsed_value["run_status"] == "partial"
 
 
+# --- Task 2 (B2): mutation success gated on returncode == 0 -----------------
+
+
+def test_mutation_stale_report_on_error_exit_not_trusted(monkeypatch, tmp_path):
+    """rc=1 (Stryker error exit) + a stale mutation.json → NO confident ok Finding.
+
+    A complete prior-run ``mutation.json`` is on disk, but THIS Stryker run errored
+    (rc=1, not a sentinel). The success branch must NOT fire — the tier degrades to
+    unavailable and the ledger names the non-zero exit. Fails on the pre-change code
+    where rc=1 fell into the unconditional ``else`` and emitted ``status="ok"``.
+    """
+    report = {
+        "files": {
+            "a.ts": {
+                "mutants": [{"status": "Killed"}, {"status": "Survived"}]
+            }
+        }
+    }
+    reports_dir = tmp_path / "reports" / "mutation"
+    reports_dir.mkdir(parents=True)
+    (reports_dir / "mutation.json").write_text(json.dumps(report), encoding="utf-8")
+
+    def _resolve(tool, repo):
+        return Path("/usr/bin/stryker") if tool == "stryker" else None
+
+    monkeypatch.setattr(test_depth, "resolve_tool", _resolve)
+    monkeypatch.setattr(test_depth, "run_tool", lambda argv, **kw: _Inv(1, stderr="boom"))
+    monkeypatch.setattr(test_depth, "snapshot_git_status", lambda repo: set())
+    monkeypatch.setattr(test_depth, "diff_git_status", lambda pre, post, **kw: [])
+
+    result = run_test_depth(tmp_path, base_env={}, mutation=True)
+    ok_findings = [
+        f
+        for f in result.findings
+        if f.rule_id == "mutation_score"
+        and f.evidence.parsed_value.get("run_status") == "ok"
+    ]
+    assert ok_findings == [], "a confident ok mutation Finding leaked from an errored run"
+    assert any("non-zero" in n or "exited non-zero" in n for n in result.ledger_notes)
+
+
+def test_mutation_clean_success_still_emits_ok(monkeypatch, tmp_path):
+    """rc=0 + a valid mutation.json → exactly one confident ok mutation Finding.
+
+    Regression-proofs the happy path is unaffected by the returncode==0 guard.
+    """
+    report = {
+        "files": {
+            "a.ts": {
+                "mutants": [{"status": "Killed"}, {"status": "Survived"}]
+            }
+        }
+    }
+    reports_dir = tmp_path / "reports" / "mutation"
+    reports_dir.mkdir(parents=True)
+    (reports_dir / "mutation.json").write_text(json.dumps(report), encoding="utf-8")
+
+    def _resolve(tool, repo):
+        return Path("/usr/bin/stryker") if tool == "stryker" else None
+
+    monkeypatch.setattr(test_depth, "resolve_tool", _resolve)
+    monkeypatch.setattr(test_depth, "run_tool", lambda argv, **kw: _Inv(0))
+    monkeypatch.setattr(test_depth, "snapshot_git_status", lambda repo: set())
+    monkeypatch.setattr(test_depth, "diff_git_status", lambda pre, post, **kw: [])
+
+    result = run_test_depth(tmp_path, base_env={}, mutation=True)
+    ok_findings = [
+        f
+        for f in result.findings
+        if f.rule_id == "mutation_score"
+        and f.evidence.parsed_value.get("run_status") == "ok"
+    ]
+    assert len(ok_findings) == 1
+
+
 # --- run_test_depth: WEAK signal (D-11-06) ---------------------------------
 
 
