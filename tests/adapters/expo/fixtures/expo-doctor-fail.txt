@@ -1,0 +1,21 @@
+Running 15 checks on your project...
+[+] Check Expo config for common issues ............................. passed
+[+] Check package.json for common issues ............................ passed
+[X] Check dependencies for packages that should not be installed .... failed
+[+] Check for common project setup issues ........................... passed
+[X] Check that packages match versions required by installed Expo SDK  failed
+[+] Check npm/yarn versions ......................................... passed
+[+] Check for issues with metro config .............................. passed
+
+Detected issues:
+
+Issue: The following packages should not be installed directly in your package.json. They are added automatically by your project's Expo modules and may conflict with the versions Expo requires:
+  expo-modules-autolinking
+Advice: Remove these dependencies from your package.json.
+
+Issue: The following packages should be updated for best compatibility with the installed expo version:
+  react-native@0.74.1 - expected version: 0.74.5
+  expo-router@3.5.14 - expected version: 3.5.23
+Advice: Run "npx expo install --check" to review and upgrade your dependencies.
+
+2 checks failed, indicating possible issues with the project.

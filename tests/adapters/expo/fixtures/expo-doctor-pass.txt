@@ -1,0 +1,15 @@
+Running 15 checks on your project...
+15/15 checks passed. No issues detected!
+[+] Check Expo config for common issues ............................. passed
+[+] Check package.json for common issues ............................ passed
+[+] Check dependencies for packages that should not be installed .... passed
+[+] Check for common project setup issues ........................... passed
+[+] Check npm/yarn versions ......................................... passed
+[+] Check Expo config (app.json/app.config.js) schema ............... passed
+[+] Check that native modules do not use incompatible support packages passed
+[+] Check that packages match versions required by installed Expo SDK  passed
+[+] Check for issues with metro config .............................. passed
+[+] Check that native modules use compatible support package versions  passed
+[+] Validate packages against React Native Directory package metadata  passed
+
+Didn't find any issues with the project!
