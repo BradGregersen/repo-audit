@@ -48,9 +48,18 @@ def test_adapt_scan_produces_narrative():
     _skip_if_no_adapt()
 
     # Run `repo-audit scan /path/to/example-app`.
+    # Phase 11 (v2.0 Deep-Audit Mode) added default-on deep tiers to `repo-audit scan`:
+    # typed detekt (throwaway-copy gradle build, --typed-detekt defaults True),
+    # expo-doctor, and type-coverage. On a multi-stack repo like adapt (expo +
+    # kotlin-android + typescript-node) all of these fire, so a full agent scan
+    # is intentionally much heavier than the Phase-4 ~baseline. A clean quiet-host
+    # `--no-agent` run measured 627s (2026-06-02); the agent path adds narrative
+    # time on top. The deep-audit cost is ACCEPTED (not a regression to fix), so
+    # this canary is rebased to 1200s — still a tripwire for an unbounded
+    # hang/walk, well above the measured deterministic+agent envelope.
     result = subprocess.run(
         ["uv", "run", "arch", "scan", str(ADAPT_PATH)],
-        capture_output=True, timeout=600,
+        capture_output=True, timeout=1200,
     )
     if "unavailable_auth_missing" in result.stderr.decode():
         pytest.skip("Claude Code SDK not authed on this machine")
@@ -100,20 +109,27 @@ def test_no_agent_path_produces_report():
         116-118s on a QUIET host (95s collectors + ~21s walker/adapters/render
         tail; clean samples 116s & 118s, 2026-05-30).
 
-    The canary is therefore TIGHTENED to 180s: a real tripwire (~52% headroom
-    over the measured ~118s for slower disks / shared CI runners) that catches a
-    reintroduced unbounded collector / walk, well below the documented 300s scan
-    ceiling. (NOTE: measure on a QUIET host — leaked gitleaks/scan children from
-    a killed prior run compete for CPU and inflate this badly; reap them first.)
+    The 05.1-gap canary was 180s (tight tripwire over the ~118s Phase-4 baseline).
+    Phase 11 (v2.0 Deep-Audit Mode) then added default-on deep tiers to every
+    `repo-audit scan` — typed detekt (throwaway-copy gradle classpath build,
+    --typed-detekt defaults True), expo-doctor, and type-coverage. On a multi-stack
+    repo like adapt (expo + kotlin-android + typescript-node) all three fire, so a
+    clean quiet-host `--no-agent` run measured 627s / exit 0 (2026-06-02) — ~5x the
+    pre-Phase-11 baseline. This deep-audit cost is ACCEPTED as intended v2.0
+    behaviour (the heavy tiers are the point of Deep-Audit Mode), so the canary is
+    REBASED to 900s: ~44% headroom over the measured 627s, still a real tripwire for
+    a genuinely unbounded collector/walk/hang. (NOTE: measure on a QUIET host —
+    leaked gradle/kotlin daemons or gitleaks/scan children from a killed prior run
+    compete for CPU and inflate this badly; reap them first.)
     """
     _skip_if_no_adapt()
-    # 05.1-gap: clean quiet-host runs on the 40 GB adapt (2026-05-30) were 116s
-    # and 118s, exit 0, both reports written, meta.partial=True with the
-    # secret_detection timeout disclosed in the scope ledger. 180s keeps ~52%
-    # headroom while staying a tight regression tripwire (< the 300s ceiling).
+    # Phase 11: clean quiet-host `--no-agent` run on the multi-stack adapt repo
+    # measured 627s / exit 0 (2026-06-02), driven by the default-on typed-detekt +
+    # expo-doctor + type-coverage deep tiers. 900s keeps ~44% headroom while staying
+    # a regression tripwire for an unbounded tier.
     result = subprocess.run(
         ["uv", "run", "arch", "scan", "--no-agent", str(ADAPT_PATH)],
-        capture_output=True, timeout=180,
+        capture_output=True, timeout=900,
     )
     assert result.returncode == 0
     today = date.today().isoformat()
