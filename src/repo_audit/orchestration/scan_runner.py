@@ -38,6 +38,7 @@ from repo_audit.adapters.mobile import run_mobile
 from repo_audit.adapters.sast import run_sast
 from repo_audit.adapters.sca import run_sca
 from repo_audit.adapters.supabase import run_supabase
+from repo_audit.adapters.test_depth import run_expo, run_kotlin, run_test_depth
 from repo_audit.collectors import run_collectors
 from repo_audit.detect.detector import detect_stacks
 from repo_audit.meta.git import NotAGitRepo, UNCOMMITTED_MARKER, head_sha
@@ -217,6 +218,8 @@ def run_scan(
     mobsf_build: bool = False,
     apk: Path | None = None,
     sast: bool = True,
+    mutation: bool = False,
+    typed_detekt: bool = True,
 ) -> ScanResult:
     """Run the full single-repo scan pipeline and return a :class:`ScanResult`.
 
@@ -351,6 +354,49 @@ def run_scan(
             status="unavailable", notes="SAST skipped (--no-sast)"
         )
 
+    # Phase 11 (Plan 11-05): THREE CROSS-STACK STEPS mirroring run_sast — the
+    # Kotlin/detekt step (run_kotlin), the Expo/expo-doctor step (run_expo), and
+    # the cross-stack test-depth step (run_test_depth: coverage + mutation +
+    # type-coverage). Each is a never-raising envelope: status folds into
+    # `partial`, findings merge below, notes/ledger_notes fold into the scope
+    # ledger (SAFE-08). Mutation is OPT-IN only (D-11-03): run_test_depth receives
+    # `mutation=mutation` which DEFAULTS False here — only the CLI --mutation flag
+    # sets it True, so a fleet sweep (run_scan(no_agent=True)) never runs Stryker.
+    # Called via _THIS_MODULE so tests can monkeypatch the steps (same patchable-
+    # attribute pattern as run_sca / run_supabase / run_mobile / run_sast).
+    #
+    # Stack selection for run_test_depth: the PRIMARY detected stack drives the
+    # coverage runner + artifact. The Phase-3 `--refresh-coverage` lcov refresh
+    # already handles the TypeScript/Expo/RN (node) stacks via
+    # `_maybe_refresh_coverage` below, so run_test_depth's coverage tier is gated
+    # to NON-node stacks (python/kotlin) to avoid a double coverage run / a
+    # duplicate coverage Finding. The mutation + type-coverage tiers run
+    # regardless of stack (mutation only under --mutation; type-coverage is
+    # read-only and self-degrades to unavailable when the tool is absent).
+    _NODE_STACKS = {"typescript-node", "expo", "react-native"}
+    primary_stack = (
+        detection.stacks[0].stack if detection.stacks else "typescript-node"
+    )
+    td_refresh_coverage = refresh_coverage and primary_stack not in _NODE_STACKS
+
+    with scan_tempdir() as _kot_td:
+        kot_base_env = build_scan_env(_kot_td)
+        kotlin_result = _THIS_MODULE.run_kotlin(
+            repo_path, base_env=kot_base_env, attempt_typed=typed_detekt
+        )
+    with scan_tempdir() as _expo_td:
+        expo_base_env = build_scan_env(_expo_td)
+        expo_result = _THIS_MODULE.run_expo(repo_path, base_env=expo_base_env)
+    with scan_tempdir() as _td_td:
+        td_base_env = build_scan_env(_td_td)
+        test_depth_result = _THIS_MODULE.run_test_depth(
+            repo_path,
+            base_env=td_base_env,
+            refresh_coverage=td_refresh_coverage,
+            mutation=mutation,
+            stack=primary_stack,
+        )
+
     # Aggregate findings across collectors + adapters + SCA + RLS (sequential
     # preserves ledger order). SCA + RLS findings are appended deterministically
     # so SC-5 determinism holds. Built BEFORE the refresh sub-steps below so the
@@ -362,6 +408,9 @@ def run_scan(
         + list(rls_result.findings)
         + list(mob_result.findings)
         + list(sast_result.findings)
+        + list(kotlin_result.findings)
+        + list(expo_result.findings)
+        + list(test_depth_result.findings)
     )
 
     # Sub-step C + D: --refresh-coverage opt-in wiring (D-41' / Decision A).
@@ -394,6 +443,9 @@ def run_scan(
         or rls_result.status != "ok"
         or mob_result.status != "ok"
         or sast_result.status != "ok"
+        or kotlin_result.status != "ok"
+        or expo_result.status != "ok"
+        or test_depth_result.status != "ok"
     )
 
     # Fold the SCA status/notes into the scope ledger so the SCA dimension's
@@ -447,6 +499,27 @@ def run_scan(
             scope_ledger.notes += "; " + sast_note
         else:
             scope_ledger.notes = sast_note
+
+    # Fold the Phase-11 Kotlin / Expo / test-depth steps' status + ledger notes
+    # into the scope ledger so each dimension's availability is disclosed
+    # honestly (SAFE-08), mirroring the RLS / Mobile folds. An absent tool or
+    # artifact (detekt jar/JRE missing, expo-doctor absent, no coverage runner /
+    # mutation opt-out / type-coverage absent) is DISCLOSED here; the scan still
+    # completes (graceful degradation) and the partial flag flips above.
+    for _label, _res in (
+        ("Kotlin", kotlin_result),
+        ("Expo", expo_result),
+        ("Test-depth", test_depth_result),
+    ):
+        _notes = list(_res.ledger_notes)
+        if _res.notes:
+            _notes.insert(0, f"{_label} ({_res.status}): {_res.notes}")
+        if _notes:
+            _note_text = "; ".join(_notes)
+            if scope_ledger.notes:
+                scope_ledger.notes += "; " + _note_text
+            else:
+                scope_ledger.notes = _note_text
 
     # Plan 05-01 / TREND-01: baseline_run is conditional on a prior sidecar.
     # find_prior_sidecar returns the most-recent JSON sidecar with

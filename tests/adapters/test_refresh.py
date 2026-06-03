@@ -168,8 +168,14 @@ def test_refresh_coverage_argv_is_list_str(tmp_path, monkeypatch):
     captured: dict = {}
 
     def capture(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
+        # DI-11-01-01: refresh_coverage runs the runner FIRST, then on the
+        # success path calls _redact_tail(stdout/stderr) which invokes gitleaks
+        # via subprocess.run (the secret-lint primitive). subprocess.run is
+        # monkeypatched globally, so we must record only the FIRST call (the
+        # runner) — a later record would capture the gitleaks argv instead.
+        if "args" not in captured:
+            captured["args"] = args
+            captured["kwargs"] = kwargs
         return subprocess.CompletedProcess(
             args=args[0] if args else [], returncode=0, stdout="", stderr=""
         )
@@ -291,7 +297,11 @@ def test_default_command_is_npm_test(tmp_path, monkeypatch):
     captured: dict = {}
 
     def capture(*args, **kwargs):
-        captured["argv"] = args[0]
+        # DI-11-01-01: record only the FIRST subprocess.run (the runner). The
+        # success path then calls _redact_tail → gitleaks via subprocess.run,
+        # which would otherwise overwrite the captured argv.
+        if "argv" not in captured:
+            captured["argv"] = args[0]
         return subprocess.CompletedProcess(
             args=args[0] if args else [], returncode=0, stdout="", stderr=""
         )

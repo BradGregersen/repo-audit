@@ -176,6 +176,22 @@ def scan(
             "when semgrep/network absent)."
         ),
     ),
+    mutation: bool = typer.Option(
+        False,
+        "--mutation",
+        help=(
+            "Opt-in StrykerJS mutation testing (JS/TS). Never runs by default or "
+            "fleet-wide; slow — hard 30-min cap (D-11-03/D-11-05)."
+        ),
+    ),
+    typed_detekt: bool = typer.Option(
+        True,
+        "--typed-detekt/--no-typed-detekt",
+        help=(
+            "Attempt detekt with type resolution (throwaway-copy build); falls "
+            "back to standalone automatically (D-11-07)."
+        ),
+    ),
 ) -> None:
     """Scan a repo and emit a state report + JSON sidecar (CLI-02 / SC-3).
 
@@ -241,6 +257,8 @@ def scan(
         mobsf_build=mobsf_build,
         apk=apk,
         sast=not no_sast,
+        mutation=mutation,
+        typed_detekt=typed_detekt,
     )
 
     # render refused (secret-lint rc=2 / completion-honesty rc=3) → sidecar
