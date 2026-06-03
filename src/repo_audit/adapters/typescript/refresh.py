@@ -1,6 +1,30 @@
 """D-41' opt-in coverage refresh — test-runner subprocess invocation.
 
-Public API: ``refresh_coverage(repo_root, cfg, env) -> RefreshResult``.
+Public API:
+    * ``refresh_coverage(repo_root, cfg, env) -> RefreshResult`` — invoke the
+      resolved runner in-place, never raises.
+    * ``resolve_runner_command(repo_root, *, stack, override) -> list[str] | None``
+      — D-11-09 per-stack runner resolution (zero-config default + light
+      manifest probe + override). Callers pass the resolved command into
+      ``refresh_coverage`` via ``cfg["command"]``; a ``None`` return means no
+      confident runner was found and the caller marks the coverage tier
+      ``unavailable`` (never guess-and-run — T-11-03-05).
+
+D-11-09 (TST-01): coverage is produced by ACTUALLY running the test suite
+(jest/vitest ``--coverage``, ``pytest --cov --cov-report=lcov:coverage/lcov.info``,
+``./gradlew koverXmlReport``) in-place under the refresh flag — not import-only.
+pytest-cov + jest sink into the EXISTING ``parsers/lcov.py`` aggregate Finding
+via the ``coverage/lcov.info`` artifact (11-RESEARCH Pitfall 8: the ``:DEST``
+form is mandatory — bare ``--cov-report=lcov`` writes ``coverage.lcov`` in CWD,
+which the lcov parser does NOT read). kover instead emits JaCoCo-XML at
+``build/reports/kover/report.xml`` (11-RESEARCH Pitfall 9), parsed by
+``parsers/kover_xml.parse_kover_xml`` — NOT lcov. Therefore
+``RefreshResult.lcov_produced`` is the lcov-path signal ONLY; for kover the
+caller (Plan 05) checks the JaCoCo artifact via ``parse_kover_xml`` rather than
+``lcov_produced``. ``refresh_coverage``'s in-place exec / ``_scrub_secrets`` /
+``_redact_tail`` / timeout / ``RefreshResult`` machinery is reused UNCHANGED;
+this module only adds the resolver — it does NOT alter the runner subprocess
+path or the ``lcov_produced`` check.
 
 SCOPE: refresh.py is the orchestration primitive only. It does NOT
 construct any Finding object. The runner-failure Finding shape lives in
@@ -130,6 +154,169 @@ def _redact_tail(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# D-11-09 per-stack runner resolution
+
+# Per-stack zero-config defaults (D-11-09). These are OUR constants, never
+# derived from untrusted repo strings (T-11-03-05). The probe below only
+# DISAMBIGUATES which default to pick (or returns None); it never synthesises a
+# command from file contents.
+_PYTEST_LCOV_DEST: str = "coverage/lcov.info"  # Pitfall 8 :DEST form (matches LCOV_RELATIVE_PATH)
+_PYTEST_DEFAULT: list[str] = [
+    "pytest",
+    "--cov",
+    f"--cov-report=lcov:{_PYTEST_LCOV_DEST}",
+]
+_KOVER_DEFAULT: list[str] = ["./gradlew", "koverXmlReport"]
+
+_NODE_STACKS: frozenset[str] = frozenset(
+    {"typescript-node", "expo", "react-native"}
+)
+
+
+def resolve_runner_command(
+    repo_root: Path,
+    *,
+    stack: str,
+    override: dict | None = None,
+) -> list[str] | None:
+    """D-11-09: resolve the per-stack coverage runner command.
+
+    Zero-config default + light manifest probe + override. Returns the argv the
+    caller passes into ``refresh_coverage`` via ``cfg["command"]``, or ``None``
+    when no confident runner can be resolved — in which case the caller marks
+    the coverage tier ``unavailable`` (NEVER guess-and-run — T-11-03-05). The
+    returned argv is always OUR constants or the user's explicit override, never
+    derived from untrusted repo strings.
+
+    On a successful run the resulting artifact is stack-specific:
+        * python / node → ``coverage/lcov.info`` (read by ``parsers/lcov.py``)
+        * kotlin        → ``build/reports/kover/report.xml`` (read by
+          ``parsers/kover_xml.parse_kover_xml``, NOT lcov)
+    The caller checks the appropriate artifact for the resolved stack.
+
+    Args:
+        repo_root: target repo root (the manifest probe reads under this).
+        stack: the detected stack literal (e.g. ``"python"``, ``"typescript-node"``,
+            ``"expo"``, ``"react-native"``, ``"kotlin"``).
+        override: the ``.repo-audit.yaml`` ``coverage_refresh`` block, if
+            present. ``override["command"]`` (a non-empty list) WINS over every
+            default/probe (D-11-09 user override).
+
+    Returns:
+        The resolved argv as ``list[str]``, or ``None`` when nothing resolves
+        confidently.
+    """
+    repo = Path(repo_root)
+
+    # Override wins (D-11-09). The user's explicit command is authoritative.
+    if override:
+        cmd = override.get("command")
+        if cmd:
+            return [str(part) for part in cmd]
+
+    if stack == "python":
+        return _resolve_python(repo)
+    if stack in _NODE_STACKS:
+        return _resolve_node(repo)
+    if stack == "kotlin":
+        return _resolve_kotlin(repo)
+    return None
+
+
+def _resolve_python(repo: Path) -> list[str] | None:
+    """Python: pytest-cov with the Pitfall-8 :DEST lcov form.
+
+    Default ``["pytest", "--cov", "--cov-report=lcov:coverage/lcov.info"]`` — the
+    ``:DEST`` form lands the artifact at the path the lcov parser reads, and the
+    bare ``--cov`` covers the repo when no package is specified. If poetry is
+    indicated (``poetry.lock`` present), prefix ``["poetry", "run", ...]``. If no
+    pytest config and no ``tests`` dir is detected confidently → ``None``.
+    """
+    has_pytest_cfg = (
+        (repo / "pytest.ini").is_file()
+        or (repo / "tox.ini").is_file()
+        or _pyproject_mentions(repo, "pytest")
+        or (repo / "setup.cfg").is_file()
+    )
+    has_tests_dir = (repo / "tests").is_dir() or (repo / "test").is_dir()
+    if not (has_pytest_cfg or has_tests_dir):
+        return None  # no confident pytest target — never guess-and-run
+
+    cmd = list(_PYTEST_DEFAULT)
+    if (repo / "poetry.lock").is_file():
+        return ["poetry", "run", *cmd]
+    return cmd
+
+
+def _resolve_node(repo: Path) -> list[str] | None:
+    """Node stacks (TS / Expo / RN): probe package.json scripts, never invent one.
+
+    If a ``coverage`` script exists → ``["npm", "run", "coverage"]``; elif a
+    ``test`` script exists → ``["npm", "test", "--", "--coverage"]``. The
+    vitest-vs-jest devDependency presence only picks the default flag for an
+    EXISTING ``test`` script (``--coverage`` is the same flag for both runners);
+    it NEVER invents a missing script. No usable script → ``None``.
+    """
+    pkg = repo / "package.json"
+    if not pkg.is_file():
+        return None
+    try:
+        import json
+
+        data = json.loads(pkg.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    scripts = data.get("scripts")
+    if not isinstance(scripts, dict):
+        return None
+    if scripts.get("coverage"):
+        return ["npm", "run", "coverage"]
+    if scripts.get("test"):
+        # --coverage is recognised by both jest and vitest; devDependency
+        # presence (jest/vitest) only confirms a coverage-capable runner backs
+        # the existing test script, never to synthesise a missing one.
+        return ["npm", "test", "--", "--coverage"]
+    return None
+
+
+def _resolve_kotlin(repo: Path) -> list[str] | None:
+    """Kotlin: only return koverXmlReport if a kover plugin / task is present.
+
+    Probe ``build.gradle.kts`` / ``build.gradle`` for a ``kover`` plugin
+    reference or the ``koverXmlReport`` task (RESEARCH Open Q3). Present →
+    ``["./gradlew", "koverXmlReport"]``. Absent → ``None`` (never invent the
+    gradle task — T-11-03-05).
+    """
+    for name in ("build.gradle.kts", "build.gradle"):
+        gradle = repo / name
+        if not gradle.is_file():
+            continue
+        try:
+            text = gradle.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "kover" in text or "koverXmlReport" in text:
+            return list(_KOVER_DEFAULT)
+    return None
+
+
+def _pyproject_mentions(repo: Path, needle: str) -> bool:
+    """True if pyproject.toml exists and textually mentions ``needle``.
+
+    A lightweight presence probe (NOT a command extraction): used only to decide
+    WHETHER to apply OUR default pytest command, never to build one from the
+    file's contents.
+    """
+    pyproject = repo / "pyproject.toml"
+    if not pyproject.is_file():
+        return False
+    try:
+        return needle in pyproject.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 
 
@@ -253,4 +440,5 @@ __all__ = [
     "RefreshResult",
     "RefreshStatus",
     "refresh_coverage",
+    "resolve_runner_command",
 ]
