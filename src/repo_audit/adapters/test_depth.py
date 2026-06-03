@@ -75,8 +75,8 @@ _MUTATION_TIMEOUT_S: float = 1800.0
 _TYPE_COVERAGE_TIMEOUT_S: float = 120.0
 # Stryker writes its JSON report here under the repo root by default.
 _MUTATION_REPORT_REL: str = "reports/mutation/mutation.json"
-# Stacks whose coverage artifact is lcov; kotlin uses kover JaCoCo-XML instead.
-_KOTLIN_STACK = "kotlin"
+# Stacks whose coverage artifact is kover JaCoCo-XML (matches detect/rules.py kotlin-android tag).
+_KOTLIN_STACK = "kotlin-android"
 
 
 @dataclass

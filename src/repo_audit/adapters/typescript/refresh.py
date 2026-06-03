@@ -197,7 +197,7 @@ def resolve_runner_command(
     Args:
         repo_root: target repo root (the manifest probe reads under this).
         stack: the detected stack literal (e.g. ``"python"``, ``"typescript-node"``,
-            ``"expo"``, ``"react-native"``, ``"kotlin"``).
+            ``"expo"``, ``"react-native"``, ``"kotlin-android"``).
         override: the ``.repo-audit.yaml`` ``coverage_refresh`` block, if
             present. ``override["command"]`` (a non-empty list) WINS over every
             default/probe (D-11-09 user override).
@@ -218,7 +218,7 @@ def resolve_runner_command(
         return _resolve_python(repo)
     if stack in _NODE_STACKS:
         return _resolve_node(repo)
-    if stack == "kotlin":
+    if stack == "kotlin-android":
         return _resolve_kotlin(repo)
     return None
 

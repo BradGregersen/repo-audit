@@ -278,3 +278,77 @@ def test_run_test_depth_never_raises(monkeypatch, tmp_path):
     monkeypatch.setattr(test_depth, "resolve_tool", lambda tool, repo: None)
     result = run_test_depth(tmp_path, base_env={}, refresh_coverage=True, mutation=False)
     assert isinstance(result, TestDepthScanResult)
+
+
+# --- Task 1 (B1): Kotlin stack literal drift guard + kover-branch reach ------
+
+
+def test_kotlin_stack_literal_matches_detector_tag():
+    """Drift guard: ``_KOTLIN_STACK`` MUST equal the detector's emitted Kotlin tag.
+
+    The detector (``detect/rules.py``) emits ``kotlin-android``; the coverage tier
+    compares the resolved stack against ``_KOTLIN_STACK`` to pick kover-vs-lcov. If
+    these drift apart the kover path goes dead. This pins the constant to the
+    detector's source-of-truth rule name (Phase-3 ``test_stack_name_binding.py``
+    precedent: assert-against-detector, never hardcode a third copy).
+    """
+    from repo_audit.detect.rules import MANIFEST_RULES
+
+    kotlin_rules = [r for r in MANIFEST_RULES if "kotlin" in r.name]
+    assert len(kotlin_rules) == 1, f"expected exactly one kotlin rule, got {kotlin_rules}"
+    assert test_depth._KOTLIN_STACK == kotlin_rules[0].name
+    assert test_depth._KOTLIN_STACK == "kotlin-android"
+
+
+def test_kover_branch_reached_for_detector_kotlin_tag(monkeypatch, tmp_path):
+    """stack='kotlin-android' → the kover branch runs (parse_kover_xml), NOT lcov.
+
+    Proves the coverage tier reaches ``parse_kover_xml`` for the REAL detector tag.
+    ``parse_from_repo`` (the lcov path) is wired to raise — if the branch picks lcov
+    for a kotlin-android repo this test fails (the pre-change bug, where
+    ``_KOTLIN_STACK='kotlin'`` never matched the detector's ``kotlin-android``).
+    """
+    sentinel = _coverage_finding(80.0)
+
+    monkeypatch.setattr(
+        test_depth.refresh, "resolve_runner_command",
+        lambda repo, *, stack, override=None: ["./gradlew", "koverXmlReport"],
+    )
+
+    class _RR:
+        status = "ok"
+        lcov_produced = True
+
+    monkeypatch.setattr(
+        test_depth.refresh, "refresh_coverage", lambda repo, cfg, env: _RR()
+    )
+    monkeypatch.setattr(test_depth, "parse_kover_xml", lambda repo: [sentinel])
+
+    def _lcov_must_not_run(repo):
+        raise AssertionError("parse_from_repo (lcov) called for a kotlin-android repo")
+
+    monkeypatch.setattr(test_depth, "parse_from_repo", _lcov_must_not_run)
+    monkeypatch.setattr(test_depth, "snapshot_git_status", lambda repo: set())
+    monkeypatch.setattr(test_depth, "diff_git_status", lambda pre, post, **kw: [])
+    monkeypatch.setattr(test_depth, "resolve_tool", lambda tool, repo: None)
+
+    result = run_test_depth(
+        tmp_path, base_env={}, refresh_coverage=True, mutation=False,
+        stack="kotlin-android",
+    )
+    assert sentinel in result.findings
+
+
+def test_refresh_resolves_kover_for_kotlin_android(tmp_path):
+    """refresh.resolve_runner_command(stack='kotlin-android') returns the kover cmd.
+
+    A ``build.gradle.kts`` mentioning kover present → the kover runner is resolved
+    (not None). Fails on the pre-change code which branched on ``stack == "kotlin"``.
+    """
+    (tmp_path / "build.gradle.kts").write_text(
+        'plugins { id("org.jetbrains.kotlinx.kover") }\n', encoding="utf-8"
+    )
+    cmd = test_depth.refresh.resolve_runner_command(
+        tmp_path, stack="kotlin-android"
+    )
+    assert cmd == ["./gradlew", "koverXmlReport"]
