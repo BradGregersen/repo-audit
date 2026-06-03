@@ -1,0 +1,80 @@
+{
+  "//": "SYNTHETIC-BUT-STRUCTURALLY-REAL osv-scanner SARIF 2.1.0 fixture for SUP-01 (Plan 12-01 Wave 0). Mirrors the real osv-scanner SARIF shape (see tests/adapters/sarif/fixtures/osv-scanner/sample.sarif): runs[].results[] with ruleId/level/message/locations, runs[].tool.driver.name='osv-scanner'. Contains TWO result populations so the SUP-01 promotion + partition-exclusion tests have both: (1) a MALICIOUS-package advisory with a BARE ruleId 'MAL-2026-2144' (Assumption A7: bare MAL-YYYY-NNNN so a 'MAL-' prefix match works), and (2) an ordinary CVE/GHSA advisory. Re-record live against a pinned malicious lockfile in a later hardening pass if exact field drift matters.",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "artifacts": [
+        {
+          "location": {
+            "uri": "malproject/package-lock.json"
+          }
+        }
+      ],
+      "results": [
+        {
+          "kind": "fail",
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "malproject/package-lock.json"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Package 'evil-loader@1.0.0' is a MALICIOUS package (OSV malicious-packages advisory 'MAL-2026-2144'). Do not install; remove immediately and rotate any secrets that may have been exfiltrated."
+          },
+          "ruleId": "MAL-2026-2144",
+          "ruleIndex": 0
+        },
+        {
+          "kind": "fail",
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "malproject/package-lock.json"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Package 'lodash@4.17.15' is vulnerable to 'CVE-2021-23337' (also known as 'GHSA-35jh-r3h4-6jhm')."
+          },
+          "ruleId": "GHSA-35jh-r3h4-6jhm",
+          "ruleIndex": 1
+        }
+      ],
+      "tool": {
+        "driver": {
+          "informationUri": "https://github.com/google/osv-scanner",
+          "name": "osv-scanner",
+          "rules": [
+            {
+              "id": "MAL-2026-2144",
+              "name": "MaliciousPackage",
+              "shortDescription": {
+                "text": "Malicious package 'evil-loader'"
+              },
+              "fullDescription": {
+                "text": "evil-loader exfiltrates environment variables on postinstall."
+              }
+            },
+            {
+              "id": "GHSA-35jh-r3h4-6jhm",
+              "name": "CommandInjection",
+              "shortDescription": {
+                "text": "lodash command injection"
+              }
+            }
+          ],
+          "version": "2.3.8"
+        }
+      }
+    }
+  ]
+}

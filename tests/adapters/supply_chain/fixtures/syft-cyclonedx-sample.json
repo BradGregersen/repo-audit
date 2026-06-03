@@ -1,0 +1,45 @@
+{
+  "//": "SYNTHETIC-BUT-STRUCTURALLY-REAL Syft CycloneDX 1.5 SBOM fixture for SUP-02 + the SCA-04 offline-license-derivation test (Plan 12-01 Wave 0). Mirrors the shape `syft <dir> -o cyclonedx-json` emits: bomFormat/specVersion + components[] each with type/name/version/purl and an optional licenses[] array. TWO components: one carries a copyleft GPL-3.0-only license (the SCA-04 risky-license test reads it), one carries NO licenses entry (the unknown-license path). Re-record live against a pinned Syft release in a hardening pass if field drift matters.",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-06-03T00:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "syft",
+          "version": "1.44.0"
+        }
+      ]
+    },
+    "component": {
+      "type": "file",
+      "name": "sample-project"
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "pkg:pypi/copyleft-lib@2.1.0",
+      "type": "library",
+      "name": "copyleft-lib",
+      "version": "2.1.0",
+      "purl": "pkg:pypi/copyleft-lib@2.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-3.0-only"
+          }
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/no-license-lib@0.5.0",
+      "type": "library",
+      "name": "no-license-lib",
+      "version": "0.5.0",
+      "purl": "pkg:pypi/no-license-lib@0.5.0"
+    }
+  ]
+}

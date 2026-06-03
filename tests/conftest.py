@@ -337,3 +337,95 @@ def adversarial_narrative_corpus():
         "abbreviation_split": "Eg. The agent invented 73. The next sentence is fine.",
         "every_file_smuggling": "Every file passes lint.",
     }
+
+
+# ---- Phase 12 Plan 01 Wave 0 fixtures (supply-chain & git-history secrets) ----
+
+import json as _json12  # local alias; avoid colliding with any test-level import
+
+
+@pytest.fixture
+def load_supply_chain_fixture():
+    """Loader for a frozen ``tests/adapters/supply_chain/fixtures/{rel}`` recording.
+
+    Mirrors ``tests/adapters/sca/conftest.py::load_sca_fixture``: a thin
+    recorded-fixture loader that fails loud on a misnamed fixture. ``.json`` /
+    ``.sarif`` recordings parse to a dict; anything else returns raw text. Used
+    by the Wave-0 SUP-01/SUP-02/SCA-04 stub tests and their Wave-1 successors so
+    the MAL SARIF + Syft CycloneDX fixtures are loaded from ONE place.
+    """
+    fixtures_root = (
+        Path(__file__).parent / "adapters" / "supply_chain" / "fixtures"
+    )
+
+    def _load(rel: str):
+        path = fixtures_root / rel
+        if not path.exists():
+            raise FileNotFoundError(
+                f"load_supply_chain_fixture({rel!r}) — recorded fixture missing: "
+                f"{path}"
+            )
+        text = path.read_text(encoding="utf-8")
+        return (
+            _json12.loads(text)
+            if rel.endswith((".json", ".sarif"))
+            else text
+        )
+
+    return _load
+
+
+@pytest.fixture
+def secret_history_repo(tmp_path):
+    """Factory: pygit2-seeded repo where a secret is committed then later deleted.
+
+    Builds the HIST-01 "committed-then-deleted" scenario: commit 1 introduces a
+    file containing a high-confidence AKIA-shaped token; commit 2 removes that
+    file from the working tree. The secret therefore lives only in history — a
+    working-tree-only scan would miss it, but ``gitleaks git`` (full history)
+    catches it. Returns the repo Path.
+
+    Usage:
+        def test_history(secret_history_repo):
+            repo = secret_history_repo()              # default seeded secret
+            repo = secret_history_repo(secret="ghp_...", name="pat")
+    """
+
+    def _factory(
+        *,
+        secret: str = "AKIA" + "QWERTYUIOPASDFGH",
+        secret_file: str = "src/config.py",
+        name: str = "secret-history",
+    ) -> Path:
+        repo_path = tmp_path / name
+        repo_path.mkdir(parents=True, exist_ok=True)
+        repo = pygit2.init_repository(str(repo_path), bare=False)
+        sig = pygit2.Signature(
+            "test-author",
+            "test@example.com",
+            int(_dt.datetime(2026, 5, 28, 12, 0, 0).timestamp()),
+            0,
+        )
+
+        # Commit 1: introduce the secret-bearing file plus a benign file.
+        secret_path = repo_path / secret_file
+        secret_path.parent.mkdir(parents=True, exist_ok=True)
+        secret_path.write_text(
+            f"AWS_ACCESS_KEY_ID = '{secret}'\n", encoding="utf-8"
+        )
+        (repo_path / "README.md").write_text("# repo\n", encoding="utf-8")
+        repo.index.add_all()
+        repo.index.write()
+        tree = repo.index.write_tree()
+        c1 = repo.create_commit("HEAD", sig, sig, "add config", tree, [])
+
+        # Commit 2: delete the secret-bearing file from the working tree.
+        secret_path.unlink()
+        repo.index.remove(secret_file)
+        repo.index.write()
+        tree2 = repo.index.write_tree()
+        repo.create_commit("HEAD", sig, sig, "remove config", tree2, [str(c1)])
+
+        return repo_path
+
+    return _factory
