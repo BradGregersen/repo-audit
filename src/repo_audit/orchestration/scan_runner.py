@@ -38,6 +38,7 @@ from repo_audit.adapters.mobile import run_mobile
 from repo_audit.adapters.sast import run_sast
 from repo_audit.adapters.sca import run_sca
 from repo_audit.adapters.supabase import run_supabase
+from repo_audit.adapters.supply_chain import run_supply_chain
 from repo_audit.adapters.test_depth import run_expo, run_kotlin, run_test_depth
 from repo_audit.adapters.typescript.refresh import _NODE_STACKS
 from repo_audit.collectors import run_collectors
@@ -316,6 +317,30 @@ def run_scan(
             repo_path, base_env=sca_base_env, refresh=refresh_vuln_db
         )
 
+    # Phase 12 (Plan 12-05): CROSS-STACK SUPPLY-CHAIN step (mirrors the Phase 7
+    # SCA step). Composes HIST-01 (full-history secrets) + SUP-01 (MAL-*
+    # promotion over the SCA finding set) + SUP-02 (CycloneDX SBOM) + SCA-04
+    # (license + deprecated) into ONE never-raising envelope. It runs RIGHT AFTER
+    # run_sca (it shares SCA lineage — it consumes sca_result.findings for the
+    # MAL-* promotion) and OUTSIDE the 95 s collector deadline (Pitfall 3: the
+    # full-history walk + Syft each carry their own generous internal timeout).
+    # It receives the COLL-03 working-tree finding set so HIST-01 dedups a
+    # still-present secret against the working tree (only net-new committed-then-
+    # deleted secrets surface). Called via the module attribute so tests can
+    # monkeypatch scan_runner.run_supply_chain (same patchable pattern as run_sca).
+    working_tree_findings = [
+        f for r in collector_results for f in r.findings
+    ]
+    with scan_tempdir() as _sc_td:
+        sc_base_env = build_scan_env(_sc_td)
+        supply_chain_result = _THIS_MODULE.run_supply_chain(
+            repo_path,
+            base_env=sc_base_env,
+            scan_date=scan_date,
+            working_tree_findings=working_tree_findings,
+            sca_findings=sca_result.findings,
+        )
+
     # Phase 8 (Plan 08-05): CROSS-STACK RLS step (mirrors the Phase 7 SCA step).
     # Like run_sca, run_supabase runs ONCE per repo (the ephemeral-DB lifecycle +
     # the --rls-pgrls / --rls-runtime flag gating sit ABOVE per-stack dispatch),
@@ -479,9 +504,20 @@ def run_scan(
             [f for r in collector_results for f in r.findings]
             + [f for r in adapter_results for f in r.findings]
         )
+    # Phase 12 (Plan 12-05) — CVE-PARTITION CORRECTNESS (Open Q1 / T-12-05-DIL):
+    # the SCA findings merged into the aggregate use the MAL-FREE
+    # `supply_chain_result.cve_findings` (NOT `sca_result.findings`, which still
+    # carries the un-promoted MAL-* findings). The promoted MAL-* (confidence=
+    # 'confirmed') enters ONCE via `supply_chain_result.findings` (alongside the
+    # history + license findings). This guarantees each MAL advisory is counted
+    # exactly once and never double-counted across the CVE partition + the
+    # promotion. The SCA `partition` built inside run_sca over sca_result.findings
+    # is RENDERING-ONLY (headline/appendix shaping); this merged finding set is
+    # the AUTHORITATIVE one. partition.py is untouched.
     findings = (
         collector_adapter_prefix
-        + list(sca_result.findings)
+        + list(supply_chain_result.cve_findings)
+        + list(supply_chain_result.findings)
         + list(rls_result.findings)
         + list(mob_result.findings)
         + list(sast_result.findings)
@@ -530,6 +566,11 @@ def run_scan(
         or rls_result.status != "ok"
         or mob_result.status != "ok"
         or sast_result.status != "ok"
+        # Phase 12: an APPLICABLE supply-chain degradation flips partial; a
+        # not_applicable step is disclosed but does NOT flip (mirrors the
+        # Phase-11 precedent via _phase11_step_degraded). The supply-chain step
+        # is always applicable in practice, but honor not_applicable for parity.
+        or _phase11_step_degraded(supply_chain_result.status)
         or _phase11_step_degraded(kotlin_result.status)
         or _phase11_step_degraded(expo_result.status)
         or _phase11_step_degraded(test_depth_result.status)
@@ -608,6 +649,24 @@ def run_scan(
             else:
                 scope_ledger.notes = _note_text
 
+    # Fold the Phase-12 SUPPLY-CHAIN step's status + ledger notes into the scope
+    # ledger so every sub-step's availability is disclosed honestly (SAFE-08),
+    # mirroring the RLS / Mobile / Phase-11 folds. An unavailable SBOM, an
+    # offline license/deprecated pass, or a no-git history walk is DISCLOSED here
+    # under the "Supply-chain" label; the scan still completes (graceful
+    # degradation) and the partial flag flips above.
+    sc_notes = list(supply_chain_result.ledger_notes)
+    if supply_chain_result.notes:
+        sc_notes.insert(
+            0, f"Supply-chain ({supply_chain_result.status}): {supply_chain_result.notes}"
+        )
+    if sc_notes:
+        sc_note_text = "; ".join(sc_notes)
+        if scope_ledger.notes:
+            scope_ledger.notes += "; " + sc_note_text
+        else:
+            scope_ledger.notes = sc_note_text
+
     # Plan 05-01 / TREND-01: baseline_run is conditional on a prior sidecar.
     # find_prior_sidecar returns the most-recent JSON sidecar with
     # meta.scan_date strictly before today (or None — same-day re-run, no
@@ -631,6 +690,16 @@ def run_scan(
         feed_provenance=(
             list(sca_result.feed_provenance) + list(sast_result.feed_provenance)
         ),
+    )
+
+    # Phase 12 (Plan 12-05) / SUP-02 / D-12-07: stamp the SBOM REFERENCE path onto
+    # the (mutable) ReportMeta. The SBOM document is NEVER inlined — only its
+    # gitignored tool-repo path is carried. None when the SBOM step degraded
+    # (Syft absent / no catalogable packages); the dimension degrades honestly.
+    meta.sbom_path = (
+        str(supply_chain_result.sbom_path)
+        if supply_chain_result.sbom_path
+        else None
     )
 
     # Plan 05-03 / TREND-02: compute the TrendDelta when a prior sidecar exists.

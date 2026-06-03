@@ -167,6 +167,7 @@ def _stub_all_steps_ok(monkeypatch):
     from dataclasses import dataclass, field as _field
 
     from repo_audit.adapters.sast import SastScanResult
+    from repo_audit.adapters.supply_chain import SupplyChainResult
 
     @dataclass
     class _OkRes:
@@ -186,6 +187,15 @@ def _stub_all_steps_ok(monkeypatch):
     monkeypatch.setattr(
         scan_runner, "run_sast",
         lambda repo, **kw: SastScanResult(status="ok"),
+        raising=True,
+    )
+    # Phase 12: pin the always-applicable supply-chain step ok too, so partial
+    # tracks ONLY the Phase-11 statuses the test sets. The real run_supply_chain
+    # would degrade on the bare fake repo (no syft / offline license / no history
+    # secrets) — an UNRELATED degradation that would otherwise flip partial.
+    monkeypatch.setattr(
+        scan_runner, "run_supply_chain",
+        lambda repo, **kw: SupplyChainResult(status="ok"),
         raising=True,
     )
     monkeypatch.setattr(scan_runner, "_maybe_refresh_coverage", lambda r, f: f)

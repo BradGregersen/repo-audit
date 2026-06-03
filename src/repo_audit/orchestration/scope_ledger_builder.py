@@ -276,6 +276,16 @@ def auto_fill_ledger_gaps(
 
     ALWAYS returns ``(findings, scope_ledger)``. NEVER raises (D-67 exit-0).
     """
+    # Track which names are UNIVERSAL collectors (real modules in the collector
+    # registry) vs ADAPTER-required tool names (tsc/eslint/knip/coverage_lcov,
+    # etc.). The two are filled differently: a universal collector that cannot be
+    # located is a genuine registry bug worth an honest unavailable row, but an
+    # adapter TOOL name is NOT a collector module — it is filled by the adapter
+    # pass (it gets a "{adapter}:{tool}" finding/unavailable row there). When an
+    # adapter tool has no row here it simply means the tool ran clean (e.g. tsc
+    # found zero type errors → no finding, status ok → no unavailable row), so we
+    # must NOT invent a bogus dimension="unknown" row for it (folded Pitfall 7).
+    universal_names = set(UNIVERSAL_REQUIRED_COLLECTORS)
     required_names = list(UNIVERSAL_REQUIRED_COLLECTORS) + _adapter_required_collectors(
         detection
     )
@@ -288,11 +298,17 @@ def auto_fill_ledger_gaps(
         seen.add(name)
         if _has_ledger_row(name, new_findings, scope_ledger):
             continue
-        gap_notes.append(
-            f"gap auto-filled: {name} had no row at post-flight check"
-        )
         result = _invoke_collector_by_name(name, repo_path, walker_index)
         if result is None:
+            # The name is not a locatable collector module. For an adapter TOOL
+            # name (not a universal collector) this is EXPECTED — the adapter pass
+            # owns its ledger row; a missing row here means "ran clean". Skip it
+            # rather than inventing an unknown-dimension row (Pitfall 7 fix).
+            if name not in universal_names:
+                continue
+            gap_notes.append(
+                f"gap auto-filled: {name} had no row at post-flight check"
+            )
             scope_ledger.unavailable.append(
                 UnavailableEntry(
                     dimension="unknown",
@@ -301,6 +317,9 @@ def auto_fill_ledger_gaps(
                 )
             )
         elif result.status != "ok":
+            gap_notes.append(
+                f"gap auto-filled: {name} had no row at post-flight check"
+            )
             scope_ledger.unavailable.append(
                 UnavailableEntry(
                     dimension=result.dimension or "unknown",
@@ -309,6 +328,9 @@ def auto_fill_ledger_gaps(
                 )
             )
         else:
+            gap_notes.append(
+                f"gap auto-filled: {name} had no row at post-flight check"
+            )
             new_findings.extend(result.findings)
 
     if gap_notes:
