@@ -34,6 +34,7 @@ from pathlib import Path
 from repo_audit import __version__
 from repo_audit.adapters import run_adapters
 from repo_audit.adapters.cache_env import build_scan_env, scan_tempdir
+from repo_audit.adapters.cicd import run_cicd
 from repo_audit.adapters.mobile import run_mobile
 from repo_audit.adapters.sast import run_sast
 from repo_audit.adapters.sca import run_sca
@@ -341,6 +342,23 @@ def run_scan(
             sca_findings=sca_result.findings,
         )
 
+    # Phase 13 (Plan 13-04): CROSS-STACK CI/CD step (mirrors the Phase 12
+    # supply-chain step). Composes CICD-01 (zizmor + actionlint over
+    # .github/workflows) + CICD-02 (hadolint per-Dockerfile + framework-scoped
+    # checkov over IaC) into ONE never-raising CicdScanResult envelope. It runs
+    # AFTER run_supply_chain and OUTSIDE the 95 s collector deadline (each
+    # sub-collector carries its own generous run_tool timeout). The scan_tempdir
+    # is REQUIRED so checkov's results_sarif.sarif lands OUTSIDE the read-only
+    # target repo (REP-03 / T-13-WRITE). A repo with no .github/workflows + no
+    # Dockerfile + no IaC degrades to status='not_applicable' — DISCLOSED via the
+    # ledger but NON-partial-flipping (D-13-05, via _phase11_step_degraded);
+    # an applicable degradation (tool absent when files present, timeout) flips
+    # partial. Called via _THIS_MODULE so tests can monkeypatch scan_runner.run_cicd
+    # (same patchable-attribute pattern as run_sca / run_supply_chain).
+    with scan_tempdir() as _cicd_td:
+        cicd_base_env = build_scan_env(_cicd_td)
+        cicd_result = _THIS_MODULE.run_cicd(repo_path, base_env=cicd_base_env)
+
     # Phase 8 (Plan 08-05): CROSS-STACK RLS step (mirrors the Phase 7 SCA step).
     # Like run_sca, run_supabase runs ONCE per repo (the ephemeral-DB lifecycle +
     # the --rls-pgrls / --rls-runtime flag gating sit ABOVE per-stack dispatch),
@@ -524,6 +542,7 @@ def run_scan(
         + list(kotlin_result.findings)
         + list(expo_result.findings)
         + list(test_depth_result.findings)
+        + list(cicd_result.findings)
     )
 
     # Sub-step C + D: --refresh-coverage opt-in wiring (D-41' / Decision A).
@@ -574,6 +593,11 @@ def run_scan(
         or _phase11_step_degraded(kotlin_result.status)
         or _phase11_step_degraded(expo_result.status)
         or _phase11_step_degraded(test_depth_result.status)
+        # Phase 13: an APPLICABLE CI/CD degradation (tool absent when files
+        # present, timeout) flips partial; a not_applicable (no CI/CD files) step
+        # is DISCLOSED but does NOT flip — the D-13-05 first-class degrade, via
+        # _phase11_step_degraded (which swallows not_applicable).
+        or _phase11_step_degraded(cicd_result.status)
     )
 
     # Fold the SCA status/notes into the scope ledger so the SCA dimension's
@@ -666,6 +690,23 @@ def run_scan(
             scope_ledger.notes += "; " + sc_note_text
         else:
             scope_ledger.notes = sc_note_text
+
+    # Fold the Phase-13 CI/CD step's status + ledger notes into the scope ledger
+    # so every sub-tool's availability is disclosed honestly (SAFE-08), mirroring
+    # the Supply-chain / Phase-11 folds. An absent tool (zizmor / actionlint /
+    # hadolint / checkov missing while files present), a timeout, or a no-CI/CD-
+    # files not_applicable is DISCLOSED here under the "CI/CD" label; the scan
+    # still completes (graceful degradation) and the partial flag flips above only
+    # for an APPLICABLE degradation.
+    cicd_notes = list(cicd_result.ledger_notes)
+    if cicd_result.notes:
+        cicd_notes.insert(0, f"CI/CD ({cicd_result.status}): {cicd_result.notes}")
+    if cicd_notes:
+        cicd_note_text = "; ".join(cicd_notes)
+        if scope_ledger.notes:
+            scope_ledger.notes += "; " + cicd_note_text
+        else:
+            scope_ledger.notes = cicd_note_text
 
     # Plan 05-01 / TREND-01: baseline_run is conditional on a prior sidecar.
     # find_prior_sidecar returns the most-recent JSON sidecar with
