@@ -129,6 +129,44 @@ def _coverage_metric(report: "ScanReport") -> float | None:
     return None
 
 
+def _web_transfer_metric(report: "ScanReport") -> int | None:
+    """lighthouse ``parsed_value.web_transfer_bytes``; None when unavailable.
+
+    The carrier is the Plan-15-03 ``lighthouse_perf_summary`` Finding
+    (``source_tool='lighthouse'``). An unavailable lighthouse carrier (the
+    no-live_url degrade stamps ``evidence_type='unavailable'``) is explicitly
+    n/a — NOT 0 (SAFE-04/08). A scan with no web surface has no carrier at all →
+    also None.
+    """
+    for f in report.findings:
+        if getattr(f, "source_tool", "") == "lighthouse":
+            if getattr(f, "evidence_type", "") == "unavailable":
+                return None
+            val = _parsed_value(f).get("web_transfer_bytes")
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                return int(val)
+    return None
+
+
+def _rn_bundle_metric(report: "ScanReport") -> int | None:
+    """metro ``parsed_value.rn_bundle_bytes``; None when unavailable.
+
+    The carrier is the Plan-15-03 ``rn_bundle_size_summary`` Finding
+    (``source_tool='metro'`` — the SHIPPED literal; the 15-04 plan's interfaces
+    note tentatively named it "rn-bundle" but instructed CONFIRMing the carrier,
+    which is ``metro``). An unavailable carrier → None (n/a, never 0); a scan
+    with no RN surface has no carrier → also None.
+    """
+    for f in report.findings:
+        if getattr(f, "source_tool", "") == "metro":
+            if getattr(f, "evidence_type", "") == "unavailable":
+                return None
+            val = _parsed_value(f).get("rn_bundle_bytes")
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                return int(val)
+    return None
+
+
 def _subtract(prior: float | int | None, current: float | int | None):
     """current - prior, or None if either side is unavailable (SAFE-04/08)."""
     if prior is None or current is None:
@@ -171,11 +209,17 @@ def compute_trend(
     prior_loc = _loc_metric(prior)
     prior_lint = _lint_error_count(prior)
     prior_coverage = _coverage_metric(prior)
+    prior_web = _web_transfer_metric(prior)
+    prior_rn = _rn_bundle_metric(prior)
 
     commits_delta = _subtract(prior_commits, _commits_metric(current))
     loc_delta = _subtract(prior_loc, _loc_metric(current))
     lint_error_delta = _subtract(prior_lint, _lint_error_count(current))
     coverage_delta = _subtract(prior_coverage, _coverage_metric(current))
+    # SC3: per-surface size deltas — current − prior, None (not 0) when either
+    # side is absent / unavailable; separable from loc_delta (distinct fields).
+    web_transfer_size_delta = _subtract(prior_web, _web_transfer_metric(current))
+    rn_bundle_size_delta = _subtract(prior_rn, _rn_bundle_metric(current))
 
     # Prior absolute totals (Plan 05-03 faithfulness fold). Omit a key when the
     # metric was unavailable on the prior side (SAFE-04/08 — never a fake 0).
@@ -188,6 +232,10 @@ def compute_trend(
         prior_totals["lint"] = prior_lint
     if prior_coverage is not None:
         prior_totals["coverage"] = prior_coverage
+    if prior_web is not None:
+        prior_totals["web_transfer"] = prior_web
+    if prior_rn is not None:
+        prior_totals["rn_bundle"] = prior_rn
 
     prior_counts = _count_by_dimension(prior)
     current_counts = _count_by_dimension(current)
@@ -224,6 +272,8 @@ def compute_trend(
         loc_delta=loc_delta,
         lint_error_delta=lint_error_delta,
         coverage_delta=coverage_delta,
+        web_transfer_size_delta=web_transfer_size_delta,
+        rn_bundle_size_delta=rn_bundle_size_delta,
         finding_count_delta_by_dimension=finding_count_delta_by_dimension,
         changes=changes,
         prior_totals=prior_totals,

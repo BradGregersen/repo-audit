@@ -58,6 +58,15 @@ class TrendDelta(BaseModel):
     loc_delta: int | None = None
     lint_error_delta: int | None = None
     coverage_delta: float | None = None
+    web_transfer_size_delta: int | None = None
+    """current − prior web transfer bytes; ``None`` (n/a) when either side is
+    absent / unavailable (SAFE-04/08) — NEVER a fabricated ``0``. A distinct
+    per-surface field (web transfer vs RN bundle are different units), never
+    derived from ``loc_delta`` (SC3 separability)."""
+    rn_bundle_size_delta: int | None = None
+    """current − prior RN bundle bytes; ``None`` (n/a) when either side is
+    absent / unavailable (SAFE-04/08) — NEVER a fabricated ``0``. Separate from
+    ``web_transfer_size_delta`` (different units) and from ``loc_delta`` (SC3)."""
     finding_count_delta_by_dimension: dict[str, int] = Field(default_factory=dict)
     changes: list[FindingChange] = Field(default_factory=list)
     prior_totals: dict[str, float | int] = Field(default_factory=dict)

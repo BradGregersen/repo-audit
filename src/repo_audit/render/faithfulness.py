@@ -190,6 +190,8 @@ def build_allowed_numbers(
             getattr(trend, "loc_delta", None),
             getattr(trend, "lint_error_delta", None),
             getattr(trend, "coverage_delta", None),
+            getattr(trend, "web_transfer_size_delta", None),
+            getattr(trend, "rn_bundle_size_delta", None),
         ):
             if delta is not None:
                 allowed.add(float(delta))
