@@ -106,12 +106,14 @@ def run_cicd(repo_path: Path, *, base_env: dict[str, str]) -> CicdScanResult:
     not-applicable nuance):
 
       * any sub-step ``timeout`` → ``timeout``;
-      * else if EVERY sub-step degraded purely because its surface was absent
-        (no workflows / no Dockerfile / no IaC) → ``not_applicable`` (disclosed
-        but NON-partial-flipping — D-13-05);
       * else if ANY APPLICABLE sub-step degraded (a tool absent while its files
         ARE present, a parse failure, or a caught exception) → ``unavailable``;
-      * else → ``ok``.
+      * else if at least one sub-step scanned ``ok`` → ``ok`` (any remaining
+        non-ok steps are pure no-files degrades — e.g. workflows present and
+        scanned while no Dockerfile/IaC exist — disclosed via ledger notes);
+      * else (EVERY sub-step degraded purely because its surface was absent —
+        no workflows / no Dockerfile / no IaC at all) → ``not_applicable``
+        (disclosed but NON-partial-flipping — D-13-05).
 
     Args:
         repo_path: the target repository root (read-only; checkov's SARIF lands
@@ -180,10 +182,11 @@ def _roll_up_status(statuses: list[tuple[str, bool]]) -> CicdStatus:
     """Roll the per-sub-step (status, applicable) pairs into the composite status.
 
     * any ``timeout`` dominates → ``timeout``;
-    * else if EVERY non-ok step is a no-files (not-applicable) degrade → the whole
-      composite is ``not_applicable`` (D-13-05 NON-partial-flipping);
     * else if any APPLICABLE step degraded → ``unavailable``;
-    * else → ``ok``.
+    * else if at least one step scanned ``ok`` → ``ok`` (any remaining non-ok
+      steps are pure no-files degrades, disclosed via ledger notes);
+    * else (EVERY step is a no-files degrade, i.e. no CI/CD surface at all) →
+      ``not_applicable`` (D-13-05 NON-partial-flipping).
     """
     if any(s == "timeout" for s, _ in statuses):
         return "timeout"
@@ -196,8 +199,14 @@ def _roll_up_status(statuses: list[tuple[str, bool]]) -> CicdStatus:
     if any(applicable for _s, applicable in non_ok):
         return "unavailable"
 
-    # Every non-ok step degraded purely because its files were absent → the
-    # composite has nothing applicable to report (no CI/CD surface at all).
+    # Every non-ok step degraded purely because its files were absent. If at
+    # least one OTHER surface was scanned ``ok`` (e.g. workflows present and
+    # scanned, but no Dockerfile/IaC), the composite IS applicable and succeeded
+    # → ``ok`` (the absent surfaces are disclosed in ledger notes, NOT promoted
+    # to a whole-composite not-applicable). Only when ZERO steps scanned ``ok``
+    # — no CI/CD surface present at all — is the composite ``not_applicable``.
+    if any(s == "ok" for s, _ in statuses):
+        return "ok"
     return "not_applicable"
 
 

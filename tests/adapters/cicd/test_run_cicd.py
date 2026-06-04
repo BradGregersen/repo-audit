@@ -157,6 +157,37 @@ def test_all_ok_merges_in_fixed_order(fake_cicd_repo, monkeypatch):
     assert result.ledger_notes == []
 
 
+def test_workflows_only_scanned_is_ok_not_not_applicable(fake_cicd_repo, monkeypatch):
+    """Workflows present + scanned ok, no Dockerfile/IaC -> ok, NOT not_applicable.
+
+    CR-01 regression: a repo with `.github/workflows` (zizmor/actionlint scan ok
+    and surface real findings) but no Dockerfile or IaC must roll up to ``ok``.
+    The earlier roll-up returned ``not_applicable`` whenever every *non-ok* step
+    was a no-files degrade, ignoring that two steps actually succeeded — yielding
+    a self-contradictory ``not_applicable`` envelope that still carried findings.
+    The no-files surfaces are disclosed via ledger notes, not promoted to a
+    whole-composite not-applicable (D-13-05).
+    """
+    repo = fake_cicd_repo(workflows=True, dockerfile=False, iac=False)
+    _patch_all(
+        monkeypatch,
+        zizmor=_Stub(findings=[_finding("zizmor")], status="ok", notes="zizmor: 1 finding(s)"),
+        actionlint=_Stub(findings=[_finding("actionlint", "process")], status="ok", notes="actionlint: 1 finding(s)"),
+        hadolint=_Stub(status="unavailable", notes="no Dockerfile present — hadolint not applicable"),
+        checkov=_Stub(status="unavailable", notes="no IaC config present — checkov not applicable"),
+    )
+
+    result = cicd.run_cicd(repo, base_env={})
+
+    # The two successful scans make the composite applicable + ok, NOT not_applicable.
+    assert result.status == "ok"
+    # The real workflow findings are preserved (the bug produced not_applicable WITH findings).
+    assert [f.source_tool for f in result.findings] == ["zizmor", "actionlint"]
+    # The absent surfaces are disclosed (not silently dropped) but do not flip the status.
+    assert any("hadolint" in n for n in result.ledger_notes)
+    assert any("checkov" in n for n in result.ledger_notes)
+
+
 def test_deterministic_across_calls(fake_cicd_repo, monkeypatch):
     """Repeated calls produce an identical (deterministic) findings order."""
     repo = fake_cicd_repo(workflows=True, dockerfile=True, iac=True)
