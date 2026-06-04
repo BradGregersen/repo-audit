@@ -1,0 +1,43 @@
+{
+  "_provenance": "REAL-recorded 2026-06-04 from dependency-cruiser@17.4.3 `depcruise --output-type json src` on a synthetic 2-file circular dependency (src/a.js <-> src/b.js, CommonJS require cycle). Top-level keys ['modules','summary']; the 'modules' array is omitted from this fixture (the architecture adapter reads only summary.violations[] + the error/warn/info counts). summary.violations[0] is a real 'no-circular' cycle violation. No secrets; synthetic source only.",
+  "summary": {
+    "violations": [
+      {
+        "type": "cycle",
+        "from": "src/a.js",
+        "to": "src/b.js",
+        "unresolvedTo": "./b",
+        "dependencyTypes": [
+          "local",
+          "require"
+        ],
+        "rule": {
+          "severity": "error",
+          "name": "no-circular"
+        },
+        "cycle": [
+          {
+            "name": "src/b.js",
+            "dependencyTypes": [
+              "local",
+              "require"
+            ]
+          },
+          {
+            "name": "src/a.js",
+            "dependencyTypes": [
+              "local",
+              "require"
+            ]
+          }
+        ]
+      }
+    ],
+    "error": 1,
+    "warn": 0,
+    "info": 0,
+    "ignore": 0,
+    "totalCruised": 2,
+    "totalDependenciesCruised": 2
+  }
+}

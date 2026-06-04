@@ -1,0 +1,39 @@
+{
+  "_provenance": "REAL-recorded 2026-06-04 from jscpd@4.2.4 `jscpd --reporters json --output report --silent --min-tokens 50 --min-lines 5 src` on a synthetic 2-file duplicate (src/b.js and src/c.js share a ~20-line processOrders block). Read from the FILE report/jscpd-report.json, NOT stdout (Pitfall 2). Top-level keys ['statistics','duplicates']. The 'fragment' field of duplicates[0] was trimmed to a short representative snippet (the full ~20-line clone body) to keep the fixture lean; every structural key is byte-faithful to the emission. Per-entry 'tokens' is 0 (jscpd does not populate per-clone token counts reliably -- Pitfall 3). No secrets; synthetic source only.",
+  "statistics": {
+    "total": {
+      "lines": 38,
+      "tokens": 442,
+      "sources": 2,
+      "clones": 1,
+      "duplicatedLines": 19,
+      "duplicatedTokens": 218,
+      "percentage": 50,
+      "percentageTokens": 49.32,
+      "newDuplicatedLines": 0,
+      "newClones": 0
+    }
+  },
+  "duplicates": [
+    {
+      "format": "javascript",
+      "lines": 20,
+      "fragment": "function processOrders(orders, taxRate, discountThreshold) {\n  let subtotal = 0;\n  ...\n  return { subtotal, discount, tax, total, itemCount };\n}",
+      "tokens": 0,
+      "firstFile": {
+        "name": "src/b.js",
+        "start": 1,
+        "end": 20,
+        "startLoc": { "line": 1, "column": 1, "position": 0 },
+        "endLoc": { "line": 20, "column": 43, "position": 218 }
+      },
+      "secondFile": {
+        "name": "src/c.js",
+        "start": 1,
+        "end": 20,
+        "startLoc": { "line": 1, "column": 1, "position": 0 },
+        "endLoc": { "line": 20, "column": 43, "position": 218 }
+      }
+    }
+  ]
+}
