@@ -1,10 +1,18 @@
-"""Fixtures for the SARIF 8-tool recorded-corpus round-trip (FND-01 / SC-1).
+"""Fixtures for the SARIF 7-tool recorded-corpus round-trip (FND-01 / SC-1).
 
 `load_sarif(tool)` reads the frozen `fixtures/{tool}/sample.sarif`. `TOOL_CONFIG`
 is the per-tool `(default_dimension, severity_map)` table — the ONLY per-tool
 difference fed into the single `sarif_to_findings` function. The corpus + its
 provenance live in `fixtures/PROVENANCE.md` (D-06-13). This mirrors the Phase 3
 recorded-fixture discipline (`tests/adapters/conftest.py::recorded_tool_output`).
+
+Phase 14 (Plan 14-01) RETIRED the dependency cruiser tool from this harness: the
+local CLI ships no SARIF reporter (`--output-type sarif` errors; no
+`src/report/sarif.mjs` in any version, verified against 17.4.3), so the old
+docs-sourced SARIF fixture tested a reporter that does not exist. The
+architecture adapter consumes that tool's JSON reporter instead; the REAL JSON
+fixture now lives under `tests/adapters/architecture/fixtures/`. The 7 tools
+below all DO emit SARIF. (See `fixtures/PROVENANCE.md` row for the full record.)
 """
 from __future__ import annotations
 
@@ -38,7 +46,9 @@ class ToolConfig:
 
 # D-06-05 dimension routing. SARIF gives no dimension signal, so each tool's
 # adapter supplies the dimension its findings belong to. severity_map is empty
-# for all 8 — the faithful policy + security-severity bands suffice (see above).
+# for all 7 — the faithful policy + security-severity bands suffice (see above).
+# The dependency cruiser tool was REMOVED (Phase 14): it has no SARIF reporter;
+# its architecture findings now route through the JSON path in adapters/architecture.
 TOOL_CONFIG: dict[str, ToolConfig] = {
     "osv-scanner": ToolConfig(dim="security"),
     "semgrep": ToolConfig(dim="security"),
@@ -47,10 +57,9 @@ TOOL_CONFIG: dict[str, ToolConfig] = {
     "zizmor": ToolConfig(dim="security"),
     "hadolint": ToolConfig(dim="security"),
     "checkov": ToolConfig(dim="security"),
-    "dependency-cruiser": ToolConfig(dim="architecture_rot"),
 }
 
-# The 8 tools, in a stable order for parametrization ids.
+# The 7 SARIF-emitting tools, in a stable order for parametrization ids.
 SARIF_TOOLS: list[str] = list(TOOL_CONFIG)
 
 

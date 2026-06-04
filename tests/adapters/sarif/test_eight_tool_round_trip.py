@@ -1,11 +1,15 @@
-"""FND-01 / SC-1: the 8-tool recorded SARIF corpus round-trips through ONE parser.
+"""FND-01 / SC-1: the 7-tool recorded SARIF corpus round-trips through ONE parser.
 
 This is the recorded-fixture discipline from Phase 3 (the 33 frozen TypeScript
-triples) applied to SARIF. A frozen `sample.sarif` for each of the 8 tools
-(osv-scanner, semgrep, mobsfscan, detekt, zizmor, hadolint, checkov,
-dependency-cruiser; provenance in `fixtures/PROVENANCE.md`) is fed through the
-SAME `sarif_to_findings` function — the parametrization is the proof of SC-1's
+triples) applied to SARIF. A frozen `sample.sarif` for each of the 7 SARIF-
+emitting tools (osv-scanner, semgrep, mobsfscan, detekt, zizmor, hadolint,
+checkov; provenance in `fixtures/PROVENANCE.md`) is fed through the SAME
+`sarif_to_findings` function — the parametrization is the proof of SC-1's
 "same function, only severity_map + default_dimension differ" claim.
+
+dependency-cruiser was RETIRED from this corpus in Phase 14 (Plan 14-01): it has
+no SARIF reporter, so the old docs-sourced fixture tested a nonexistent path. Its
+real JSON fixture + JSON→Finding path live under `tests/adapters/architecture/`.
 
 Binding contract (Plan 06-01, REVISED 2026-06-01 DI-06-01-01 Option A):
 a tool-reported critical/blocker does NOT surface as a critical Finding. It
@@ -99,8 +103,12 @@ def test_dimension_defaults_to_caller_supplied(tool, findings_for):
     assert all(f.dimension == cfg.dim for f in findings)
 
 
-def test_corpus_covers_all_eight_named_tools():
-    """The corpus is exactly the 8 named tools — guards against silent drops."""
+def test_corpus_covers_all_seven_named_tools():
+    """The corpus is exactly the 7 SARIF-emitting tools — guards against silent drops.
+
+    dependency-cruiser was retired in Phase 14 (no SARIF reporter); it must NOT
+    reappear here.
+    """
     assert set(SARIF_TOOLS) == {
         "osv-scanner",
         "semgrep",
@@ -109,8 +117,8 @@ def test_corpus_covers_all_eight_named_tools():
         "zizmor",
         "hadolint",
         "checkov",
-        "dependency-cruiser",
     }
+    assert "dependency-cruiser" not in SARIF_TOOLS
 
 
 def test_corpus_exercises_the_candidate_cap_caveat_path():
