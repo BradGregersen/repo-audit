@@ -1,0 +1,71 @@
+# Cross-stack quality-depth (accessibility + performance) adapter descriptor
+# (Phase 15).
+#
+# Loaded under ruamel.yaml.YAML(typ='safe') (T-15-01): the safe loader refuses
+# !!python/object / !!python/name so a poisoned YAML (future user-overlay
+# scenario) cannot execute Python at load. ALWAYS load this file via:
+#
+#     from ruamel.yaml import YAML
+#     YAML(typ="safe").load((Path(__file__).parent / "adapter.yaml").open())
+#
+# resolved at CALL time, never at module load (the Phase 3 caching lesson).
+#
+# This adapter is CROSS-STACK — it has no per-stack `name` @register_adapter
+# entry (like adapters/architecture + adapters/cicd + adapters/sast). Plan 04
+# wires the collectors into scan_runner.run_quality_depth as a dedicated
+# repo-wide scan step that runs OUTSIDE the 95s collector deadline: a live-URL
+# axe/Lighthouse pass and a `react-native bundle` build can each take minutes, so
+# each tool carries a generous `timeout_ms` and a timeout degrades to honest
+# `timeout`.
+#
+# Per-tool block-level `default_dimension` is `quality_debt` (mirroring the
+# architecture/typescript block-level convention) — but the JSON->Finding maps
+# (Waves 1/2) construct each Finding with the PUBLIC `dimension="quality"` (the
+# per-rule precedent; PATTERNS §Dimension token). Both `quality` and
+# `quality_debt` are valid Dimension literals from schema/enums.py.
+#
+# NEITHER axe nor lighthouse nor rn_bundle emits SARIF:
+#   * axe (@axe-core/cli): writes the axe results object via --save/--dir; the
+#     violations[] array maps to one `quality` Finding per violation
+#     (axe_json.py, Plan 02 — the SAST per-violation model).
+#   * lighthouse: writes the LHR via --output json; categories.performance.score
+#     + audits[...].numericValue collapse to ONE aggregate `quality` perf Finding
+#     (lighthouse_json.py, Plan 03 — the jscpd/lcov single-aggregate model).
+#   * rn_bundle: `react-native bundle` writes a `.bundle` file; its stat().st_size
+#     becomes ONE aggregate `quality` size Finding (rn_bundle.py, Plan 03).
+#
+# severity_map: {} suffices for all three — the parser-internal faithful maps
+# govern severity, and all ladders top at `major` (axe critical/serious -> major)
+# so the SCH-04 candidate cap (which bites only at critical/blocker) is never
+# tripped (D-06-01 binding contract). Faithful severity preserved in
+# parsed_value["faithful_severity"] for Phase 17 promotion.
+name: quality_depth
+
+tools:
+  axe:
+    command: axe                  # @axe-core/cli bin; resolved via resolve_tool (node_modules/.bin walk-up -> PATH)
+    default_dimension: quality_debt   # block-level convention; maps construct dimension="quality"
+    severity_map: {}              # parser-internal {critical/serious->major, moderate->minor, minor->info}
+    timeout_ms: 120000            # generous; run_quality_depth is OUTSIDE the 95s collector deadline
+
+  lighthouse:
+    command: lighthouse
+    default_dimension: quality_debt
+    severity_map: {}              # one aggregate severity derived from perf_score / budget breach
+    timeout_ms: 120000            # generous; headless Chrome page load + audit
+
+  rn_bundle:
+    command: react-native         # `react-native bundle ...`; Metro JS bundle build
+    default_dimension: quality_debt
+    severity_map: {}              # one aggregate severity from bundle size vs rn_budget_bytes / regression
+    timeout_ms: 900000            # MOB-03 900s override — a cold Metro bundle build is slow
+
+# Quality-depth budgets & regression thresholds (D-15-04 / D-15-05). These are
+# the SHIPPED adapter defaults; config.py layers a per-repo .repo-audit.yaml
+# `quality_depth:` override on top at CALL time (SC4).
+budgets:
+  web_budget_bytes: 256000        # ~250 KB web transfer-size budget (Lighthouse total-byte-weight)
+  rn_budget_bytes: 512000         # ~500 KB RN JS-bundle-size budget (Metro .bundle st_size)
+  regression_pct: 10              # % growth vs prior scan that triggers a regression finding
+  regression_floor_bytes: 10240   # ~10 KB noise floor: growth below this never flags
+  rn_entry_file: "index.js"       # `react-native bundle --entry-file` default override
