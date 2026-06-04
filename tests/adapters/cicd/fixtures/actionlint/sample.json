@@ -1,0 +1,26 @@
+[
+  {
+    "message": "shellcheck reported issue in this script: SC2086:info:1:6: Double quote to prevent globbing and word splitting",
+    "filepath": ".github/workflows/ci.yml",
+    "line": 17,
+    "column": 9,
+    "kind": "shellcheck",
+    "snippet": "        run: echo $UNQUOTED_VAR\n               ^~~~~~~~~~~~~~"
+  },
+  {
+    "message": "the runner of \"actions/checkout@v1\" action is too old to run on GitHub Actions. update the action's version to fix this issue",
+    "filepath": ".github/workflows/ci.yml",
+    "line": 12,
+    "column": 15,
+    "kind": "action",
+    "snippet": "      - uses: actions/checkout@v1\n              ^~~~~~~~~~~~~~~~~~~~~~"
+  },
+  {
+    "message": "property \"unknown_prop\" is not defined in object type {arch: string; debug: string; name: string; os: string; temp: string; tool_cache: string; workspace: string}",
+    "filepath": ".github/workflows/ci.yml",
+    "line": 24,
+    "column": 21,
+    "kind": "expression",
+    "snippet": "        run: echo ${{ runner.unknown_prop }}\n                          ^~~~~~~~~~~~~~~~~"
+  }
+]

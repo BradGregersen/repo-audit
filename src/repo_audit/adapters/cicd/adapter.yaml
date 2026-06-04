@@ -1,0 +1,64 @@
+# Cross-stack CI/CD & IaC security adapter descriptor (Phase 13).
+#
+# Loaded under ruamel.yaml.YAML(typ='safe') (T-03-01): the safe loader refuses
+# !!python/object / !!python/name so a poisoned YAML (future user-overlay
+# scenario) cannot execute Python at load. ALWAYS load this file via:
+#
+#     from ruamel.yaml import YAML
+#     YAML(typ="safe").load((Path(__file__).parent / "adapter.yaml").open())
+#
+# resolved at CALL time, never at module load (the Phase 3 caching lesson).
+#
+# This adapter is CROSS-STACK — it has no per-stack `name` @register_adapter
+# entry (like adapters/sast + adapters/sca + adapters/supply_chain). A Wave-1/2
+# plan wires the four collectors into scan_runner.run_cicd as a dedicated
+# repo-wide scan step.
+#
+# Per-tool routing follows the Phase-6 SARIF precedent: each tool supplies a
+# `default_dimension` + `severity_map`. Three of the four tools (zizmor,
+# hadolint, checkov) emit SARIF and route straight through sarif_to_findings;
+# actionlint emits JSON (`-format '{{json .}}'`, NOT sarif — Pitfall 1) and goes
+# through a thin JSON->Finding map. `severity_map: {}` suffices for all four:
+# the parser's faithful level map (plus the defaultConfiguration.level fallback
+# for checkov, parser.py lines 158-165) governs severity.
+#
+# Every `default_dimension` below is a valid Dimension literal from
+# schema/enums.py (security | architecture_rot | test_integrity | correctness |
+# quality | process | observability).
+name: cicd
+
+tools:
+  zizmor:
+    command: zizmor                # resolved via resolve_tool(..., trusted_only=True) -> vendor -> PATH
+    default_dimension: security    # D-13-02: workflow injection / unpinned actions / secret-exposure
+    severity_map: {}               # zizmor sets result.level; faithful parser map suffices
+    timeout_ms: 120000
+    offline: true                  # Pitfall 7 — no network during a scan
+
+  actionlint:
+    command: actionlint
+    default_dimension: process     # D-13-02 (discretion: process over quality for a correctness linter)
+    severity_map: {}               # JSON-map path; optional per-`kind` refinement without code edits
+    timeout_ms: 60000
+    output_format: json            # Pitfall 1 — JSON (`{{json .}}`), NOT sarif
+
+  hadolint:
+    command: hadolint
+    default_dimension: security    # Dockerfile sec findings (DL3002/DL3025 etc.) -> security
+    severity_map: {}               # hadolint sets result.level (error/warning/note)
+    timeout_ms: 120000
+
+  checkov:
+    command: checkov
+    default_dimension: security    # IaC misconfiguration -> security
+    severity_map: {}               # checkov sets defaultConfiguration.level=error (parser fallback handles it)
+    timeout_ms: 300000             # Pitfall 5 — generous; run_cicd is OUTSIDE the 95s collector deadline
+    frameworks:                    # Pitfall 3 — scope EXCLUDES dockerfile/github_actions/secrets
+      - terraform                  #   (those are double-covered by hadolint/zizmor); a leaked
+      - kubernetes                 #   CKV_DOCKER_/CKV_GHA_ rule_id is the warning sign.
+      - cloudformation
+      - helm
+      - kustomize
+      - arm
+      - bicep
+      - serverless
