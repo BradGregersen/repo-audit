@@ -150,7 +150,10 @@ def _checkov_argv(binary: Path, out_dir: Path, frameworks: tuple[str, ...]) -> l
     <out_dir>`` route SARIF to ``<out_dir>/results_sarif.sarif`` (Pitfall 4 /
     Assumption A2) — NOT stdout, which is polluted by banners. ``--soft-fail``
     forces exit 0 even with findings (gate-on-parse, Pitfall 6). ``--quiet
-    --compact`` reduce noise. Each framework is a DISCRETE argv element (Pitfall 3
+    --compact`` reduce noise. ``--download-external-modules false`` pins checkov
+    offline — no fetching of remote Terraform modules during a scan (T-13-EGRESS;
+    the checkov analogue of zizmor's ``--offline``, satisfying the CLAUDE.md
+    no-egress constraint). Each framework is a DISCRETE argv element (Pitfall 3
     scoping; T-13-INJECT — never interpolated into a shell string).
     """
     argv = [
@@ -163,6 +166,8 @@ def _checkov_argv(binary: Path, out_dir: Path, frameworks: tuple[str, ...]) -> l
         str(out_dir),
         "--framework",
         *frameworks,
+        "--download-external-modules",
+        "false",
         "--soft-fail",
         "--quiet",
         "--compact",

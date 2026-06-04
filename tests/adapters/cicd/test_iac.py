@@ -132,6 +132,10 @@ def test_checkov_argv_framework_scoped_and_offrepo(
     assert result.status == "ok"
     assert "--soft-fail" in argv
     assert "--framework" in argv
+    # offline pin: no remote Terraform module fetch during a scan
+    # (WR-01 / T-13-EGRESS — the checkov analogue of zizmor's --offline).
+    assert "--download-external-modules" in argv
+    assert argv[argv.index("--download-external-modules") + 1] == "false"
     # framework scoping EXCLUDES double-covered surfaces (Pitfall 3)
     assert "dockerfile" not in argv
     assert "github_actions" not in argv
