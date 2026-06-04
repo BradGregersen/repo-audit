@@ -57,6 +57,11 @@ from repo_audit.adapters.quality_depth.axe import (
     AxeStatus,
     collect_axe,
 )
+from repo_audit.adapters.quality_depth.lighthouse import (
+    LighthouseResult,
+    LighthouseStatus,
+    collect_lighthouse,
+)
 from repo_audit.schema.finding import Finding
 
 # Mirrors ArchitectureStatus / CicdStatus: ``not_applicable`` is the
@@ -103,7 +108,10 @@ class QualityDepthScanResult:
 __all__ = [
     "AxeResult",
     "AxeStatus",
+    "LighthouseResult",
+    "LighthouseStatus",
     "QualityDepthScanResult",
     "QualityDepthStatus",
     "collect_axe",
+    "collect_lighthouse",
 ]
