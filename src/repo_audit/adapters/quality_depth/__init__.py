@@ -62,6 +62,11 @@ from repo_audit.adapters.quality_depth.lighthouse import (
     LighthouseStatus,
     collect_lighthouse,
 )
+from repo_audit.adapters.quality_depth.rn_bundle import (
+    RnBundleResult,
+    RnBundleStatus,
+    collect_rn_bundle,
+)
 from repo_audit.schema.finding import Finding
 
 # Mirrors ArchitectureStatus / CicdStatus: ``not_applicable`` is the
@@ -112,6 +117,9 @@ __all__ = [
     "LighthouseStatus",
     "QualityDepthScanResult",
     "QualityDepthStatus",
+    "RnBundleResult",
+    "RnBundleStatus",
     "collect_axe",
     "collect_lighthouse",
+    "collect_rn_bundle",
 ]
