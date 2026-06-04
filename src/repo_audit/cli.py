@@ -193,6 +193,16 @@ def scan(
             "back to standalone automatically (D-11-07)."
         ),
     ),
+    qd_build: bool = typer.Option(
+        False,
+        "--qd-build",
+        help=(
+            "Opt-in diagnostic Metro production bundle for RN bundle-size "
+            "measurement (PERF-01), built in a throwaway COPY so the target tree "
+            "stays read-only. Off by default; never runs fleet-wide. Without it, "
+            "RN bundle size is measured only from an existing build artifact."
+        ),
+    ),
 ) -> None:
     """Scan a repo and emit a state report + JSON sidecar (CLI-02 / SC-3).
 
@@ -260,6 +270,7 @@ def scan(
         sast=not no_sast,
         mutation=mutation,
         typed_detekt=typed_detekt,
+        qd_build=qd_build,
     )
 
     # render refused (secret-lint rc=2 / completion-honesty rc=3) → sidecar

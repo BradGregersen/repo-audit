@@ -37,6 +37,7 @@ from repo_audit.adapters.architecture import run_architecture
 from repo_audit.adapters.cache_env import build_scan_env, scan_tempdir
 from repo_audit.adapters.cicd import run_cicd
 from repo_audit.adapters.mobile import run_mobile
+from repo_audit.adapters.quality_depth import run_quality_depth
 from repo_audit.adapters.sast import run_sast
 from repo_audit.adapters.sca import run_sca
 from repo_audit.adapters.supabase import run_supabase
@@ -241,6 +242,7 @@ def run_scan(
     sast: bool = True,
     mutation: bool = False,
     typed_detekt: bool = True,
+    qd_build: bool = False,
 ) -> ScanResult:
     """Run the full single-repo scan pipeline and return a :class:`ScanResult`.
 
@@ -381,6 +383,34 @@ def run_scan(
             repo_path,
             base_env=arch_base_env,
             stacks=[s.stack for s in detection.stacks],
+        )
+
+    # Phase 15 (Plan 15-04): CROSS-STACK QUALITY-DEPTH step (mirrors the Phase 14
+    # ARCHITECTURE step). Composes A11Y-01 (axe-core runtime a11y, live-URL gated)
+    # + PERF-01 (Lighthouse web perf, live-URL gated; RN bundle size, RN-surface
+    # gated + opt-in --qd-build Metro build) into ONE never-raising
+    # QualityDepthScanResult envelope. It runs AFTER run_architecture and OUTSIDE
+    # the 95 s collector deadline (a live axe/Lighthouse pass + a Metro build each
+    # take minutes — each sub-collector carries its own generous run_tool timeout).
+    # The scan_tempdir is REQUIRED so axe/Lighthouse output + the RN bundle land
+    # OUTSIDE the read-only target repo (REP-03). The already-computed ``detection``
+    # is REUSED: its stack TAGS gate the RN-bundle sub-step via has_rn_surface; the
+    # web (axe/lighthouse) sub-steps are gated by a configured ``live_url`` (read by
+    # the composite from .repo-audit.yaml). A repo with NEITHER a live_url NOR
+    # an RN surface degrades to status='not_applicable' — DISCLOSED via the ledger
+    # but NON-partial-flipping (D-13-05, via _phase11_step_degraded); an applicable
+    # degradation (axe absent when a URL is configured, a failed RN build) flips
+    # partial. --qd-build (default off, never fleet-wide) is threaded through so the
+    # opt-in throwaway Metro build only runs when explicitly requested. Called via
+    # _THIS_MODULE so tests can monkeypatch scan_runner.run_quality_depth (same
+    # patchable-attribute pattern as run_architecture / run_cicd / run_sca).
+    with scan_tempdir() as _qd_td:
+        qd_base_env = build_scan_env(_qd_td)
+        qd_result = _THIS_MODULE.run_quality_depth(
+            repo_path,
+            base_env=qd_base_env,
+            stacks=[s.stack for s in detection.stacks],
+            qd_build=qd_build,
         )
 
     # Phase 8 (Plan 08-05): CROSS-STACK RLS step (mirrors the Phase 7 SCA step).
@@ -568,6 +598,7 @@ def run_scan(
         + list(test_depth_result.findings)
         + list(cicd_result.findings)
         + list(arch_result.findings)
+        + list(qd_result.findings)
     )
 
     # Sub-step C + D: --refresh-coverage opt-in wiring (D-41' / Decision A).
@@ -629,6 +660,12 @@ def run_scan(
         # first-class degrade, via _phase11_step_degraded (which swallows
         # not_applicable).
         or _phase11_step_degraded(arch_result.status)
+        # Phase 15: an APPLICABLE quality-depth degradation (axe/lighthouse absent
+        # when a live_url is configured, a failed RN bundle build/measure, a
+        # timeout) flips partial; a not_applicable (no live_url AND no RN surface)
+        # step is DISCLOSED but does NOT flip — the first-class degrade, via
+        # _phase11_step_degraded (which swallows not_applicable).
+        or _phase11_step_degraded(qd_result.status)
     )
 
     # Fold the SCA status/notes into the scope ledger so the SCA dimension's
@@ -755,6 +792,24 @@ def run_scan(
             scope_ledger.notes += "; " + arch_note_text
         else:
             scope_ledger.notes = arch_note_text
+
+    # Fold the Phase-15 QUALITY-DEPTH step's status + ledger notes into the scope
+    # ledger so every sub-tool's availability is disclosed honestly (SAFE-08),
+    # mirroring the Architecture / CI/CD folds. An absent tool (axe / lighthouse
+    # missing when a live_url is configured, react-native missing on an RN stack),
+    # a timeout, or a no-surface (no live_url AND no RN) not_applicable is DISCLOSED
+    # here under the "Quality-depth" label; the scan still completes (graceful
+    # degradation) and the partial flag flips above only for an APPLICABLE
+    # degradation.
+    qd_notes = list(qd_result.ledger_notes)
+    if qd_result.notes:
+        qd_notes.insert(0, f"Quality-depth ({qd_result.status}): {qd_result.notes}")
+    if qd_notes:
+        qd_note_text = "; ".join(qd_notes)
+        if scope_ledger.notes:
+            scope_ledger.notes += "; " + qd_note_text
+        else:
+            scope_ledger.notes = qd_note_text
 
     # Plan 05-01 / TREND-01: baseline_run is conditional on a prior sidecar.
     # find_prior_sidecar returns the most-recent JSON sidecar with

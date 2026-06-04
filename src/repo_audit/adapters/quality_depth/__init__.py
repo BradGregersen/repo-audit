@@ -49,7 +49,9 @@ and ``QualityDepthStatus`` are exported here in Wave 0.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
 from repo_audit.adapters.quality_depth.axe import (
@@ -57,6 +59,8 @@ from repo_audit.adapters.quality_depth.axe import (
     AxeStatus,
     collect_axe,
 )
+from repo_audit.adapters.quality_depth.config import read_quality_depth_config
+from repo_audit.adapters.quality_depth.detect import has_rn_surface
 from repo_audit.adapters.quality_depth.lighthouse import (
     LighthouseResult,
     LighthouseStatus,
@@ -110,6 +114,168 @@ class QualityDepthScanResult:
     ledger_notes: list[str] = field(default_factory=list)
 
 
+def run_quality_depth(
+    repo_path: Path,
+    *,
+    base_env: dict[str, str],
+    stacks: Iterable[str] | None = None,
+    qd_build: bool = False,
+) -> QualityDepthScanResult:
+    """Compose the a11y + perf collectors behind one never-raising envelope.
+
+    Mirrors ``adapters/architecture/__init__.py::run_architecture``. Composes the
+    Plan-02/03 collectors:
+
+      * A11Y-01 ``collect_axe`` — applicable only when a ``live_url`` is configured
+        (the web egress opt-in, D-15-03). No live_url → the collector self-gates to
+        ``unavailable`` WITHOUT egress.
+      * PERF-01 ``collect_lighthouse`` — same live_url gate as axe.
+      * PERF-01 ``collect_rn_bundle`` — applicable when the repo has an RN surface
+        (``has_rn_surface``). The existing-artifact measure path runs whenever an
+        RN surface is present; the throwaway Metro BUILD path is additionally gated
+        on ``qd_build`` (the collector enforces this internally).
+
+    GATE (the first-class not_applicable degrade — disclosed but NON-partial-
+    flipping, the D-13-05 nuance): when there is NEITHER a configured ``live_url``
+    NOR an RN surface, the WHOLE step short-circuits to ``not_applicable`` WITHOUT
+    invoking ANY tool (no resolve, no run_tool, ZERO egress — SAFE-08).
+
+    Static a11y lint (jsx-a11y / react-native-a11y) is NOT a step here — it flows
+    through the typescript eslint adapter (Plan 02), not this composite.
+
+    Each sub-collector is read OFF this module (``quality_depth.collect_*``) so
+    tests monkeypatch them on the package namespace. The composite NEVER raises: a
+    sub-collector exception folds to an ``unavailable`` disclosure. Status roll-up
+    mirrors ``run_architecture._roll_up_status`` (timeout dominates > applicable
+    degrade = unavailable > any ok = ok > else not_applicable).
+
+    Args:
+        repo_path: the target repository root (read-only; each collector's output
+            lands OUTSIDE it via the caller-supplied / collector tempdirs).
+        base_env: the base child env (a ``build_scan_env`` tempdir env) passed to
+            every sub-collector.
+        stacks: the detector's stack tags. Drives the RN-surface gate. ``None`` →
+            treated as no RN surface (the web gate alone decides applicability).
+        qd_build: opt-in flag unlocking the throwaway Metro production bundle build
+            (PATH B). Default ``False`` — a fleet sweep NEVER builds.
+
+    Returns:
+        A :class:`QualityDepthScanResult`; never raises.
+    """
+    repo_path = Path(repo_path)
+    stack_list = list(stacks) if stacks is not None else []
+
+    config = read_quality_depth_config(repo_path)
+    live_url = config.live_url
+    rn_applicable = has_rn_surface(stack_list)
+
+    # GATE — no web surface (no live_url) AND no RN surface is a first-class
+    # not_applicable degrade. NEITHER axe/lighthouse NOR rn_bundle is invoked (no
+    # tool resolved, ZERO egress). Disclosed via the ledger but NON-partial-
+    # flipping (D-13-05). A configured live_url OR an RN surface falls through.
+    if not live_url and not rn_applicable:
+        return QualityDepthScanResult(
+            status="not_applicable",
+            notes=(
+                "Quality-depth not applicable: no web surface (no live_url) "
+                "and no RN surface"
+            ),
+        )
+
+    # (label, callable, applicable, kwargs) in the STABLE finding-merge order:
+    # axe (a11y), then lighthouse (web perf), then rn_bundle (size). Each callable
+    # is read off THIS module so tests monkeypatch quality_depth.collect_*.
+    steps: list[tuple[str, object, bool, dict]] = [
+        ("axe", collect_axe, bool(live_url), {"live_url": live_url}),
+        (
+            "lighthouse",
+            collect_lighthouse,
+            bool(live_url),
+            {"live_url": live_url, "config": config},
+        ),
+        (
+            "rn_bundle",
+            collect_rn_bundle,
+            rn_applicable,
+            {"qd_build": qd_build, "config": config},
+        ),
+    ]
+
+    ledger_notes: list[str] = []
+    findings: list[Finding] = []
+    statuses: list[tuple[str, bool]] = []
+
+    for label, collector, applicable, kwargs in steps:
+        if not applicable:
+            # A non-applicable sub-step (no live_url for axe/lighthouse, no RN
+            # surface for rn_bundle) is skipped WITHOUT invoking the tool — a
+            # disclosed-but-non-partial-flipping not_applicable sub-status.
+            statuses.append(("not_applicable", False))
+            continue
+        try:
+            sub = collector(repo_path, base_env, **kwargs)  # type: ignore[operator]
+            sub_status = getattr(sub, "status", "unavailable")
+            sub_findings = list(getattr(sub, "findings", []) or [])
+            sub_notes = getattr(sub, "notes", "")
+        except Exception as exc:  # noqa: BLE001 — never raise across the boundary
+            # A crashed sub-step is an APPLICABLE degradation (we tried to run it).
+            sub_status = "unavailable"
+            sub_findings = []
+            sub_notes = f"{type(exc).__name__}: {exc}"
+            applicable = True
+
+        findings.extend(sub_findings)
+        statuses.append((sub_status, applicable))
+        if sub_status != "ok":
+            ledger_notes.append(f"{label} ({sub_status}): {sub_notes}")
+
+    status = _roll_up_status(statuses)
+
+    if ledger_notes:
+        notes = "; ".join(ledger_notes)
+    elif status == "ok":
+        notes = f"Quality-depth ok: {len(findings)} finding(s)"
+    else:
+        notes = (
+            "Quality-depth not applicable: no web surface (no live_url) "
+            "and no RN surface"
+        )
+
+    return QualityDepthScanResult(
+        findings=findings,
+        status=status,
+        notes=notes,
+        ledger_notes=ledger_notes,
+    )
+
+
+def _roll_up_status(statuses: list[tuple[str, bool]]) -> QualityDepthStatus:
+    """Roll the per-sub-step (status, applicable) pairs into the composite status.
+
+    Copied verbatim from ``adapters/architecture/__init__.py::_roll_up_status``
+    with the QualityDepthStatus return type:
+
+    * any ``timeout`` dominates → ``timeout``;
+    * else if any APPLICABLE step degraded → ``unavailable``;
+    * else if at least one step scanned ``ok`` → ``ok`` (any remaining non-ok steps
+      are pure not-applicable degrades, disclosed via ledger notes);
+    * else (EVERY step is a non-applicable degrade) → ``not_applicable``.
+    """
+    if any(s == "timeout" for s, _ in statuses):
+        return "timeout"
+
+    non_ok = [(s, applicable) for s, applicable in statuses if s != "ok"]
+    if not non_ok:
+        return "ok"
+
+    if any(applicable for _s, applicable in non_ok):
+        return "unavailable"
+
+    if any(s == "ok" for s, _ in statuses):
+        return "ok"
+    return "not_applicable"
+
+
 __all__ = [
     "AxeResult",
     "AxeStatus",
@@ -122,4 +288,5 @@ __all__ = [
     "collect_axe",
     "collect_lighthouse",
     "collect_rn_bundle",
+    "run_quality_depth",
 ]

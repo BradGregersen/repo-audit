@@ -64,9 +64,17 @@ def test_status_literal_members() -> None:
     }
 
 
-def test_run_quality_depth_absent_until_plan_04() -> None:
-    """The composite is DELIBERATELY not shipped in Wave 0 (Plan 04 owns it)."""
-    assert not hasattr(qd_pkg, "run_quality_depth")
+def test_run_quality_depth_present_after_plan_04() -> None:
+    """The composite lands in Plan 04 (15-04) and is exported on the package.
+
+    Wave 0 deliberately omitted ``run_quality_depth`` so the
+    ``skipif(not hasattr(...))`` gates stayed SKIPPED, never ERROR. Plan 15-04
+    landed the composite; this guard is inverted on landing (the documented
+    SKIPPED->ACTIVE-on-landing discipline) — it now asserts the contract is
+    present and callable.
+    """
+    assert hasattr(qd_pkg, "run_quality_depth")
+    assert callable(qd_pkg.run_quality_depth)
 
 
 def test_has_rn_surface_gate() -> None:
