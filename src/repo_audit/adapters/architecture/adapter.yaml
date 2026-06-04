@@ -1,0 +1,57 @@
+# Cross-stack architecture-fitness & duplication adapter descriptor (Phase 14).
+#
+# Loaded under ruamel.yaml.YAML(typ='safe') (T-03-01): the safe loader refuses
+# !!python/object / !!python/name so a poisoned YAML (future user-overlay
+# scenario) cannot execute Python at load. ALWAYS load this file via:
+#
+#     from ruamel.yaml import YAML
+#     YAML(typ="safe").load((Path(__file__).parent / "adapter.yaml").open())
+#
+# resolved at CALL time, never at module load (the Phase 3 caching lesson).
+#
+# This adapter is CROSS-STACK — it has no per-stack `name` @register_adapter
+# entry (like adapters/cicd + adapters/sast + adapters/sca). A Wave-1/2/3 plan
+# wires the two collectors into scan_runner.run_architecture as a dedicated
+# repo-wide scan step that runs OUTSIDE the 95s collector deadline (RESEARCH
+# Open Q2): depcruise + jscpd over a large monorepo can exceed it, so each tool
+# carries a generous `timeout_ms` and a timeout degrades to honest `timeout`.
+#
+# Per-tool routing follows the Phase-6 SARIF precedent in spirit, but NEITHER
+# tool emits SARIF:
+#   * depcruise (D-14-04): `--output-type sarif` does not exist in any version
+#     (verified against 17.4.3: no src/report/sarif.mjs). The JSON reporter
+#     (`--output-type json`) is the ONLY path; its summary.violations[] map to
+#     one Finding each (depcruise_json.py, Plan 02).
+#   * jscpd (Pitfall 2): writes report/jscpd-report.json to a FILE, not stdout;
+#     statistics.total → ONE aggregate Finding (jscpd_json.py, Plan 03).
+#
+# Both tools route to `architecture_rot` (D-14-02) — the same 7-dimension bucket
+# knip already uses (typescript/adapter.yaml). `severity_map: {}` suffices for
+# both: the parser-internal faithful maps govern severity —
+#   depcruise: {error→major, warn→minor, info→info} (error tops at major, so the
+#     SCH-04 critical/blocker cap is never tripped — D-14 RESEARCH severity map);
+#   jscpd: a single aggregate severity from the duplication percentage
+#     (>20%→major, 5–20%→minor; below floor_pct→no finding).
+#
+# `architecture_rot` is a valid Dimension literal from schema/enums.py
+# (security | architecture_rot | test_integrity | correctness | quality |
+# process | observability).
+name: architecture
+
+tools:
+  depcruise:
+    command: depcruise            # resolved via resolve_tool (node_modules/.bin walk-up → PATH)
+    default_dimension: architecture_rot   # D-14-02: circular deps / broken imports → architecture_rot
+    severity_map: {}              # parser-internal {error:major,warn:minor,info:info}; error tops at major
+    timeout_ms: 120000            # generous; run_architecture is OUTSIDE the 95s collector deadline
+
+  jscpd:
+    command: jscpd
+    default_dimension: architecture_rot   # D-14-02: duplication → architecture_rot
+    severity_map: {}              # one aggregate severity derived from the duplication %
+    timeout_ms: 120000            # generous; tokenizer-based but bounded by --ignore + this timeout
+    # ARCH-02 thresholds (D-14-03). Overridable per-repo via .repo-audit.yaml (SC4).
+    floor_pct: 5                  # duplicated-lines % below this → NO finding (number in summary only)
+    min_tokens: 50                # jscpd --min-tokens detection default
+    min_lines: 5                  # jscpd --min-lines detection default
+    top_n_hotspots: 10            # cap the cited clone hotspots, ranked by `lines` desc
