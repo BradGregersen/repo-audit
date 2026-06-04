@@ -52,6 +52,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from repo_audit.adapters.quality_depth.axe import (
+    AxeResult,
+    AxeStatus,
+    collect_axe,
+)
 from repo_audit.schema.finding import Finding
 
 # Mirrors ArchitectureStatus / CicdStatus: ``not_applicable`` is the
@@ -96,6 +101,9 @@ class QualityDepthScanResult:
 
 
 __all__ = [
+    "AxeResult",
+    "AxeStatus",
     "QualityDepthScanResult",
     "QualityDepthStatus",
+    "collect_axe",
 ]
