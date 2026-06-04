@@ -1,0 +1,62 @@
+[
+  {
+    "filePath": "/repo/src/components/Button.tsx",
+    "messages": [
+      {
+        "ruleId": "jsx-a11y/anchor-is-valid",
+        "severity": 2,
+        "message": "The href attribute is required for an anchor to be keyboard accessible.",
+        "line": 14,
+        "column": 7,
+        "nodeType": "JSXOpeningElement",
+        "endLine": 14,
+        "endColumn": 42
+      },
+      {
+        "ruleId": "jsx-a11y/alt-text",
+        "severity": 2,
+        "message": "img elements must have an alt prop, either with meaningful text, or an empty string for decorative images.",
+        "line": 22,
+        "column": 9,
+        "nodeType": "JSXOpeningElement",
+        "endLine": 22,
+        "endColumn": 31
+      }
+    ],
+    "errorCount": 2,
+    "warningCount": 0,
+    "fixableErrorCount": 0,
+    "fixableWarningCount": 0,
+    "source": ""
+  },
+  {
+    "filePath": "/repo/src/screens/Home.tsx",
+    "messages": [
+      {
+        "ruleId": "react-native-a11y/has-accessibility-hint",
+        "severity": 1,
+        "message": "Missing accessibilityHint on a touchable element with an accessibilityLabel.",
+        "line": 31,
+        "column": 5,
+        "nodeType": "JSXOpeningElement",
+        "endLine": 31,
+        "endColumn": 60
+      },
+      {
+        "ruleId": "react-native-a11y/has-valid-accessibility-role",
+        "severity": 2,
+        "message": "accessibilityRole value is not valid.",
+        "line": 38,
+        "column": 5,
+        "nodeType": "JSXOpeningElement",
+        "endLine": 38,
+        "endColumn": 48
+      }
+    ],
+    "errorCount": 1,
+    "warningCount": 1,
+    "fixableErrorCount": 0,
+    "fixableWarningCount": 0,
+    "source": ""
+  }
+]

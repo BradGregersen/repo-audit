@@ -1,0 +1,5 @@
+var __BUNDLE_START_TIME__=this.nativePerformanceNow?nativePerformanceNow():Date.now(),__DEV__=false,process=this.process||{};process.env=process.env||{};process.env.NODE_ENV=process.env.NODE_ENV||"production";
+(function(g){var r,i={},m={};function require(n){var o=m[n];return o&&o.isInitialized?o.publicModule.exports:loadModuleImplementation(n,o)}
+function define(f,n,d){if(m[n])return;m[n]={dependencyMap:d,factory:f,hasError:false,importedAll:i,importedDefault:i,isInitialized:false,publicModule:{exports:{}}}}
+define(function(g,r,i,a,m,e,d){e.processOrders=function(o,t,h){var s=0;for(var c=0;c<o.length;c++){s+=o[c].price*o[c].quantity}var x=s>h?s*0.1:0;return s-x+(s-x)*t}},0,[]);
+require(0);})(typeof globalThis!=='undefined'?globalThis:typeof global!=='undefined'?global:typeof window!=='undefined'?window:this);

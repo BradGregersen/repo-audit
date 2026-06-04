@@ -1,0 +1,47 @@
+{
+  "lighthouseVersion": "13.3.0",
+  "requestedUrl": "https://example.com",
+  "finalUrl": "https://example.com/",
+  "fetchTime": "2026-06-04T19:00:00.000Z",
+  "categories": {
+    "performance": {
+      "id": "performance",
+      "title": "Performance",
+      "score": 0.42
+    }
+  },
+  "audits": {
+    "largest-contentful-paint": {
+      "id": "largest-contentful-paint",
+      "title": "Largest Contentful Paint",
+      "score": 0.31,
+      "numericValue": 4800.0,
+      "numericUnit": "millisecond",
+      "displayValue": "4.8 s"
+    },
+    "cumulative-layout-shift": {
+      "id": "cumulative-layout-shift",
+      "title": "Cumulative Layout Shift",
+      "score": 0.55,
+      "numericValue": 0.18,
+      "numericUnit": "unitless",
+      "displayValue": "0.18"
+    },
+    "total-blocking-time": {
+      "id": "total-blocking-time",
+      "title": "Total Blocking Time",
+      "score": 0.4,
+      "numericValue": 620.0,
+      "numericUnit": "millisecond",
+      "displayValue": "620 ms"
+    },
+    "total-byte-weight": {
+      "id": "total-byte-weight",
+      "title": "Avoid enormous network payloads",
+      "score": 0.35,
+      "numericValue": 3145728.0,
+      "numericUnit": "byte",
+      "displayValue": "Total size was 3,072 KiB"
+    }
+  }
+}
