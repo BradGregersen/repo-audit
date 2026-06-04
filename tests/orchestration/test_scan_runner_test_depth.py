@@ -198,6 +198,14 @@ def _stub_all_steps_ok(monkeypatch):
         lambda repo, **kw: SupplyChainResult(status="ok"),
         raising=True,
     )
+    # Phase 14: the forced typescript-node detection makes the architecture step
+    # JS-applicable, so the real run_architecture would run dependency-cruiser /
+    # jscpd on the bare fake repo (tools absent → unavailable) — an UNRELATED
+    # applicable degradation that would otherwise flip partial. Pin it ok so partial
+    # tracks ONLY the Phase-11 statuses the test sets.
+    monkeypatch.setattr(
+        scan_runner, "run_architecture", lambda repo, **kw: _OkRes(), raising=True
+    )
     monkeypatch.setattr(scan_runner, "_maybe_refresh_coverage", lambda r, f: f)
 
 

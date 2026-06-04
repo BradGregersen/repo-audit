@@ -33,6 +33,7 @@ from pathlib import Path
 
 from repo_audit import __version__
 from repo_audit.adapters import run_adapters
+from repo_audit.adapters.architecture import run_architecture
 from repo_audit.adapters.cache_env import build_scan_env, scan_tempdir
 from repo_audit.adapters.cicd import run_cicd
 from repo_audit.adapters.mobile import run_mobile
@@ -359,6 +360,29 @@ def run_scan(
         cicd_base_env = build_scan_env(_cicd_td)
         cicd_result = _THIS_MODULE.run_cicd(repo_path, base_env=cicd_base_env)
 
+    # Phase 14 (Plan 14-04): CROSS-STACK ARCHITECTURE step (mirrors the Phase 13
+    # CI/CD step). Composes ARCH-01 (dependency-cruiser circular/boundary over the
+    # JS/TS dependency graph) + ARCH-02 (jscpd copy-paste duplication, repo-wide)
+    # into ONE never-raising ArchitectureScanResult envelope. It runs AFTER run_cicd
+    # and OUTSIDE the 95 s collector deadline (depcruise + jscpd over a large
+    # monorepo can exceed it — each sub-collector carries its own generous run_tool
+    # timeout). The scan_tempdir is REQUIRED so depcruise's shipped ruleset +
+    # jscpd's JSON report land OUTSIDE the read-only target repo (REP-03). The
+    # already-computed ``detection`` is REUSED (detection is NOT re-run inside the
+    # adapter): its stack TAGS gate ARCH-01 applicability via has_js_dependency_graph.
+    # A non-JS repo degrades to status='not_applicable' — DISCLOSED via the ledger
+    # but NON-partial-flipping (D-13-05, via _phase11_step_degraded); an applicable
+    # degradation (tool absent on a JS stack, timeout) flips partial. Called via
+    # _THIS_MODULE so tests can monkeypatch scan_runner.run_architecture (same
+    # patchable-attribute pattern as run_cicd / run_sca / run_supply_chain).
+    with scan_tempdir() as _arch_td:
+        arch_base_env = build_scan_env(_arch_td)
+        arch_result = _THIS_MODULE.run_architecture(
+            repo_path,
+            base_env=arch_base_env,
+            stacks=[s.stack for s in detection.stacks],
+        )
+
     # Phase 8 (Plan 08-05): CROSS-STACK RLS step (mirrors the Phase 7 SCA step).
     # Like run_sca, run_supabase runs ONCE per repo (the ephemeral-DB lifecycle +
     # the --rls-pgrls / --rls-runtime flag gating sit ABOVE per-stack dispatch),
@@ -543,6 +567,7 @@ def run_scan(
         + list(expo_result.findings)
         + list(test_depth_result.findings)
         + list(cicd_result.findings)
+        + list(arch_result.findings)
     )
 
     # Sub-step C + D: --refresh-coverage opt-in wiring (D-41' / Decision A).
@@ -598,6 +623,12 @@ def run_scan(
         # is DISCLOSED but does NOT flip — the D-13-05 first-class degrade, via
         # _phase11_step_degraded (which swallows not_applicable).
         or _phase11_step_degraded(cicd_result.status)
+        # Phase 14: an APPLICABLE architecture degradation (depcruise/jscpd absent
+        # on a JS stack, timeout) flips partial; a not_applicable (non-JS stack —
+        # no JS/TS dependency graph) step is DISCLOSED but does NOT flip — the
+        # first-class degrade, via _phase11_step_degraded (which swallows
+        # not_applicable).
+        or _phase11_step_degraded(arch_result.status)
     )
 
     # Fold the SCA status/notes into the scope ledger so the SCA dimension's
@@ -707,6 +738,23 @@ def run_scan(
             scope_ledger.notes += "; " + cicd_note_text
         else:
             scope_ledger.notes = cicd_note_text
+
+    # Fold the Phase-14 ARCHITECTURE step's status + ledger notes into the scope
+    # ledger so every sub-tool's availability is disclosed honestly (SAFE-08),
+    # mirroring the CI/CD / Supply-chain folds. An absent tool (dependency-cruiser /
+    # jscpd missing on a JS stack), a timeout, or a non-JS-stack not_applicable is
+    # DISCLOSED here under the "Architecture" label; the scan still completes
+    # (graceful degradation) and the partial flag flips above only for an APPLICABLE
+    # degradation.
+    arch_notes = list(arch_result.ledger_notes)
+    if arch_result.notes:
+        arch_notes.insert(0, f"Architecture ({arch_result.status}): {arch_result.notes}")
+    if arch_notes:
+        arch_note_text = "; ".join(arch_notes)
+        if scope_ledger.notes:
+            scope_ledger.notes += "; " + arch_note_text
+        else:
+            scope_ledger.notes = arch_note_text
 
     # Plan 05-01 / TREND-01: baseline_run is conditional on a prior sidecar.
     # find_prior_sidecar returns the most-recent JSON sidecar with

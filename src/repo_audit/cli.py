@@ -31,6 +31,7 @@ from repo_audit.doctor.self_test import run_secret_lint_self_test
 # Per-adapter side-effect imports: importing the adapter package triggers its
 # @register_adapter(...) so the detector's stack dispatch + the scope ledger see
 # it (the same one-line pattern Phase 3 set for typescript, closing DI-03-03-01).
+import repo_audit.adapters.architecture  # noqa: F401, E402
 import repo_audit.adapters.mobile  # noqa: F401, E402
 import repo_audit.adapters.sast  # noqa: F401, E402
 import repo_audit.adapters.supabase  # noqa: F401, E402
