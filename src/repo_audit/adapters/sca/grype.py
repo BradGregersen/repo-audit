@@ -211,7 +211,7 @@ def collect_grype(repo_path: Path, env: dict[str, str]) -> GrypeResult:
         continues osv-only, D-07-10); ``status='timeout'`` on a timed-out run.
         Never raises.
     """
-    binary = resolve_tool("grype", repo_path)
+    binary = resolve_tool("grype", repo_path, trusted_only=True)
     if binary is None:
         return GrypeResult(
             status="unavailable",

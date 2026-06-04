@@ -118,7 +118,7 @@ def _names_from_osv_json(stdout: str) -> list[str]:
 
 def _from_repo(repo_path: Path, env: Optional[dict[str, str]]) -> DeprecatedResult:
     """Run the osv deprecated pass over ``repo_path`` (runtime-wiring path)."""
-    binary = resolve_tool("osv-scanner", repo_path)
+    binary = resolve_tool("osv-scanner", repo_path, trusted_only=True)
     if binary is None:
         return DeprecatedResult(
             status="unavailable",

@@ -238,7 +238,7 @@ def collect_runtime_two_account(
             return _unavailable(
                 f"runtime test script not found in repo ({_SCRIPT_REL})"
             )
-        node = resolve_tool("node", repo)
+        node = resolve_tool("node", repo, trusted_only=True)
         if node is None:
             return _unavailable(
                 "node not found (vendor + PATH miss) — cannot run the runtime "

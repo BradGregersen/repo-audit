@@ -107,7 +107,7 @@ def collect_pgrls(
         ``status="unavailable"`` (absent binary / exec-failed / malformed SARIF /
         parser surprise) or ``status="timeout"`` (timed out). Never raises.
     """
-    binary = resolve_tool("pgrls", scan_target)
+    binary = resolve_tool("pgrls", scan_target, trusted_only=True)
     if binary is None:
         return AdapterResult(
             status="unavailable",

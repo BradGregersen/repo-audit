@@ -54,7 +54,7 @@ def _stub_run_tool(monkeypatch, returncode: int, stdout: str = "", stderr: str =
 
     monkeypatch.setattr(rt, "run_tool", _fake)
     # node resolves to a fake path so the gate passes the resolution step.
-    monkeypatch.setattr(rt, "resolve_tool", lambda tool, target: Path("/usr/bin/node"))
+    monkeypatch.setattr(rt, "resolve_tool", lambda tool, target, **_kw: Path("/usr/bin/node"))
     return seen
 
 
@@ -127,7 +127,7 @@ def test_timeout_sentinel_is_timeout(tmp_path: Path, monkeypatch) -> None:
 
 def test_missing_script_in_repo_is_unavailable(tmp_path: Path, monkeypatch) -> None:
     # No script written; resolve node fine, but the script path is absent.
-    monkeypatch.setattr(rt, "resolve_tool", lambda tool, target: Path("/usr/bin/node"))
+    monkeypatch.setattr(rt, "resolve_tool", lambda tool, target, **_kw: Path("/usr/bin/node"))
     called: list = []
     monkeypatch.setattr(rt, "run_tool", lambda *a, **k: called.append(1))
     result = collect_runtime_two_account(
@@ -140,7 +140,7 @@ def test_missing_script_in_repo_is_unavailable(tmp_path: Path, monkeypatch) -> N
 
 def test_node_absent_is_unavailable(tmp_path: Path, monkeypatch) -> None:
     repo = _repo_with_script(tmp_path)
-    monkeypatch.setattr(rt, "resolve_tool", lambda tool, target: None)
+    monkeypatch.setattr(rt, "resolve_tool", lambda tool, target, **_kw: None)
     called: list = []
     monkeypatch.setattr(rt, "run_tool", lambda *a, **k: called.append(1))
     result = collect_runtime_two_account(

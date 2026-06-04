@@ -78,7 +78,7 @@ def _patch_detekt(
 
     A ``None`` ``sarif`` simulates "no parseable SARIF produced".
     """
-    monkeypatch.setattr(detekt, "resolve_tool", lambda tool, repo: resolve_to)
+    monkeypatch.setattr(detekt, "resolve_tool", lambda tool, repo, **_kw: resolve_to)
 
     def fake_run_tool(argv, *, env, cwd, timeout_seconds):
         return InvocationResult(

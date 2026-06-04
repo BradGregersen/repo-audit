@@ -141,7 +141,7 @@ def generate_sbom(
 
     # 1. Resolve the vendored Syft (vendor/syft/syft wins — D-06-10). A miss →
     #    unavailable with NO write attempted (Pitfall 5 / T-12-04-AVAIL).
-    syft = resolve_tool("syft", repo_path)
+    syft = resolve_tool("syft", repo_path, trusted_only=True)
     if syft is None:
         return SbomResult(
             status="unavailable",

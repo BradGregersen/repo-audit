@@ -65,7 +65,7 @@ def _patch_grype(
     json_returncode: int = 1,
     resolve_to: Path | None = Path("/vendor/grype/grype"),
 ) -> None:
-    monkeypatch.setattr(grype_mod, "resolve_tool", lambda tool, repo: resolve_to)
+    monkeypatch.setattr(grype_mod, "resolve_tool", lambda tool, repo, **_kw: resolve_to)
 
     def fake_run_tool(argv, *, env, cwd, timeout_seconds):
         is_sarif = "sarif" in argv
@@ -86,7 +86,7 @@ def _patch_osv(
     json_stdout: str,
     resolve_to: Path | None = Path("/vendor/osv-scanner/osv-scanner"),
 ) -> None:
-    monkeypatch.setattr(osv_mod, "resolve_tool", lambda tool, repo: resolve_to)
+    monkeypatch.setattr(osv_mod, "resolve_tool", lambda tool, repo, **_kw: resolve_to)
 
     def fake_run_tool(argv, *, env, cwd, timeout_seconds):
         is_sarif = "sarif" in argv

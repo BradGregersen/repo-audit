@@ -144,7 +144,7 @@ def collect_semgrep(
         ``status='timeout'`` when the run exceeds ``timeout_seconds``. NEVER
         raises and NEVER hangs.
     """
-    binary = resolve_tool(_SOURCE_TOOL, repo_path)
+    binary = resolve_tool(_SOURCE_TOOL, repo_path, trusted_only=True)
     if binary is None:
         return SastResult(
             status="unavailable",

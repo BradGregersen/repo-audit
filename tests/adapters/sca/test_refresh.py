@@ -20,7 +20,7 @@ def test_refreshes_both_sources_with_download_flags(monkeypatch, tmp_path):
     """osv gets --download-offline-databases; grype gets db update."""
     calls: list[list[str]] = []
 
-    def fake_resolve(tool, target):
+    def fake_resolve(tool, target, **_kw):
         return tmp_path / tool
 
     def fake_run_tool(argv, *, env, cwd, timeout_seconds):
@@ -43,7 +43,7 @@ def test_refreshes_both_sources_with_download_flags(monkeypatch, tmp_path):
 
 def test_never_raises_on_missing_binaries(monkeypatch):
     """Both tools absent → status reflects skipped/failed, never raises."""
-    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target: None)
+    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target, **_kw: None)
     # run_tool must not even be reached; make it explode if it is.
     monkeypatch.setattr(
         refreshmod, "run_tool",
@@ -59,7 +59,7 @@ def test_never_raises_on_missing_binaries(monkeypatch):
 def test_exec_failed_maps_to_failed(monkeypatch, tmp_path):
     from repo_audit.adapters.toolops import EXEC_FAILED
 
-    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target: tmp_path / tool)
+    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target, **_kw: tmp_path / tool)
 
     def fake_run_tool(argv, *, env, cwd, timeout_seconds):
         return InvocationResult(stdout="", stderr="boom", returncode=EXEC_FAILED, command=argv)
@@ -73,7 +73,7 @@ def test_exec_failed_maps_to_failed(monkeypatch, tmp_path):
 def test_timeout_maps_to_timeout(monkeypatch, tmp_path):
     from repo_audit.adapters.toolops import TIMED_OUT
 
-    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target: tmp_path / tool)
+    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target, **_kw: tmp_path / tool)
 
     def fake_run_tool(argv, *, env, cwd, timeout_seconds):
         return InvocationResult(stdout="", stderr="slow", returncode=TIMED_OUT, command=argv)
@@ -88,7 +88,7 @@ def test_secrets_scrubbed_from_child_env(monkeypatch, tmp_path):
     """Secret-shaped env vars are dropped before invoking the tools."""
     seen_envs: list[dict] = []
 
-    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target: tmp_path / tool)
+    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target, **_kw: tmp_path / tool)
 
     def fake_run_tool(argv, *, env, cwd, timeout_seconds):
         seen_envs.append(env)
@@ -106,7 +106,7 @@ def test_db_env_layered_before_invocation(monkeypatch, tmp_path):
     """The DB-cache env keys are present in the child env (build_sca_env layered)."""
     seen_envs: list[dict] = []
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target: tmp_path / tool)
+    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target, **_kw: tmp_path / tool)
 
     def fake_run_tool(argv, *, env, cwd, timeout_seconds):
         seen_envs.append(env)

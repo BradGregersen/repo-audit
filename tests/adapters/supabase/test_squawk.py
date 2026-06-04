@@ -40,7 +40,7 @@ class _FakeInvocation:
 
 
 def _patch_resolve(monkeypatch, *, found: bool):
-    def _fake_resolve(tool, scan_target):
+    def _fake_resolve(tool, scan_target, **_kw):
         if tool == "squawk" and found:
             return scan_target / "squawk"
         return None

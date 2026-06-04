@@ -112,7 +112,7 @@ def collect_osv(repo_path: Path, env: dict[str, str]) -> OsvResult:
         to the whole SCA dimension unavailable, D-07-10); ``status='timeout'``
         when the run exceeds the timeout. Never raises.
     """
-    binary = resolve_tool("osv-scanner", repo_path)
+    binary = resolve_tool("osv-scanner", repo_path, trusted_only=True)
     if binary is None:
         return OsvResult(
             status="unavailable",

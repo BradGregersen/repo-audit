@@ -257,7 +257,7 @@ def collect_squawk(
             dimension=_DEFAULT_DIMENSION,
         )
 
-    binary = resolve_tool("squawk", scan_target)
+    binary = resolve_tool("squawk", scan_target, trusted_only=True)
     if binary is None:
         return AdapterResult(
             status="unavailable",

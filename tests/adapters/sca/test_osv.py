@@ -59,7 +59,7 @@ def _patch_osv(
     run_tool returns the SARIF stdout on the first call (--format sarif) and the
     JSON stdout on the second (--format json), keyed on the argv contents.
     """
-    monkeypatch.setattr(osv_mod, "resolve_tool", lambda tool, repo: resolve_to)
+    monkeypatch.setattr(osv_mod, "resolve_tool", lambda tool, repo, **_kw: resolve_to)
 
     def fake_run_tool(argv, *, env, cwd, timeout_seconds):
         is_sarif = "sarif" in argv

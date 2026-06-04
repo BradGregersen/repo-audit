@@ -171,7 +171,7 @@ def refresh_vuln_db(env: dict[str, str]) -> ScaRefreshResult:
         target = Path(td)
 
         # --- osv advance ---------------------------------------------------
-        osv_bin = resolve_tool("osv-scanner", target)
+        osv_bin = resolve_tool("osv-scanner", target, trusted_only=True)
         if osv_bin is None:
             osv_status: RefreshStatus = "skipped"
         else:
@@ -196,7 +196,7 @@ def refresh_vuln_db(env: dict[str, str]) -> ScaRefreshResult:
             stderr_parts.append(osv_inv.stderr or "")
 
         # --- grype advance -------------------------------------------------
-        grype_bin = resolve_tool("grype", target)
+        grype_bin = resolve_tool("grype", target, trusted_only=True)
         if grype_bin is None:
             grype_status: RefreshStatus = "skipped"
         else:

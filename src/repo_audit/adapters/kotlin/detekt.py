@@ -167,12 +167,12 @@ def collect_detekt(
         raises and NEVER hangs.
     """
     # (1) JRE: explicit launcher, else resolve. Absent → KOT-01 unavailable.
-    java = java_binary or resolve_tool("java", repo_path)
+    java = java_binary or resolve_tool("java", repo_path, trusted_only=True)
     if java is None:
         return KotlinResult(status="unavailable", notes="java/JRE not found")
 
     # (2) Vendored detekt-cli jar.
-    jar = detekt_jar or resolve_tool(_SOURCE_TOOL, repo_path)
+    jar = detekt_jar or resolve_tool(_SOURCE_TOOL, repo_path, trusted_only=True)
     if jar is None:
         return KotlinResult(
             status="unavailable",
