@@ -80,6 +80,19 @@ tools:
       - pattern: "@typescript-eslint/no-floating-promises"
         dimension: correctness
         severity: major
+      # A11Y-01 static tier (Phase 15, Plan 02): route accessibility lint to
+      # the PUBLIC `quality` dimension. jsx-a11y/* covers web/React a11y;
+      # react-native-a11y/* is the ONLY a11y path that works for React Native
+      # (no DOM → no axe), so it is first-class here. The eslint parser stamps
+      # evidence_type=static / confidence=high unchanged (D-15-07). The plugins
+      # live in the TARGET repo's eslint config — Repo installs nothing;
+      # absent plugins simply emit no messages (honest absence).
+      - pattern: "jsx-a11y/*"
+        dimension: quality
+        severity: minor
+      - pattern: "react-native-a11y/*"
+        dimension: quality
+        severity: minor
 
   knip:
     command: knip
