@@ -120,6 +120,8 @@ def run_quality_depth(
     base_env: dict[str, str],
     stacks: Iterable[str] | None = None,
     qd_build: bool = False,
+    prior_web_bytes: int | None = None,
+    prior_rn_bytes: int | None = None,
 ) -> QualityDepthScanResult:
     """Compose the a11y + perf collectors behind one never-raising envelope.
 
@@ -158,6 +160,17 @@ def run_quality_depth(
             treated as no RN surface (the web gate alone decides applicability).
         qd_build: opt-in flag unlocking the throwaway Metro production bundle build
             (PATH B). Default ``False`` — a fleet sweep NEVER builds.
+        prior_web_bytes: the prior scan's web transfer-size baseline (the
+            lighthouse ``web_transfer_bytes`` carrier from the prior sidecar),
+            forwarded to ``collect_lighthouse`` so the ``web_transfer_regression``
+            trigger can fire. ``None`` (default — a baseline run, or a prior with
+            an unavailable carrier) → NO regression Finding (never a fabricated
+            zero baseline; None-not-0, SAFE-04/08).
+        prior_rn_bytes: the prior scan's RN bundle-size baseline (the metro
+            ``rn_bundle_bytes`` carrier from the prior sidecar), forwarded to
+            ``collect_rn_bundle`` so the ``rn_bundle_regression`` trigger can fire.
+            ``None`` (default) → NO regression Finding (same None-not-0 honesty
+            contract).
 
     Returns:
         A :class:`QualityDepthScanResult`; never raises.
@@ -191,13 +204,21 @@ def run_quality_depth(
             "lighthouse",
             collect_lighthouse,
             bool(live_url),
-            {"live_url": live_url, "config": config},
+            {
+                "live_url": live_url,
+                "config": config,
+                "prior_web_bytes": prior_web_bytes,
+            },
         ),
         (
             "rn_bundle",
             collect_rn_bundle,
             rn_applicable,
-            {"qd_build": qd_build, "config": config},
+            {
+                "qd_build": qd_build,
+                "config": config,
+                "prior_rn_bytes": prior_rn_bytes,
+            },
         ),
     ]
 

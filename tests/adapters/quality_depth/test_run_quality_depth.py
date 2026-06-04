@@ -182,3 +182,145 @@ def test_returns_quality_depth_scan_result(tmp_path, monkeypatch):
     _patch_config(monkeypatch, live_url=None)
     result = run_quality_depth(tmp_path, base_env={}, stacks=[])
     assert isinstance(result, QualityDepthScanResult)
+
+
+# --- Plan 15-05: prior carrier bytes threaded into the regression triggers ---
+
+
+def _recording_collector(spy_key, spy):
+    """Build a collect_* spy that records the kwargs it was called with."""
+
+    def _collector(repo, env, **kwargs):
+        spy[spy_key] = kwargs
+        return AxeResult(status="ok")  # any QD result shape; we only read kwargs
+
+    return _collector
+
+
+def test_prior_web_bytes_threaded_into_lighthouse_step(tmp_path, monkeypatch):
+    """run_quality_depth(prior_web_bytes=N) forwards prior_web_bytes=N to lighthouse."""
+    _patch_config(monkeypatch, live_url="https://example.test")
+    seen = {}
+
+    monkeypatch.setattr(
+        quality_depth, "collect_axe",
+        lambda *a, **k: AxeResult(status="ok"), raising=True,
+    )
+    monkeypatch.setattr(
+        quality_depth, "collect_lighthouse",
+        _recording_collector("lighthouse", seen), raising=True,
+    )
+    monkeypatch.setattr(
+        quality_depth, "collect_rn_bundle",
+        lambda *a, **k: RnBundleResult(status="ok"), raising=True,
+    )
+
+    run_quality_depth(
+        tmp_path, base_env={}, stacks=["python"], prior_web_bytes=12345
+    )
+
+    assert seen["lighthouse"]["prior_web_bytes"] == 12345
+
+
+def test_prior_rn_bytes_threaded_into_rn_bundle_step(tmp_path, monkeypatch):
+    """run_quality_depth(prior_rn_bytes=M) forwards prior_rn_bytes=M to rn_bundle."""
+    _patch_config(monkeypatch, live_url=None)
+    seen = {}
+
+    monkeypatch.setattr(
+        quality_depth, "collect_rn_bundle",
+        _recording_collector("rn_bundle", seen), raising=True,
+    )
+
+    run_quality_depth(
+        tmp_path, base_env={}, stacks=["react-native"], qd_build=True,
+        prior_rn_bytes=67890,
+    )
+
+    assert seen["rn_bundle"]["prior_rn_bytes"] == 67890
+    # the existing qd_build kwarg still threads alongside the new prior bytes
+    assert seen["rn_bundle"]["qd_build"] is True
+
+
+def test_prior_bytes_default_to_none_when_omitted(tmp_path, monkeypatch):
+    """Omitting the prior bytes → both forwarded as None (no fabricated baseline)."""
+    _patch_config(monkeypatch, live_url="https://example.test")
+    seen = {}
+
+    monkeypatch.setattr(
+        quality_depth, "collect_axe",
+        lambda *a, **k: AxeResult(status="ok"), raising=True,
+    )
+    monkeypatch.setattr(
+        quality_depth, "collect_lighthouse",
+        _recording_collector("lighthouse", seen), raising=True,
+    )
+
+    def _rn(repo, env, **kwargs):
+        seen["rn_bundle"] = kwargs
+        return RnBundleResult(status="ok")
+
+    monkeypatch.setattr(quality_depth, "collect_rn_bundle", _rn, raising=True)
+
+    # RN surface present so rn_bundle is invoked too.
+    run_quality_depth(tmp_path, base_env={}, stacks=["expo"])
+
+    assert seen["lighthouse"]["prior_web_bytes"] is None
+    assert seen["rn_bundle"]["prior_rn_bytes"] is None
+
+
+def test_axe_step_unchanged_by_prior_bytes(tmp_path, monkeypatch):
+    """The axe step never gains a prior-bytes kwarg (a11y has no regression branch)."""
+    _patch_config(monkeypatch, live_url="https://example.test")
+    seen = {}
+
+    monkeypatch.setattr(
+        quality_depth, "collect_axe",
+        _recording_collector("axe", seen), raising=True,
+    )
+    monkeypatch.setattr(
+        quality_depth, "collect_lighthouse",
+        lambda *a, **k: LighthouseResult(status="ok"), raising=True,
+    )
+
+    run_quality_depth(
+        tmp_path, base_env={}, stacks=["python"],
+        prior_web_bytes=999, prior_rn_bytes=888,
+    )
+
+    assert "prior_web_bytes" not in seen["axe"]
+    assert "prior_rn_bytes" not in seen["axe"]
+
+
+def test_no_surface_gate_holds_even_with_prior_bytes(tmp_path, monkeypatch):
+    """Prior bytes must NOT defeat the no-egress not_applicable gate."""
+    _patch_config(monkeypatch, live_url=None)
+    spy = {"axe": 0, "lighthouse": 0, "rn_bundle": 0}
+
+    monkeypatch.setattr(
+        quality_depth, "collect_axe",
+        lambda *a, **k: (spy.__setitem__("axe", spy["axe"] + 1)
+                         or AxeResult(status="ok")),
+        raising=True,
+    )
+    monkeypatch.setattr(
+        quality_depth, "collect_lighthouse",
+        lambda *a, **k: (spy.__setitem__("lighthouse", spy["lighthouse"] + 1)
+                         or LighthouseResult(status="ok")),
+        raising=True,
+    )
+    monkeypatch.setattr(
+        quality_depth, "collect_rn_bundle",
+        lambda *a, **k: (spy.__setitem__("rn_bundle", spy["rn_bundle"] + 1)
+                         or RnBundleResult(status="ok")),
+        raising=True,
+    )
+
+    # No live_url AND no RN surface → not_applicable; prior bytes supplied anyway.
+    result = run_quality_depth(
+        tmp_path, base_env={}, stacks=["python"],
+        prior_web_bytes=12345, prior_rn_bytes=67890,
+    )
+
+    assert result.status == "not_applicable"
+    assert spy == {"axe": 0, "lighthouse": 0, "rn_bundle": 0}
