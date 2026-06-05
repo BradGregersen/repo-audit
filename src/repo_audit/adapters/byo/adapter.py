@@ -47,6 +47,7 @@ def run_byo_tool(
     *,
     produce_argv: list[str] | None = None,
     base_env: dict[str, str] | None = None,
+    sarif_from_stdout: bool = False,
 ) -> AdapterResult:
     """Run a single BYO opt-in tool: gate on attestation, then route its SARIF.
 
@@ -66,6 +67,14 @@ def run_byo_tool(
         base_env: OPTIONAL base environment the live invocation runs under
             (cache-redirected scan env from the caller). Defaults to the current
             process environment. The credential (if any) is layered on top.
+        sarif_from_stdout: when True, the live invocation emits its SARIF to
+            STDOUT rather than to ``cfg.sarif_output`` (CR-01: Semgrep ``--sarif``
+            and ggshield ``--format sarif`` both print to stdout — they take no
+            ``--output`` flag in the audited argv). The captured ``inv.stdout``
+            is then parsed instead of opening the file. Only meaningful when
+            ``produce_argv`` is supplied; ignored otherwise. Defaults to False so
+            the file-writing tools (Snyk ``--sarif-file-output``) and the Phase-6
+            pre-written-SARIF callers are unchanged.
 
     Returns:
         An :class:`AdapterResult`. ``status='ok'`` with ``source_tool``-tagged
@@ -88,6 +97,10 @@ def run_byo_tool(
         )
 
     sarif_path = Path(repo_path) / cfg.sarif_output
+
+    # SARIF captured from a stdout-emitting live invocation (CR-01). Stays None
+    # for the file-based path (pre-written SARIF, or a tool that writes a file).
+    sarif_stdout: str | None = None
 
     # --- Phase-16 (BYO-02) live invocation seam ------------------------------
     # If a produce-argv is supplied, run the commercial binary FIRST to PRODUCE
@@ -136,29 +149,55 @@ def run_byo_tool(
                 dimension=cfg.default_dimension,
             )
 
-    # --- read the SARIF (pre-written, or just produced by the seam above) ----
-    try:
-        with sarif_path.open("r", encoding="utf-8") as fh:
-            doc = json.load(fh)
-    except FileNotFoundError:
-        return AdapterResult(
-            status="unavailable",
-            notes=f"BYO tool {cfg.name!r}: SARIF output not found at {cfg.sarif_output}",
-            source_adapter=_SOURCE_ADAPTER,
-            source_tool=cfg.name,
-            dimension=cfg.default_dimension,
-        )
-    except (OSError, json.JSONDecodeError) as exc:
-        return AdapterResult(
-            status="unavailable",
-            notes=(
-                f"BYO tool {cfg.name!r}: could not read/parse SARIF at "
-                f"{cfg.sarif_output}: {type(exc).__name__}: {exc}"
-            ),
-            source_adapter=_SOURCE_ADAPTER,
-            source_tool=cfg.name,
-            dimension=cfg.default_dimension,
-        )
+        # CR-01: stdout-emitting SARIF tools (Semgrep --sarif / ggshield
+        # --format sarif) print to stdout — never to cfg.sarif_output. Capture
+        # the stdout for the parse below instead of opening a file that the tool
+        # never wrote. The exit code (CR-02) disambiguates a real failure from a
+        # missing file: a non-zero exit is NOT a failure for these tools
+        # (Pitfall 9 — they exit non-zero when they FIND issues), so it is folded
+        # into the notes for diagnosability rather than short-circuiting here.
+        if sarif_from_stdout:
+            sarif_stdout = inv.stdout
+
+    # --- read the SARIF (from stdout, a pre-written file, or one just produced)
+    if sarif_stdout is not None:
+        try:
+            doc = json.loads(sarif_stdout)
+        except (ValueError, json.JSONDecodeError) as exc:
+            return AdapterResult(
+                status="unavailable",
+                notes=(
+                    f"BYO tool {cfg.name!r}: live invocation emitted no parseable "
+                    f"SARIF on stdout (exit {inv.returncode}): "
+                    f"{type(exc).__name__}."
+                ),
+                source_adapter=_SOURCE_ADAPTER,
+                source_tool=cfg.name,
+                dimension=cfg.default_dimension,
+            )
+    else:
+        try:
+            with sarif_path.open("r", encoding="utf-8") as fh:
+                doc = json.load(fh)
+        except FileNotFoundError:
+            return AdapterResult(
+                status="unavailable",
+                notes=f"BYO tool {cfg.name!r}: SARIF output not found at {cfg.sarif_output}",
+                source_adapter=_SOURCE_ADAPTER,
+                source_tool=cfg.name,
+                dimension=cfg.default_dimension,
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            return AdapterResult(
+                status="unavailable",
+                notes=(
+                    f"BYO tool {cfg.name!r}: could not read/parse SARIF at "
+                    f"{cfg.sarif_output}: {type(exc).__name__}: {exc}"
+                ),
+                source_adapter=_SOURCE_ADAPTER,
+                source_tool=cfg.name,
+                dimension=cfg.default_dimension,
+            )
 
     if not isinstance(doc, dict):
         return AdapterResult(

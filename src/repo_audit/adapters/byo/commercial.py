@@ -70,6 +70,11 @@ class _CommercialSpec:
     argv_builder: ArgvBuilder
     normalizer: Optional[Normalizer] = None  # JSON tools only
     binary: str = ""  # the binary name to resolve (defaults to name)
+    # CR-01: where a SARIF tool's output lands. "stdout" tools (Semgrep --sarif,
+    # ggshield --format sarif) print SARIF to stdout and take no --output flag;
+    # "file" tools (Snyk --sarif-file-output) write cfg.sarif_output. Ignored for
+    # JSON tools (they always read stdout via their normalizer).
+    sarif_source: Literal["file", "stdout"] = "file"
 
     def binary_name(self) -> str:
         return self.binary or self.name
@@ -154,12 +159,14 @@ COMMERCIAL_TOOLS: dict[str, _CommercialSpec] = {
         default_dimension="security",
         argv_builder=_semgrep_pro_argv,
         binary="semgrep",
+        sarif_source="stdout",  # CR-01: semgrep --sarif prints to stdout
     ),
     "snyk": _CommercialSpec(
         name="snyk",
         output_kind="sarif",
         default_dimension="security",
         argv_builder=_snyk_argv,
+        # snyk writes a file via --sarif-file-output (default "file")
     ),
     "gitguardian": _CommercialSpec(
         name="gitguardian",
@@ -167,6 +174,7 @@ COMMERCIAL_TOOLS: dict[str, _CommercialSpec] = {
         default_dimension="security",
         argv_builder=_ggshield_argv,
         binary="ggshield",
+        sarif_source="stdout",  # CR-01: ggshield --format sarif prints to stdout
     ),
     "socket": _CommercialSpec(
         name="socket",
@@ -271,7 +279,11 @@ def _run_one(
         # its output. No per-tool parser; the seam tags source_tool + applies
         # the candidate cap.
         adapter_result = run_byo_tool(
-            cfg, repo, produce_argv=produce_argv, base_env=base_env
+            cfg,
+            repo,
+            produce_argv=produce_argv,
+            base_env=base_env,
+            sarif_from_stdout=(spec.sarif_source == "stdout"),
         )
         status: CommercialStatus = (
             "ok" if adapter_result.status == "ok" else adapter_result.status  # type: ignore[assignment]
