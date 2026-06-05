@@ -31,6 +31,9 @@ Honesty rules (deterministic collectors own all numbers):
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict
 
 from repo_audit.adapters.sast.semgrep import SastResult
 from repo_audit.schema.report import FeedProvenance
@@ -74,4 +77,55 @@ def build_sast_provenance(
     ]
 
 
-__all__ = ["build_sast_provenance"]
+class CodeQlProvenance(BaseModel):
+    """The license-posture stamp for a CodeQL run (DSAST-01 / D-16-08).
+
+    Records under WHICH use-rights ground CodeQL was run so the report is
+    auditable ("under which right was CodeQL run?"), not merely gated. The
+    ``ground`` and ``note`` are deterministic — derived verbatim from the
+    user's attested config, never invented.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ground: str
+    note: str
+
+
+def build_codeql_provenance(
+    *,
+    status: str,
+    use_rights: Optional[str],
+) -> list[CodeQlProvenance]:
+    """Build the CodeQL use-rights provenance (one entry on a successful run).
+
+    Mirrors :func:`build_sast_provenance`'s discipline: exactly ONE entry when
+    the run succeeded AND a use-rights ground was attested; ``[]`` otherwise (an
+    unavailable/timed-out run, or — defensively — a success with no ground,
+    contributes no entry, never inventing a right).
+
+    Args:
+        status: the CodeQL ``AdapterResult.status`` (``"ok"`` on success).
+        use_rights: the attested ground (``oss``/``ghas``/``personal-own-code``)
+            the run was authorised under; ``None`` if absent.
+
+    Returns:
+        ``[CodeQlProvenance]`` stamping the chosen ground when ``status == "ok"``
+        and a ground is present; ``[]`` otherwise.
+    """
+    if status != "ok" or use_rights is None:
+        return []
+
+    return [
+        CodeQlProvenance(
+            ground=use_rights,
+            note=f"ran CodeQL under {use_rights} attestation",
+        )
+    ]
+
+
+__all__ = [
+    "CodeQlProvenance",
+    "build_codeql_provenance",
+    "build_sast_provenance",
+]
