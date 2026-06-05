@@ -30,26 +30,49 @@ before this read. Everything downstream of the read is already final.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from repo_audit.adapters.base import AdapterResult
 from repo_audit.adapters.byo.config import ByoToolConfig
 from repo_audit.adapters.sarif import sarif_to_findings
+from repo_audit.adapters.toolops import EXEC_FAILED, TIMED_OUT, run_tool
 
 _SOURCE_ADAPTER = "byo"
 
 
-def run_byo_tool(cfg: ByoToolConfig, repo_path: str | Path) -> AdapterResult:
+def run_byo_tool(
+    cfg: ByoToolConfig,
+    repo_path: str | Path,
+    *,
+    produce_argv: list[str] | None = None,
+    base_env: dict[str, str] | None = None,
+) -> AdapterResult:
     """Run a single BYO opt-in tool: gate on attestation, then route its SARIF.
 
     Args:
         cfg: the validated per-tool opt-in config (the attestation gate).
         repo_path: the scan root; ``cfg.sarif_output`` is resolved under it.
+        produce_argv: OPTIONAL Phase-16 (BYO-02) live-invocation argv. When
+            given (and the tool is enabled+attested), this command is run FIRST
+            — it is the commercial binary that PRODUCES ``cfg.sarif_output``.
+            The credential token is read at runtime from
+            ``os.environ[cfg.credential_env]`` (env-var NAME only, never stored;
+            Pitfall 8) and threaded into the child env under that same name —
+            the token is NEVER echoed into ``notes`` / findings / stderr. When
+            ``None`` (the Phase-6 pre-written-SARIF callers), nothing is invoked
+            and the seam is a no-op — the pre-written SARIF is read directly,
+            exactly as before this parameter existed.
+        base_env: OPTIONAL base environment the live invocation runs under
+            (cache-redirected scan env from the caller). Defaults to the current
+            process environment. The credential (if any) is layered on top.
 
     Returns:
         An :class:`AdapterResult`. ``status='ok'`` with ``source_tool``-tagged
         findings when enabled+attested and the SARIF parses; otherwise
-        ``status='unavailable'`` with a ``notes`` reason. NEVER raises (D-25).
+        ``status='unavailable'`` (binary exec-failed / SARIF absent / parse
+        error) or ``status='timeout'`` (live invocation exceeded
+        ``cfg.timeout_seconds``) with a ``notes`` reason. NEVER raises (D-25).
     """
     # --- gate first (D-06-06): a disabled/unattested tool NEVER runs ---------
     if not cfg.should_run:
@@ -66,7 +89,54 @@ def run_byo_tool(cfg: ByoToolConfig, repo_path: str | Path) -> AdapterResult:
 
     sarif_path = Path(repo_path) / cfg.sarif_output
 
-    # --- read the pre-written SARIF (Phase 16 inserts live invocation here) --
+    # --- Phase-16 (BYO-02) live invocation seam ------------------------------
+    # If a produce-argv is supplied, run the commercial binary FIRST to PRODUCE
+    # cfg.sarif_output. Token read by env-var NAME at runtime (never stored,
+    # never logged — Pitfall 8). Downstream read + parse is UNCHANGED.
+    if produce_argv is not None:
+        env: dict[str, str] = dict(base_env) if base_env is not None else dict(os.environ)
+        if cfg.credential_env:
+            token = os.environ.get(cfg.credential_env)
+            if token is not None:
+                # Thread the token under ITS OWN env-var name so the child tool
+                # reads it the way it expects. Never placed in notes/findings.
+                env[cfg.credential_env] = token
+
+        inv = run_tool(
+            produce_argv,
+            env=env,
+            cwd=repo_path,
+            timeout_seconds=cfg.timeout_seconds,
+        )
+
+        # Gate on the run_tool structural sentinels FIRST. snyk/ggshield exit
+        # NON-ZERO when they find issues (Pitfall 9) — a non-zero exit is NOT a
+        # failure; the real gate is whether the SARIF parses below. Only the
+        # honest sentinels short-circuit here.
+        if inv.returncode == TIMED_OUT:
+            return AdapterResult(
+                status="timeout",
+                notes=(
+                    f"BYO tool {cfg.name!r}: live invocation exceeded "
+                    f"{cfg.timeout_seconds}s."
+                ),
+                source_adapter=_SOURCE_ADAPTER,
+                source_tool=cfg.name,
+                dimension=cfg.default_dimension,
+            )
+        if inv.returncode == EXEC_FAILED:
+            return AdapterResult(
+                status="unavailable",
+                notes=(
+                    f"BYO tool {cfg.name!r}: live invocation could not be "
+                    f"executed (binary missing or not runnable)."
+                ),
+                source_adapter=_SOURCE_ADAPTER,
+                source_tool=cfg.name,
+                dimension=cfg.default_dimension,
+            )
+
+    # --- read the SARIF (pre-written, or just produced by the seam above) ----
     try:
         with sarif_path.open("r", encoding="utf-8") as fh:
             doc = json.load(fh)

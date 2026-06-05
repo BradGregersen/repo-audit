@@ -67,6 +67,8 @@ def _semgrep_argv(
     repo_path: Path,
     packs: list[str],
     excludes: tuple[str, ...],
+    *,
+    pro: bool = False,
 ) -> list[str]:
     """Build the EXACT Semgrep ``scan`` argv (list[str], shell=False guard).
 
@@ -80,8 +82,17 @@ def _semgrep_argv(
     Semgrep skips vendored/test trees up front (speed); the noise floor still
     drops them post-parse as the authoritative gate. ``repo_path`` is a single
     argv element — never interpolated into a shell string.
+
+    ``pro`` (BYO-02, Plan 16-06): when True, append ``--pro`` to engage the
+    Semgrep Pro Engine (interfile/interprocedural taint). The Pro Engine
+    requires a logged-in Pro entitlement (A9); an unentitled run errors, which
+    the caller folds to ``status='unavailable'`` — it never crashes. Default
+    ``pro=False`` preserves the existing 8-corpus CE behavior verbatim (the
+    argv is byte-identical to before this parameter existed).
     """
     argv: list[str] = [str(binary), "scan", "--sarif", "--metrics", "off"]
+    if pro:
+        argv.append("--pro")
     for pack in packs:
         argv += ["--config", pack]
     for pat in excludes:

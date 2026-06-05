@@ -56,6 +56,10 @@ class ByoToolConfig(BaseModel):
     sarif_output: str = Field(..., min_length=1)  # path the tool writes its SARIF to
     default_dimension: Dimension  # validated against the 7-value Literal
     severity_map: dict[str, str] = Field(default_factory=dict)
+    # Phase-16 (BYO-02): hard wall-clock bound for the live commercial-tool
+    # invocation at the run_byo_tool seam. Additive — Phase-6 pre-written-SARIF
+    # callers (no produce-argv) never reach the invocation and so never use it.
+    timeout_seconds: int = 600
 
     @property
     def should_run(self) -> bool:
