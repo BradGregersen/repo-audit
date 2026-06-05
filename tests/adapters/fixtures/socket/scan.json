@@ -1,0 +1,50 @@
+{
+  "id": "scan_abc123",
+  "issues": [
+    {
+      "type": "installScript",
+      "severity": "high",
+      "category": "supplyChainRisk",
+      "package": {
+        "name": "shady-pkg",
+        "version": "1.2.3",
+        "ecosystem": "npm"
+      },
+      "title": "Package runs an install script",
+      "description": "This package executes a script on install.",
+      "location": {
+        "file": "package.json"
+      }
+    },
+    {
+      "type": "telemetry",
+      "severity": "medium",
+      "category": "quality",
+      "package": {
+        "name": "tracky",
+        "version": "0.4.0",
+        "ecosystem": "npm"
+      },
+      "title": "Package collects telemetry",
+      "description": "This package sends usage telemetry.",
+      "location": {
+        "file": "package.json"
+      }
+    },
+    {
+      "type": "unmaintained",
+      "severity": "low",
+      "category": "maintenance",
+      "package": {
+        "name": "old-lib",
+        "version": "2.0.0",
+        "ecosystem": "npm"
+      },
+      "title": "Package appears unmaintained",
+      "description": "No releases in over two years.",
+      "location": {
+        "file": "package.json"
+      }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "total": 2,
+  "p": 1,
+  "ps": 100,
+  "issues": [
+    {
+      "key": "AYx1a2b3c4d5",
+      "rule": "javascript:S2068",
+      "severity": "MAJOR",
+      "component": "my-project:src/auth/login.js",
+      "project": "my-project",
+      "line": 42,
+      "message": "Credentials should not be hard-coded.",
+      "type": "VULNERABILITY",
+      "status": "OPEN"
+    },
+    {
+      "key": "AYx9z8y7x6w5",
+      "rule": "typescript:S1854",
+      "severity": "MINOR",
+      "component": "my-project:src/util/calc.ts",
+      "project": "my-project",
+      "line": 17,
+      "message": "Remove this useless assignment to variable \"tmp\".",
+      "type": "CODE_SMELL",
+      "status": "OPEN"
+    }
+  ]
+}

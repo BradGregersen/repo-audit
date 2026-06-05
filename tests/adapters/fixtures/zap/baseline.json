@@ -1,0 +1,66 @@
+{
+  "@version": "2.15.0",
+  "@generated": "Thu, 5 Jun 2026 04:00:00",
+  "site": [
+    {
+      "@name": "http://target.invalid",
+      "@host": "target.invalid",
+      "@port": "80",
+      "@ssl": "false",
+      "alerts": [
+        {
+          "pluginid": "40012",
+          "alertRef": "40012",
+          "alert": "Cross Site Scripting (Reflected)",
+          "name": "Cross Site Scripting (Reflected)",
+          "riskcode": "3",
+          "confidence": "2",
+          "riskdesc": "High (Medium)",
+          "desc": "Cross-site Scripting (XSS) is an attack technique.",
+          "url": "http://target.invalid/search?q=test",
+          "solution": "Validate and encode all user-supplied input.",
+          "cweid": "79"
+        },
+        {
+          "pluginid": "10038",
+          "alertRef": "10038",
+          "alert": "Content Security Policy (CSP) Header Not Set",
+          "name": "Content Security Policy (CSP) Header Not Set",
+          "riskcode": "2",
+          "confidence": "2",
+          "riskdesc": "Medium (Medium)",
+          "desc": "Content Security Policy is an added layer of security.",
+          "url": "http://target.invalid/",
+          "solution": "Set the Content-Security-Policy header.",
+          "cweid": "693"
+        },
+        {
+          "pluginid": "10021",
+          "alertRef": "10021",
+          "alert": "X-Content-Type-Options Header Missing",
+          "name": "X-Content-Type-Options Header Missing",
+          "riskcode": "1",
+          "confidence": "2",
+          "riskdesc": "Low (Medium)",
+          "desc": "The Anti-MIME-Sniffing header X-Content-Type-Options was not set.",
+          "url": "http://target.invalid/",
+          "solution": "Set X-Content-Type-Options to nosniff.",
+          "cweid": "693"
+        },
+        {
+          "pluginid": "10049",
+          "alertRef": "10049",
+          "alert": "Storable and Cacheable Content",
+          "name": "Storable and Cacheable Content",
+          "riskcode": "0",
+          "confidence": "2",
+          "riskdesc": "Informational (Medium)",
+          "desc": "The response contents are storable by caching components.",
+          "url": "http://target.invalid/static/app.js",
+          "solution": "Validate caching directives.",
+          "cweid": "524"
+        }
+      ]
+    }
+  ]
+}

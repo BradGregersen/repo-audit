@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "SnykCode",
+          "version": "1.0.0",
+          "informationUri": "https://snyk.io",
+          "rules": [
+            {
+              "id": "javascript/PT",
+              "name": "PathTraversal",
+              "shortDescription": {
+                "text": "Path Traversal"
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": ["security", "CWE-23"],
+                "security-severity": "6.3"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "javascript/PT",
+          "level": "warning",
+          "message": {
+            "text": "Unsanitized input flows into a filesystem path."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/files/read.js"
+                },
+                "region": {
+                  "startLine": 12,
+                  "startColumn": 14
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
