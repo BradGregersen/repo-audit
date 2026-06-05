@@ -134,20 +134,73 @@ def fake_repo_with_source(tmp_path) -> Path:
     return repo
 
 
-# --- Critic client stub (declared now; fleshed out in Plan 17-02 Task 3) -----
+# --- Critic client stub (fleshed out in Plan 17-02 Task 3) -------------------
 
 
 @pytest.fixture
 def mock_critic_client():
-    """No-op placeholder critic client (Plan 17-01).
+    """Canned-verdict critic-client factory — the ``submit_verdict`` injection seam.
 
-    Plan 17-02 Task 3 replaces this body with a canned-verdict ``ClaudeSDKClient``
-    mock (the ``submit_verdict`` injection seam) so the confirmed-gate + budget
-    tests run without a live SDK. Declaring the fixture NAME now lets the later
-    stub tests reference it without a collection error.
+    Replaces the live ``ClaudeSDKClient`` in ``run_critic_session`` so the
+    priority-queue + budget + never-raise loop is exercised without the SDK.
+
+    Usage::
+
+        client_factory = mock_critic_client(verdicts=[
+            {"outcome": "survived"},                       # candidate 0
+            {"outcome": "refuted", "angle": "duplicate",   # candidate 1
+             "citation": {...}, "reason": "..."},
+            {"raise": True},                               # candidate 2: SDK error
+        ])
+        verdicts, meta = await run_critic_session(..., client_factory=client_factory)
+
+    Each list entry corresponds to one queued candidate (consumed in order):
+      * a dict shaped like a ``submit_verdict`` payload → the mock invokes the
+        REAL ``submit_verdict.handler`` (so the citation validator still runs)
+        after the loop has called ``reset_critic_state`` for that candidate;
+      * ``{"raise": True}`` → the mock client raises inside its session so the
+        loop's ``except Exception: continue`` never-raise path is exercised.
+
+    The returned object is a ``client_factory(candidate, repo_path, finding_set,
+    candidate_ref)`` callable returning an async-context-manager client whose
+    ``run_once()`` applies the canned verdict for that candidate.
     """
+    from repo_audit.verification import critic as _critic
 
-    def _factory(*_args, **_kwargs):  # pragma: no cover — fleshed out in 17-02
-        return None
+    def _make_factory(*, verdicts):
+        seq = list(verdicts)
+        counter = {"i": 0}
 
-    return _factory
+        class _MockClient:
+            def __init__(self, candidate_ref: str):
+                self._candidate_ref = candidate_ref
+                self._spec = seq[counter["i"]] if counter["i"] < len(seq) else {}
+                counter["i"] += 1
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def run_once(self):
+                """Apply the canned verdict for this candidate (or raise)."""
+                if self._spec.get("raise"):
+                    raise RuntimeError("simulated SDK failure for this candidate")
+                # Invoke the REAL submit_verdict handler so the deterministic
+                # citation validator still gates the canned refutation.
+                await _critic.submit_verdict.handler(
+                    {
+                        "outcome": self._spec.get("outcome", "survived"),
+                        "angle": self._spec.get("angle"),
+                        "citation": self._spec.get("citation"),
+                        "reason": self._spec.get("reason", ""),
+                    }
+                )
+
+        def _factory(*, candidate_ref: str, **_kwargs):
+            return _MockClient(candidate_ref)
+
+        return _factory
+
+    return _make_factory
