@@ -1,0 +1,12 @@
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2847193655
+INFO: Loaded 1 modules   (412 inline 8-bit counters): 412 [0x55a1, 0x55ad),
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+#2	INITED cov: 6 ft: 7 corp: 1/1b exec/s: 0 rss: 38Mb
+=================================================================
+==12345==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000051
+	#0 in parse_header /repo/fuzz/fuzz_parser.py:42
+	#1 in TestOneInput /repo/fuzz/fuzz_parser.py:58
+SUMMARY: libFuzzer: deadly signal
+artifact_prefix='./'; Test unit written to ./crash-0a1b2c3d4e5f60718293a4b5c6d7e8f901234567
+NOTE: raw crash-input bytes intentionally omitted from this fixture (T-16-01-01)

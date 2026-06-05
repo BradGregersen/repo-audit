@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="Maestro Flow" tests="2" failures="1" time="6.214">
+  <testsuite name="maestro/login.yaml" tests="1" failures="0" time="3.001">
+    <testcase name="Launch app and sign in" classname="login" time="3.001"/>
+  </testsuite>
+  <testsuite name="maestro/checkout.yaml" tests="1" failures="1" time="3.213">
+    <testcase name="Add item and check out" classname="checkout" time="3.213">
+      <failure message="Element not found: id=checkout-button">
+        Assertion failed: expected element id=checkout-button to be visible
+      </failure>
+    </testcase>
+  </testsuite>
+</testsuites>

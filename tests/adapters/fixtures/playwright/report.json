@@ -1,0 +1,59 @@
+{
+  "config": {
+    "version": "1.48.0",
+    "rootDir": "/repo/tests"
+  },
+  "suites": [
+    {
+      "title": "login.spec.ts",
+      "file": "login.spec.ts",
+      "specs": [
+        {
+          "title": "logs in with valid credentials",
+          "file": "login.spec.ts",
+          "line": 7,
+          "ok": true,
+          "tests": [
+            {
+              "expectedStatus": "passed",
+              "status": "expected",
+              "results": [
+                {
+                  "status": "passed",
+                  "duration": 812
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "rejects an invalid password",
+          "file": "login.spec.ts",
+          "line": 21,
+          "ok": false,
+          "tests": [
+            {
+              "expectedStatus": "passed",
+              "status": "unexpected",
+              "results": [
+                {
+                  "status": "failed",
+                  "duration": 1503,
+                  "error": {
+                    "message": "expect(received).toBe(expected)"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "stats": {
+    "expected": 1,
+    "unexpected": 1,
+    "skipped": 0,
+    "flaky": 0
+  }
+}
