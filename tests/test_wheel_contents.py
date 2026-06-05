@@ -63,16 +63,32 @@ def wheel_namelist(tmp_path_factory) -> list[str]:
 
 
 def test_wheel_ships_no_codeql_binary(wheel_namelist: list[str]):
-    """No wheel entry references CodeQL (CRIT-7).
+    """No BUNDLED CodeQL artifact in the wheel (CRIT-7).
 
-    A case-insensitive ``codeql`` substring catches both a bundled ``codeql`` /
+    A case-insensitive ``codeql`` substring catches a bundled ``codeql`` /
     ``codeql.exe`` executable and any CodeQL query pack or support file.
+
+    Our OWN ``.py`` source under ``repo_audit/adapters/codeql/`` (the
+    Phase-16 lane that SHELLS OUT to a host/PATH-resolved CodeQL CLI) is NOT a
+    bundled CodeQL artifact — it is our Apache-licensed source code and bundles
+    nothing proprietary. It MUST ship so the opt-in lane is importable when an
+    operator enables it with a use-rights attestation. This mirrors the
+    ``test_wheel_ships_no_semgrep_artifact_at_all`` exclusion (Plan 10-03
+    contract); a vendored CodeQL binary / query pack would land under ``vendor/``
+    or as a non-``.py`` data file (e.g. ``.ql`` / ``.qll``) and is still caught.
     """
-    offenders = [name for name in wheel_namelist if "codeql" in name.lower()]
+    offenders = [
+        name
+        for name in wheel_namelist
+        if "codeql" in name.lower()
+        and not (
+            name.startswith("repo_audit/") and name.lower().endswith(".py")
+        )
+    ]
     assert not offenders, (
-        "Wheel must ship NO CodeQL artifact (CRIT-7). CodeQL is a default-OFF, "
-        "opt-in, host-resolved adapter (Phase 16) and must never be bundled. "
-        f"Offending entries: {offenders}"
+        "Wheel must ship NO bundled CodeQL artifact (CRIT-7). CodeQL is a "
+        "default-OFF, opt-in, host-resolved adapter (Phase 16) and must never be "
+        f"bundled. Offending entries: {offenders}"
     )
 
 
