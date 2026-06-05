@@ -56,7 +56,11 @@ from repo_audit.orchestration.scope_ledger_builder import (
 )
 from repo_audit.render.renderer import render_and_write
 from repo_audit.schema.report import ReportMeta, ScanReport
-from repo_audit.trend.delta import compute_trend
+from repo_audit.trend.delta import (
+    _rn_bundle_metric,
+    _web_transfer_metric,
+    compute_trend,
+)
 from repo_audit.walker import build_repo_index
 
 
@@ -404,6 +408,33 @@ def run_scan(
     # opt-in throwaway Metro build only runs when explicitly requested. Called via
     # _THIS_MODULE so tests can monkeypatch scan_runner.run_quality_depth (same
     # patchable-attribute pattern as run_architecture / run_cicd / run_sca).
+    #
+    # Plan 15-05 (PERF-01 SC2): resolve the prior sidecar HERE — BEFORE the
+    # quality-depth step — and extract the prior carrier bytes so the per-scan
+    # web_transfer_regression / rn_bundle_regression Findings can fire. This is
+    # the SAME prior_sidecar the cross-scan TrendDelta block below consumes (one
+    # resolution, one defensive parse) and the SAME carrier extractors
+    # (_web_transfer_metric / _rn_bundle_metric) compute_trend uses — NOT a second
+    # sidecar reader. None-not-0 honesty: no prior sidecar, an unavailable carrier,
+    # or a corrupt/raced prior all degrade the prior bytes to None → NO regression
+    # Finding (never a fabricated zero baseline). The parsed prior report is reused
+    # by the TrendDelta block below.
+    prior_sidecar = find_prior_sidecar(repo_path, scan_date)
+    prior_report: ScanReport | None = None
+    prior_web_bytes: int | None = None
+    prior_rn_bytes: int | None = None
+    if prior_sidecar is not None:
+        try:
+            prior_report = ScanReport.model_validate_json(
+                prior_sidecar.read_text(encoding="utf-8")
+            )
+            prior_web_bytes = _web_transfer_metric(prior_report)
+            prior_rn_bytes = _rn_bundle_metric(prior_report)
+        except Exception:  # noqa: BLE001 — a corrupt/raced prior must not crash
+            prior_report = None
+            prior_web_bytes = None
+            prior_rn_bytes = None
+
     with scan_tempdir() as _qd_td:
         qd_base_env = build_scan_env(_qd_td)
         qd_result = _THIS_MODULE.run_quality_depth(
@@ -411,6 +442,8 @@ def run_scan(
             base_env=qd_base_env,
             stacks=[s.stack for s in detection.stacks],
             qd_build=qd_build,
+            prior_web_bytes=prior_web_bytes,
+            prior_rn_bytes=prior_rn_bytes,
         )
 
     # Phase 8 (Plan 08-05): CROSS-STACK RLS step (mirrors the Phase 7 SCA step).
@@ -816,7 +849,9 @@ def run_scan(
     # meta.scan_date strictly before today (or None — same-day re-run, no
     # prior dir, no JSON, all-corrupt → baseline). The first real trend scan
     # flips baseline_run off (RESEARCH Pitfall 4 — was hard-coded True).
-    prior_sidecar = find_prior_sidecar(repo_path, scan_date)
+    # NOTE (Plan 15-05): prior_sidecar is ALREADY resolved ABOVE (before the
+    # quality-depth step, for the per-scan regression bytes). We REUSE that same
+    # variable here — no second find_prior_sidecar call.
 
     # Assemble ScanReport.
     meta = ReportMeta(
@@ -855,12 +890,12 @@ def run_scan(
     # TrendDelta is threaded into BOTH the agent session (so the agent can
     # narrate the deltas via trend_baseline) AND render_and_write (so the gate
     # folds the delta numbers into AllowedNumbers and the Trends section renders).
+    # Plan 15-05: REUSE the prior_report parsed ABOVE (for the regression bytes) —
+    # no second parse. A None prior_report (no sidecar, or a corrupt/raced prior
+    # that failed the defensive parse above) → no trend, same as before.
     trend = None
-    if prior_sidecar is not None:
+    if prior_sidecar is not None and prior_report is not None:
         try:
-            prior_report = ScanReport.model_validate_json(
-                prior_sidecar.read_text(encoding="utf-8")
-            )
             current_for_trend = ScanReport(
                 schema_version="1",
                 meta=meta,

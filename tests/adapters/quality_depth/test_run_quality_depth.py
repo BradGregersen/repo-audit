@@ -19,7 +19,15 @@ from repo_audit.adapters.quality_depth import (
     run_quality_depth,
 )
 from repo_audit.adapters.quality_depth.config import QualityDepthConfig
+from repo_audit.adapters.quality_depth.lighthouse import LighthouseResult
+from repo_audit.adapters.quality_depth.lighthouse_json import (
+    map_lighthouse_json,
+)
+from repo_audit.adapters.quality_depth.rn_bundle import RnBundleResult
+from repo_audit.adapters.quality_depth.rn_bundle_json import map_rn_bundle_bytes
 from repo_audit.schema.finding import Evidence, Finding
+from repo_audit.schema.report import ReportMeta, ScanReport
+from repo_audit.trend.delta import _rn_bundle_metric, _web_transfer_metric
 
 
 def _qd_finding(tool: str, rule_id: str) -> Finding:
@@ -324,3 +332,211 @@ def test_no_surface_gate_holds_even_with_prior_bytes(tmp_path, monkeypatch):
 
     assert result.status == "not_applicable"
     assert spy == {"axe": 0, "lighthouse": 0, "rn_bundle": 0}
+
+
+# --- Plan 15-05: END-TO-END regression reachability through the REAL composite ---
+#
+# These drive the REAL run_quality_depth composite (NOT a wholesale monkeypatch of
+# it). The collectors are stubbed to call the REAL mappers with the forwarded
+# prior bytes, so the formerly-dead web_transfer_regression / rn_bundle_regression
+# branches actually fire. The prior bytes are extracted from a REAL prior
+# ScanReport via the SAME trend-layer extractors scan_runner reuses.
+
+_DEFAULTS = QualityDepthConfig()  # regression_pct=10.0, floor=10240 bytes
+
+
+def _prior_meta() -> ReportMeta:
+    return ReportMeta(
+        repo_slug="fake-repo",
+        commit_sha="UNCOMMITTED",
+        scan_date=__import__("datetime").date(2026, 5, 1),
+        tool_version="0.0.0-test",
+    )
+
+
+def _lighthouse_carrier(web_transfer_bytes: int) -> Finding:
+    """A prior lighthouse_perf_summary carrier (source_tool=lighthouse)."""
+    return Finding(
+        dimension="quality",  # type: ignore[arg-type]
+        severity="info",
+        evidence_type="runtime",
+        confidence="candidate",
+        source_tool="lighthouse",
+        source_collector="quality_depth",
+        rule_id="lighthouse_perf_summary",
+        recommendation="verify the transfer size before acting",
+        evidence=Evidence(
+            tool="lighthouse",
+            parsed_value={"web_transfer_bytes": web_transfer_bytes},
+        ),
+    )
+
+
+def _lighthouse_unavailable_carrier() -> Finding:
+    return Finding(
+        dimension="quality",  # type: ignore[arg-type]
+        severity="info",
+        evidence_type="unavailable",
+        confidence="candidate",
+        source_tool="lighthouse",
+        source_collector="quality_depth",
+        rule_id="lighthouse_perf_summary",
+        recommendation="verify once a live URL is configured",
+        evidence=Evidence(tool="lighthouse", parsed_value={"reason": "no live_url"}),
+    )
+
+
+def _metro_carrier(rn_bundle_bytes: int) -> Finding:
+    """A prior rn_bundle_size_summary carrier (source_tool=metro)."""
+    return Finding(
+        dimension="quality",  # type: ignore[arg-type]
+        severity="info",
+        evidence_type="static",
+        confidence="candidate",
+        source_tool="metro",
+        source_collector="quality_depth",
+        rule_id="rn_bundle_size_summary",
+        recommendation="verify against your release artifact before acting",
+        evidence=Evidence(
+            tool="metro", parsed_value={"rn_bundle_bytes": rn_bundle_bytes}
+        ),
+    )
+
+
+def _real_lighthouse_collector(current_web_bytes: int):
+    """A collect_lighthouse stub that runs the REAL mapper with forwarded prior."""
+
+    def _collector(repo, env, *, live_url, config=None, prior_web_bytes=None,
+                   timeout_seconds=None):
+        lhr = {
+            "categories": {"performance": {"score": 0.9}},
+            "audits": {"total-byte-weight": {"numericValue": current_web_bytes}},
+        }
+        findings = map_lighthouse_json(
+            lhr, config=config, prior_web_bytes=prior_web_bytes
+        )
+        return LighthouseResult(findings=findings, status="ok")
+
+    return _collector
+
+
+def _real_rn_collector(current_rn_bytes: int):
+    """A collect_rn_bundle stub that runs the REAL mapper with forwarded prior."""
+
+    def _collector(repo, env, *, qd_build, config=None, prior_rn_bytes=None,
+                   timeout_seconds=None):
+        findings = map_rn_bundle_bytes(
+            current_rn_bytes, config=config, prior_rn_bytes=prior_rn_bytes
+        )
+        return RnBundleResult(findings=findings, status="ok")
+
+    return _collector
+
+
+def test_web_transfer_regression_fires_end_to_end(tmp_path, monkeypatch):
+    """A prior < current past BOTH gates surfaces a web_transfer_regression Finding
+    through the REAL composite — the formerly-dead path is now reachable."""
+    _patch_config(monkeypatch, live_url="https://example.test")
+
+    # Prior sidecar carrier: 200_000 bytes; current 240_000 → +40_000 (+20%),
+    # clears regression_pct (>10) AND floor (>10240); under web_budget (256_000) so
+    # ONLY the regression trigger (plus the always-present summary) fires.
+    prior = ScanReport(meta=_prior_meta(), findings=[_lighthouse_carrier(200_000)])
+    prior_web_bytes = _web_transfer_metric(prior)
+    assert prior_web_bytes == 200_000  # extracted via the SHARED trend extractor
+
+    monkeypatch.setattr(
+        quality_depth, "collect_axe",
+        lambda *a, **k: AxeResult(status="ok"), raising=True,
+    )
+    monkeypatch.setattr(
+        quality_depth, "collect_lighthouse",
+        _real_lighthouse_collector(240_000), raising=True,
+    )
+
+    result = run_quality_depth(
+        tmp_path, base_env={}, stacks=["python"], prior_web_bytes=prior_web_bytes
+    )
+
+    rule_ids = [f.rule_id for f in result.findings]
+    assert "web_transfer_regression" in rule_ids
+    assert "web_transfer_oversized" not in rule_ids  # under budget
+
+
+def test_rn_bundle_regression_fires_end_to_end(tmp_path, monkeypatch):
+    """A prior < current RN bundle past BOTH gates surfaces rn_bundle_regression."""
+    _patch_config(monkeypatch, live_url=None)
+
+    # Prior 400_000 → current 480_000 = +80_000 (+20%), under rn_budget (512_000).
+    prior = ScanReport(meta=_prior_meta(), findings=[_metro_carrier(400_000)])
+    prior_rn_bytes = _rn_bundle_metric(prior)
+    assert prior_rn_bytes == 400_000
+
+    monkeypatch.setattr(
+        quality_depth, "collect_rn_bundle",
+        _real_rn_collector(480_000), raising=True,
+    )
+
+    result = run_quality_depth(
+        tmp_path, base_env={}, stacks=["react-native"], qd_build=True,
+        prior_rn_bytes=prior_rn_bytes,
+    )
+
+    rule_ids = [f.rule_id for f in result.findings]
+    assert "rn_bundle_regression" in rule_ids
+    assert "rn_bundle_oversized" not in rule_ids  # under budget
+
+
+def test_no_prior_sidecar_emits_no_regression(tmp_path, monkeypatch):
+    """None prior (baseline run) → NO regression Finding (no fabricated baseline)."""
+    _patch_config(monkeypatch, live_url="https://example.test")
+
+    monkeypatch.setattr(
+        quality_depth, "collect_axe",
+        lambda *a, **k: AxeResult(status="ok"), raising=True,
+    )
+    monkeypatch.setattr(
+        quality_depth, "collect_lighthouse",
+        _real_lighthouse_collector(240_000), raising=True,
+    )
+    monkeypatch.setattr(
+        quality_depth, "collect_rn_bundle",
+        _real_rn_collector(480_000), raising=True,
+    )
+
+    # prior_web_bytes / prior_rn_bytes omitted → both default None.
+    result = run_quality_depth(tmp_path, base_env={}, stacks=["expo"])
+
+    rule_ids = [f.rule_id for f in result.findings]
+    assert "web_transfer_regression" not in rule_ids
+    assert "rn_bundle_regression" not in rule_ids
+    # the always-present summaries still emit (the collectors still run)
+    assert "lighthouse_perf_summary" in rule_ids
+    assert "rn_bundle_size_summary" in rule_ids
+
+
+def test_unavailable_prior_carrier_extracts_none_no_regression(tmp_path, monkeypatch):
+    """A prior whose carrier is evidence_type=unavailable → extracted None → no
+    regression Finding (the trend extractor's None-on-unavailable honesty)."""
+    _patch_config(monkeypatch, live_url="https://example.test")
+
+    prior = ScanReport(meta=_prior_meta(), findings=[_lighthouse_unavailable_carrier()])
+    prior_web_bytes = _web_transfer_metric(prior)
+    assert prior_web_bytes is None  # unavailable carrier → None, never 0
+
+    monkeypatch.setattr(
+        quality_depth, "collect_axe",
+        lambda *a, **k: AxeResult(status="ok"), raising=True,
+    )
+    monkeypatch.setattr(
+        quality_depth, "collect_lighthouse",
+        _real_lighthouse_collector(240_000), raising=True,
+    )
+
+    result = run_quality_depth(
+        tmp_path, base_env={}, stacks=["python"], prior_web_bytes=prior_web_bytes
+    )
+
+    rule_ids = [f.rule_id for f in result.findings]
+    assert "web_transfer_regression" not in rule_ids
+    assert "lighthouse_perf_summary" in rule_ids  # summary still emits
