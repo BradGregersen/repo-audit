@@ -37,8 +37,15 @@ def _make_colliding_pair(fake_finding):
     """Two SAST findings whose build_finding_ref strings are byte-identical.
 
     Same source_tool (semgrep), rule_id (owasp.a03.injection), file, line — only
-    a NON-ref field (output_snippet / severity) differs, so build_finding_ref
-    collapses them to the same fingerprint while they remain distinct objects.
+    a NON-ref field (output_snippet) differs, so build_finding_ref collapses them
+    to the same fingerprint while they remain distinct objects.
+
+    Two same-tool findings do NOT corroborate EACH OTHER (corroboration needs a
+    cross-source signal), so they would not be QUEUED for critic review on their
+    own. A cross-tool peer (osv) at the SAME locus identity-corroborates BOTH
+    twins — putting them on the priority queue where the verdict-dispatch
+    collision actually manifests. The peer is returned so callers can include it
+    in the finding set.
     """
     f_a = fake_finding(
         family="sast", file="src/app/auth.py", line=1, severity="major",
@@ -48,7 +55,14 @@ def _make_colliding_pair(fake_finding):
         family="sast", file="src/app/auth.py", line=1, severity="major",
         output_snippet="finding B: tainted sink at sink_b()",
     )
-    return f_a, f_b
+    # Cross-tool corroborating peer (DISTINCT fingerprint) at the same locus +
+    # rule_id, so both semgrep twins reach the identity tier and get queued.
+    peer = fake_finding(
+        family="sca", source_tool="osv", file="src/app/auth.py", line=1,
+        severity="major", rule_id="owasp.a03.injection",
+        output_snippet="cross-tool corroborating peer",
+    )
+    return f_a, f_b, peer
 
 
 def test_two_same_ref_findings_only_reviewed_one_refuted(
@@ -64,95 +78,92 @@ def test_two_same_ref_findings_only_reviewed_one_refuted(
     twin survives at its own rung. RED today.
     """
     repo = fake_repo_with_source
-    f_a, f_b = _make_colliding_pair(fake_finding)
+    f_a, f_b, peer = _make_colliding_pair(fake_finding)
 
-    # Precondition: the two findings collide on the fingerprint.
+    # Precondition: the two SAST twins collide on the fingerprint.
     assert build_finding_ref(f_a) == build_finding_ref(f_b)
 
-    # Refute the FIRST queued candidate, survive the SECOND. The mock consumes
-    # one spec per queued candidate IN QUEUE ORDER (not by ref), so this maps to
-    # the two colliding candidates independently.
+    # Queue order (deterministic): osv-peer, semgrep-A (f_a), semgrep-B (f_b).
+    # Refute ONLY semgrep-A; survive the peer and semgrep-B. The mock consumes one
+    # spec per queued candidate IN QUEUE ORDER, so each colliding twin gets its
+    # OWN verdict independently.
     factory = _mock_per_candidate_factory(
         [
+            {"outcome": "survived"},  # osv peer
             {
-                "outcome": "refuted",
+                "outcome": "refuted",  # semgrep-A (f_a)
                 "angle": "existing_control",
                 "citation": _VALID_CITATION,
                 "reason": "guarded by an upstream control at auth.py:1",
             },
-            {"outcome": "survived"},
+            {"outcome": "survived"},  # semgrep-B (f_b) — twin must SURVIVE
         ]
     )
 
     active, refuted, records, vmeta = _stage.run_verification(
-        [f_a, f_b], repo_path=repo, client_factory=factory
-    )
-
-    # Nothing vanishes.
-    assert len(active) + len(refuted) == 2
-    # EXACTLY ONE finding is refuted — not both (the fingerprint collapse bug
-    # refutes/loses both or refutes the wrong count).
-    assert len(refuted) == 1
-    # EXACTLY ONE finding survives in the active set.
-    assert len(active) == 1
-
-
-def test_same_ref_tiers_not_cross_inherited(fake_finding, fake_repo_with_source):
-    """A finding's corroboration tier is its OWN — no fingerprint-twin inheritance.
-
-    Build two same-ref findings where only ONE is corroborated by a peer. The
-    un-corroborated twin must NOT be promoted to confirmed on the strength of the
-    corroborated twin's tier. Against tier_by_ref keying both twins read the same
-    (last-written) tier, so the un-corroborated one is wrongly treated as
-    corroborated and confirmed when the critic survives it. RED today.
-    """
-    repo = fake_repo_with_source
-    # f_corr is identity-corroborated by a same-locus peer from a DIFFERENT tool
-    # (osv) — distinct ref, so it is a genuine corroborating peer, not a twin.
-    f_corr = fake_finding(
-        family="sast", file="src/app/auth.py", line=1, severity="major",
-        output_snippet="corroborated twin",
-    )
-    f_peer = fake_finding(
-        family="sca", source_tool="osv", file="src/app/auth.py", line=1,
-        severity="major", rule_id="owasp.a03.injection",
-        output_snippet="cross-tool corroborating peer",
-    )
-    # f_uncorr collides on the fingerprint with f_corr but is a DISTINCT object;
-    # it has no corroborating peer of its own beyond the fingerprint twin.
-    f_uncorr = fake_finding(
-        family="sast", file="src/app/auth.py", line=1, severity="major",
-        output_snippet="UN-corroborated twin",
-    )
-
-    assert build_finding_ref(f_corr) == build_finding_ref(f_uncorr)
-
-    # All three survive the critic (no refutation) so disposition is driven purely
-    # by the corroboration tier. If tiers cross-inherit, the un-corroborated twin
-    # is wrongly confirmed.
-    factory = _mock_per_candidate_factory(
-        [{"outcome": "survived"}] * 4
-    )
-
-    active, refuted, records, vmeta = _stage.run_verification(
-        [f_corr, f_peer, f_uncorr], repo_path=repo, client_factory=factory
+        [f_a, f_b, peer], repo_path=repo, client_factory=factory
     )
 
     # Nothing vanishes.
     assert len(active) + len(refuted) == 3
+    # EXACTLY ONE finding is refuted — not both twins (the fingerprint collapse
+    # bug refutes/loses the wrong count when the colliding twins share a key).
+    assert len(refuted) == 1
+    # The OTHER two (the surviving twin + the peer) stay active.
+    assert len(active) == 2
 
-    # The un-corroborated twin must NOT have been promoted to 'confirmed' on the
-    # strength of its corroborated fingerprint-sibling's tier. At most ONE of the
-    # two same-ref SAST twins can legitimately be confirmed (the corroborated
-    # one). Against tier_by_ref keying, BOTH share the same tier => both confirmed
-    # => count is 2. Identity dispatch keeps them independent => count is 1.
-    sast_confirmed = [
-        f
-        for f in active
-        if getattr(f, "source_tool", "") == "semgrep"
-        and getattr(f, "confidence", "") == "confirmed"
-    ]
-    assert len(sast_confirmed) <= 1
+
+def test_same_ref_tiers_not_cross_inherited(fake_finding):
+    """A finding's corroboration tier is the tier IT was individually evaluated for.
+
+    Drive ``_apply_verdicts`` directly with two same-ref findings whose paired
+    records carry DIFFERENT tiers: one identity-corroborated, one tier 'none'. Both
+    findings get a 'survived' verdict (so disposition is driven purely by the
+    tier). The corroborated finding -> confirmed; the un-corroborated twin -> NOT
+    confirmed (stays candidate). Against ``tier_by_ref = {r.finding_ref: ...}`` the
+    two same-ref records collapse to ONE entry (last-write-wins), so the
+    un-corroborated twin wrongly reads the corroborated tier and is confirmed too.
+    Identity dispatch (``tier_by_token``) keeps them independent. RED today.
+    """
+    from repo_audit.verification.critic import Verdict
+    from repo_audit.verification.record import VerificationRecord
+
+    f_corr = fake_finding(
+        family="sast", file="src/app/auth.py", line=1, severity="major",
+        output_snippet="corroborated twin",
+    )
+    f_uncorr = fake_finding(
+        family="sast", file="src/app/auth.py", line=1, severity="major",
+        output_snippet="UN-corroborated twin",
+    )
+    ref = build_finding_ref(f_corr)
+    assert ref == build_finding_ref(f_uncorr)
+
+    # Records index-paired with [f_corr, f_uncorr]; SAME finding_ref, DIFFERENT
+    # tier, DISTINCT identity tokens.
+    rec_corr = VerificationRecord(
+        finding_ref=ref, candidate_token=0, corroboration_tier="identity"
+    )
+    rec_uncorr = VerificationRecord(
+        finding_ref=ref, candidate_token=1, corroboration_tier="none"
+    )
+
+    # Both findings survive the critic (verdict keyed by candidate_token).
+    v_corr = Verdict(finding_ref=ref, candidate_token=0, outcome="survived")
+    v_uncorr = Verdict(finding_ref=ref, candidate_token=1, outcome="survived")
+
+    active, active_tokens, refuted = _stage._apply_verdicts(
+        [f_corr, f_uncorr], [v_corr, v_uncorr], [rec_corr, rec_uncorr]
+    )
+
+    assert len(refuted) == 0
+    assert len(active) == 2
+
+    # The corroborated twin (token 0) is confirmed; the un-corroborated twin
+    # (token 1) is NOT confirmed — its tier did not cross-inherit.
+    by_token = dict(zip(active_tokens, active))
+    assert by_token[0].confidence == "confirmed"
+    assert by_token[1].confidence != "confirmed"
 
 
 def test_verdict_dispatch_is_identity_based(fake_finding, fake_repo_with_source):
@@ -165,15 +176,19 @@ def test_verdict_dispatch_is_identity_based(fake_finding, fake_repo_with_source)
     (same key), so the survived disposition is lost. RED today.
     """
     repo = fake_repo_with_source
-    f_a, f_b = _make_colliding_pair(fake_finding)
+    f_a, f_b, peer = _make_colliding_pair(fake_finding)
     assert build_finding_ref(f_a) == build_finding_ref(f_b)
 
-    # First queued candidate SURVIVES; second is REFUTED with a valid citation.
+    # Queue order: osv-peer, semgrep-A (f_a), semgrep-B (f_b). The peer survives;
+    # f_a SURVIVES; f_b is REFUTED with a valid citation. Against
+    # verdict_by_ref = {v.finding_ref: v} the f_b refuted verdict overwrites the
+    # f_a survived verdict (same key), losing the survived disposition.
     factory = _mock_per_candidate_factory(
         [
-            {"outcome": "survived"},
+            {"outcome": "survived"},  # osv peer
+            {"outcome": "survived"},  # semgrep-A (f_a) — must KEEP survived
             {
-                "outcome": "refuted",
+                "outcome": "refuted",  # semgrep-B (f_b)
                 "angle": "existing_control",
                 "citation": _VALID_CITATION,
                 "reason": "second candidate refuted at auth.py:1",
@@ -182,17 +197,89 @@ def test_verdict_dispatch_is_identity_based(fake_finding, fake_repo_with_source)
     )
 
     active, refuted, records, vmeta = _stage.run_verification(
-        [f_a, f_b], repo_path=repo, client_factory=factory
+        [f_a, f_b, peer], repo_path=repo, client_factory=factory
     )
 
-    assert len(active) + len(refuted) == 2
-    # Exactly one survived, exactly one refuted — the verdict_by_ref collapse
-    # would either lose the survived verdict or double-apply the refuted one.
+    assert len(active) + len(refuted) == 3
+    # Exactly one refuted — the verdict_by_ref collapse would either lose the
+    # survived verdict or double-apply the refuted one across the colliding twins.
     assert len(refuted) == 1
-    assert len(active) == 1
-    # Two verdicts were produced and dispatched independently (not collapsed to
-    # one key). meta surfaces both reviews.
-    assert vmeta["critic_reviewed"] == 2
+    assert len(active) == 2
+    # All three candidates were reviewed and dispatched independently.
+    assert vmeta["critic_reviewed"] == 3
+
+
+def test_discarded_refutations_count_reaches_report_meta(fake_finding):
+    """W1 (17-04): the discarded-refutation COUNT flows to ReportMeta, not None.
+
+    A critic refutation whose citation does NOT resolve against the real repo is
+    DISCARDED (the finding stands) — previously this left NO audit trail. Drive
+    run_verification on a finding set that produces >=1 discarded refutation, then
+    thread the resulting verification_meta through the SAME individual ReportMeta
+    assignment scan_runner does (meta.discarded_refutations = meta.get(...)). Assert
+    the count is non-None and >= 1 — proving citation fabrication is provably visible
+    to the auditor (T-17-04-04). A bare grep for the symbol is insufficient.
+    """
+    import datetime
+
+    from repo_audit.schema.report import ReportMeta
+
+    # Two cross-tool peers at the same locus → both corroborated → both queued.
+    f_sast = fake_finding(
+        family="sast", file="src/app/auth.py", line=1, severity="major",
+        output_snippet="sast finding",
+    )
+    f_peer = fake_finding(
+        family="sca", source_tool="osv", file="src/app/auth.py", line=1,
+        severity="major", rule_id="owasp.a03.injection",
+        output_snippet="cross-tool peer",
+    )
+
+    def _fabricated_factory(*, candidate_ref: str, **_kwargs):
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def run_once(self):
+                # A refutation whose file_line citation cannot resolve (no
+                # repo_path / non-existent file) → DISCARDED, not applied.
+                await _critic.submit_verdict.handler(
+                    {
+                        "outcome": "refuted",
+                        "angle": "existing_control",
+                        "citation": {
+                            "kind": "file_line",
+                            "file": "does/not/exist.py",
+                            "line": 9999,
+                        },
+                        "reason": "fabricated citation",
+                    }
+                )
+
+        return _Client()
+
+    active, refuted, records, vmeta = _stage.run_verification(
+        [f_sast, f_peer], repo_path=None, client_factory=_fabricated_factory
+    )
+
+    # The fabricated refutations were discarded — nothing landed in refuted[].
+    assert len(refuted) == 0
+    discarded = vmeta.get("discarded_refutations")
+    assert discarded is not None and discarded >= 1
+
+    # Thread through the SAME individual assignment scan_runner performs.
+    meta = ReportMeta(
+        repo_slug="x",
+        commit_sha="UNCOMMITTED",
+        scan_date=datetime.date.today(),
+        tool_version="0",
+    )
+    meta.discarded_refutations = vmeta.get("discarded_refutations")
+    assert meta.discarded_refutations is not None
+    assert meta.discarded_refutations >= 1
 
 
 def _mock_per_candidate_factory(specs):

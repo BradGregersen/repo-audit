@@ -107,6 +107,14 @@ class VerificationRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     finding_ref: str = Field(..., min_length=1)
+    # The per-finding IDENTITY token (17-04): a zero-based index assigned once over
+    # the INPUT finding list. ``finding_ref`` (build_finding_ref) is NON-unique —
+    # two findings from the same tool at the same locus collide on it — so it can
+    # no longer be the verdict/tier dispatch key. ``candidate_token`` IS that key:
+    # it survives the deterministic (finding,record) re-sort (stamped BEFORE the
+    # sort), so the finding↔record pairing carries identity even when the finding's
+    # list position changes. ``finding_ref`` stays the display/citation string.
+    candidate_token: int = Field(default=-1)
     corroboration_tier: CorroborationTier = "none"
     corroborated_by: list[str] = Field(default_factory=list)
     reachable: bool | None = None

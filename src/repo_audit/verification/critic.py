@@ -97,6 +97,11 @@ class Verdict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     finding_ref: str
+    # 17-04: the per-candidate IDENTITY token (the corroboration-stage zero-based
+    # input index). ``finding_ref`` is NON-unique (collides for two findings from
+    # the same tool at the same locus), so the stage dispatches verdicts by THIS
+    # token, not by finding_ref. finding_ref stays the display/audit string.
+    candidate_token: int = -1
     outcome: Literal["refuted", "survived"]
     refutation: RefutationRecord | None = None
 
@@ -131,6 +136,10 @@ class VerdictPayload(BaseModel):
 _REPO_PATH: Path | None = None
 _FINDING_SET: list = []
 _CANDIDATE_REF: str = ""
+# 17-04: the per-candidate IDENTITY token for the finding currently under review.
+# submit_verdict stamps it onto the Verdict so the stage can dispatch by identity
+# (not by the non-unique _CANDIDATE_REF fingerprint).
+_CANDIDATE_TOKEN: int = -1
 _SUBMITTED_VERDICT: Verdict | None = None
 _DISCARDED: list[RefutationRecord] = []
 
@@ -140,17 +149,23 @@ def reset_critic_state(
     repo_path: "Path | str | None",
     finding_set: "list[Finding]",
     candidate_ref: str = "",
+    candidate_token: int = -1,
 ) -> None:
     """Reset per-candidate critic state before a submit_verdict turn.
 
     ``repo_path`` resolves ``file_line`` citations + ``get_repo_excerpt`` reads.
     ``finding_set`` resolves ``sibling_ref`` citations (the duplicate angle).
-    ``candidate_ref`` is the reviewed finding's fingerprint (for the Verdict).
+    ``candidate_ref`` is the reviewed finding's fingerprint (for the Verdict's
+    display/audit field). ``candidate_token`` (17-04) is the reviewed finding's
+    per-candidate IDENTITY token — the verdict/tier dispatch key the stage uses
+    instead of the non-unique fingerprint.
     """
-    global _REPO_PATH, _FINDING_SET, _CANDIDATE_REF, _SUBMITTED_VERDICT, _DISCARDED
+    global _REPO_PATH, _FINDING_SET, _CANDIDATE_REF, _CANDIDATE_TOKEN
+    global _SUBMITTED_VERDICT, _DISCARDED
     _REPO_PATH = Path(repo_path) if repo_path is not None else None
     _FINDING_SET = list(finding_set)
     _CANDIDATE_REF = candidate_ref
+    _CANDIDATE_TOKEN = candidate_token
     _SUBMITTED_VERDICT = None
     _DISCARDED = []
 
@@ -313,7 +328,10 @@ async def submit_verdict(args: dict[str, Any]) -> dict[str, Any]:
 
     if payload.outcome == "survived":
         _SUBMITTED_VERDICT = Verdict(
-            finding_ref=_CANDIDATE_REF, outcome="survived", refutation=None
+            finding_ref=_CANDIDATE_REF,
+            candidate_token=_CANDIDATE_TOKEN,
+            outcome="survived",
+            refutation=None,
         )
         return _wrap({"status": "ok", "message": "Verdict recorded: survived."})
 
@@ -343,7 +361,10 @@ async def submit_verdict(args: dict[str, Any]) -> dict[str, Any]:
         )
 
     _SUBMITTED_VERDICT = Verdict(
-        finding_ref=_CANDIDATE_REF, outcome="refuted", refutation=record
+        finding_ref=_CANDIDATE_REF,
+        candidate_token=_CANDIDATE_TOKEN,
+        outcome="refuted",
+        refutation=record,
     )
     return _wrap({"status": "ok", "message": "Verdict recorded: refuted (citation valid)."})
 
@@ -501,6 +522,11 @@ def build_priority_queue(
     corroboration_strength term sorts a stronger tier ahead of a weaker one at
     equal severity.
     """
+    # NOTE (17-04): this tier_by_ref lookup is READ-ONLY for ORDERING/qualification
+    # only — it is NOT a dispatch key. Verdict/tier DISPATCH is keyed by the
+    # per-candidate identity token (candidate_token) downstream in _apply_verdicts;
+    # a fingerprint collision here only affects sort order among equal-keyed
+    # findings (already deterministic), never which verdict applies to which finding.
     tier_by_ref: dict[str, str] = {
         r.finding_ref: r.corroboration_tier for r in records
     }
@@ -600,6 +626,7 @@ async def run_critic_session(
     meta: "VerificationMeta",
     repo_name: str = "",
     client_factory: Callable | None = None,
+    corroborated_findings: "list[Finding] | None" = None,
 ) -> "tuple[list[Verdict], VerificationMeta]":
     """Review the priority queue under separate token + wall-clock budgets.
 
@@ -626,6 +653,25 @@ async def run_critic_session(
     meta.critic_total_queue = len(queue)
     all_refs = [build_finding_ref(f) for f in queue]
 
+    # 17-04: resolve each QUEUED finding's per-candidate IDENTITY token. The queue
+    # is a re-ordered SUBSET of the corroborated findings, so enumerate(queue) is
+    # NOT the input index — the token must come from the finding's PAIRED record.
+    # ``corroborated_findings`` is the post-corroboration finding list that
+    # ``records`` is index-paired with (tiered_corroborate returns them aligned).
+    # Build an exact object-identity map id(finding) -> record.candidate_token: two
+    # fingerprint-colliding findings are DISTINCT objects → DISTINCT tokens, and a
+    # queued finding is the SAME object build_priority_queue selected from the
+    # corroborated set, so the token a verdict gets stamped with is exactly the one
+    # the stage reads for that finding in _apply_verdicts. (No fingerprint matching
+    # anywhere — identity is by object, the whole point of the fix.)
+    _token_by_id: dict[int, int] = {}
+    if corroborated_findings is not None and len(corroborated_findings) == len(records):
+        for cf, rec in zip(corroborated_findings, records):
+            _token_by_id[id(cf)] = rec.candidate_token
+
+    def _token_for_finding(f) -> int:
+        return _token_by_id.get(id(f), -1)
+
     max_tokens = get_threshold("critic.max_tokens_per_scan")
     max_wall = get_threshold("critic.max_wall_clock_seconds")
     start = time.perf_counter()
@@ -639,12 +685,14 @@ async def run_critic_session(
             break
 
         candidate_ref = all_refs[idx]
+        candidate_token = _token_for_finding(finding)
         # Sibling fingerprints = the OTHER queued findings (duplicate angle).
         sibling_refs = [r for j, r in enumerate(all_refs) if j != idx]
         reset_critic_state(
             repo_path=repo_path,
             finding_set=list(queue),
             candidate_ref=candidate_ref,
+            candidate_token=candidate_token,
         )
 
         try:
