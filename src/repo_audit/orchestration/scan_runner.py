@@ -810,6 +810,34 @@ def run_scan(
     if refresh_coverage and not coverage_refreshed_early:
         findings = _maybe_refresh_coverage(repo_path, findings)
 
+    # Phase 17 (Plan 17-03) — VERIFICATION STAGE (VER-01 / SC1 / Pitfall 1).
+    # Inserted AFTER the DAST runtime post-pass guard (+ refresh-coverage) and
+    # BEFORE build_scope_ledger so the ledger, narrator, and renderer all consume
+    # the POST-verification finding set. run_verification orchestrates:
+    #   stage-1 tiered_corroborate (candidate -> corroborated, RAISES only)
+    #   stage-2 the adversarial critic (skipped under --no-agent via no_critic)
+    #   confirmed gate (corroborated AND survived -> confirmed; runtime auto-
+    #     confirms without a critic run; non-runtime corroborated-without-critic
+    #     stays corroborated)
+    #   refuted appendix (valid refutation -> refuted[], never vanishes, D-17-14)
+    #   downgrade-only post-pass (no static->runtime promotion survives, D-17-16)
+    # The call is dispatched through the module attribute (_verification) so the
+    # stage is patchable in tests without the live SDK (mirrors the narrator's
+    # _agent_session indirection at L1160). run_verification is NEVER-RAISE (D-25):
+    # any failure leaves findings at their deterministic rungs and the scan
+    # completes. The render chokepoint is untouched — verification is a SEPARATE
+    # stage whose OUTPUT later renders (so the render-time secret-lint still applies
+    # to the refuted appendix).
+    from repo_audit.verification import stage as _verification
+    (
+        findings,
+        _refuted_findings,
+        _verification_records,
+        _verification_meta,
+    ) = _verification.run_verification(
+        findings, repo_path=repo_path, no_critic=no_agent
+    )
+
     # D-30 scope ledger assembly (Phase 3: adapter_results folded).
     scope_ledger = build_scope_ledger(
         walker_result, collector_results,
@@ -1079,6 +1107,31 @@ def run_scan(
         else:
             scope_ledger.notes = _viol_note
 
+    # Phase 17 (Plan 17-03) — fold the verification-stage disclosures into the
+    # scope ledger exactly like _dast_runtime_violations: (1) the Refuted appendix
+    # summary (D-17-14 — how many findings the critic validly refuted; the full
+    # auditable trail lives in meta.refuted_findings) and (2) any downgrade-only
+    # post-pass violations (D-17-16 — a static->runtime smuggle that was reverted).
+    _verif_notes: list = []
+    if _refuted_findings:
+        _verif_notes.append(
+            f"Verification: {len(_refuted_findings)} finding(s) validly refuted "
+            "and filed in the Refuted appendix (reason + citation in the JSON "
+            "sidecar; never silently dropped — D-17-14)"
+        )
+    _downgrade_violations = _verification_meta.get("downgrade_violations", 0)
+    if _downgrade_violations:
+        _verif_notes.append(
+            f"SAFE-01 violation: reverted {_downgrade_violations} finding(s) that "
+            "gained evidence_type='runtime' they were not born with "
+            "(downgrade-only post-pass — D-17-16)"
+        )
+    for _vn in _verif_notes:
+        if scope_ledger.notes:
+            scope_ledger.notes += "; " + _vn
+        else:
+            scope_ledger.notes = _vn
+
     # Plan 05-01 / TREND-01: baseline_run is conditional on a prior sidecar.
     # find_prior_sidecar returns the most-recent JSON sidecar with
     # meta.scan_date strictly before today (or None — same-day re-run, no
@@ -1115,6 +1168,17 @@ def run_scan(
         if supply_chain_result.sbom_path
         else None
     )
+
+    # Phase 17 (Plan 17-03) / CRIT-5 + D-17-14: carry the verification-stage
+    # disclosures onto the (mutable) ReportMeta. critic_reviewed (N) /
+    # critic_total_queue (M) populate the "N of M critically reviewed" disclosure
+    # (N < M on budget exhaustion); refuted_findings is the auditable Refuted
+    # appendix (the AUTHORITATIVE JSON-sidecar trail). When the critic was skipped
+    # (--no-agent → no_critic), critic_total_queue is 0 and refuted_findings is
+    # the empty list (the deterministic corroboration still ran).
+    meta.critic_reviewed = _verification_meta.get("critic_reviewed")
+    meta.critic_total_queue = _verification_meta.get("critic_total_queue")
+    meta.refuted_findings = list(_refuted_findings)
 
     # Plan 05-03 / TREND-02: compute the TrendDelta when a prior sidecar exists.
     # Parsed defensively — find_prior_sidecar already validated parseability, but

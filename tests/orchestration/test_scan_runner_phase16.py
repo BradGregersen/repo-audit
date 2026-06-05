@@ -240,12 +240,22 @@ def test_lanes_dispatched_and_merged(fake_repo_on_disk, monkeypatch):
     for tool in ("e2e-harness", "atheris", "codeql", _DAST_SOURCE_TOOL, "snyk"):
         assert tool in merged_tools, f"{tool} finding missing from merged set"
 
-    # Deterministic dispatch order: e2e < fuzz < codeql < dast < byo.
-    order = [
-        merged_tools.index(t)
-        for t in ("e2e-harness", "atheris", "codeql", _DAST_SOURCE_TOOL, "snyk")
-    ]
-    assert order == sorted(order), f"lane findings out of dispatch order: {order}"
+    # Phase 17 (Plan 17-03): the verification stage (run_verification) now sits
+    # between the findings merge and the report assembly, and its stage-1
+    # tiered_corroborate re-sorts the finding set DETERMINISTICALLY by
+    # build_finding_ref (SC-5 — order is independent of dispatch/input order). So
+    # the FINAL report order is the deterministic finding_ref order, NOT the
+    # dispatch order. We assert the order is the stable finding_ref sort (the
+    # report's authoritative final order) rather than the now-obsolete dispatch
+    # order. Presence of all 5 lanes (above) is what the dispatch contract needs;
+    # determinism is the SC-5 guarantee.
+    from repo_audit.verification.record import build_finding_ref
+
+    final_refs = [build_finding_ref(f) for f in result.scan_report.findings]
+    assert final_refs == sorted(final_refs), (
+        "post-verification report findings must be in deterministic "
+        f"finding_ref order (SC-5): {final_refs}"
+    )
 
 
 # --- 2. --e2e / --fuzz flags thread to run_e2e / run_fuzz opt_in ------------

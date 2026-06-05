@@ -169,6 +169,32 @@ class ReportMeta(BaseModel):
     # the field defaulting to None.
     sbom_path: str | None = None
 
+    # --- Phase 17 verification-layer fields (VER-04 / CRIT-5) — all Optional. ---
+    # Populated by the verification stage (run_verification) wired into run_scan
+    # between the DAST guard and build_scope_ledger. They carry the honest-partial
+    # "N of M critically reviewed" disclosure (D-17-11 / CRIT-5) and the auditable
+    # Refuted appendix (D-17-14). schema_version STAYS "1" (D-21): additive Optional
+    # fields are forward-compatible — Phase 1-16 sidecars (no verification keys)
+    # round-trip-validate, and the Phase 5 fleet aggregator ignores unknown fields.
+
+    # CRIT-5 — N: how many queued findings the critic actually reviewed before its
+    # budget (token / wall-clock) bound stopped the loop. None means the
+    # verification stage did not run (e.g. --no-agent skipped the critic and no
+    # disclosure was produced).
+    critic_reviewed: int | None = None
+
+    # CRIT-5 — M: the total size of the critic priority queue. N < M discloses an
+    # honest partial (budget exhaustion); N == M means the whole queue was reviewed.
+    critic_total_queue: int | None = None
+
+    # D-17-14 — the auditable Refuted appendix. One free-form audit dict per
+    # validly-refuted finding (finding_ref + angle + reason + citation +
+    # confidence_dropped). Free-form shape (like agent_corroboration_disputes) so
+    # Phase 18/19 can enrich it without a schema migration. The JSON sidecar is the
+    # AUTHORITATIVE refutation trail (markdown appendix is optional). None when the
+    # verification stage did not run; [] when it ran and refuted nothing.
+    refuted_findings: list[dict] | None = None
+
 
 class ScanReport(BaseModel):
     """The structured scan report. Serialized as the JSON sidecar (SCH-06).
