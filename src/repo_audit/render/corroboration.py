@@ -22,6 +22,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+# Tier-3 corroboration was FACTORED OUT into the verification package (Phase 17,
+# Plan 17-01 Task 2) and is RE-IMPORTED here so the render-time and pre-narration
+# checks are the SAME function and cannot drift (CONTEXT D-17 discretion).
+# classify_critical_finding + detect_corroboration_disputes call it unchanged.
+from repo_audit.verification.corroborate import is_corroborated
+
 if TYPE_CHECKING:
     from repo_audit.agent.schema import AgentScanReport
     from repo_audit.schema.finding import Finding
@@ -31,21 +37,6 @@ CriticalRenderClass = Literal[
     "critical-uncorroborated-with-caveat",
     "critical-uncorroborated-fallthrough",
 ]
-
-
-def is_corroborated(finding: "Finding", all_findings: "list[Finding]") -> bool:
-    """D-69 — source_tool diversity >= 2 across same-dimension + same-file findings."""
-    same_dim_same_file = [
-        f
-        for f in all_findings
-        if f is not finding
-        and getattr(f, "dimension", None) == getattr(finding, "dimension", None)
-        and getattr(f, "file", None) == getattr(finding, "file", None)
-    ]
-    source_tools = {getattr(f, "source_tool", "") for f in same_dim_same_file} | {
-        getattr(finding, "source_tool", "")
-    }
-    return len({t for t in source_tools if t}) >= 2
 
 
 def classify_critical_finding(
