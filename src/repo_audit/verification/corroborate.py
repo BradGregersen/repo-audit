@@ -211,7 +211,7 @@ def tiered_corroborate(
     # is independent of input ordering — determinism, SC-5).
     out: list[Finding] = []
     records: list[VerificationRecord] = []
-    for f in findings:
+    for idx, f in enumerate(findings):
         tier, corroborated_by = _winning_tier(
             f,
             findings,
@@ -227,6 +227,11 @@ def tiered_corroborate(
         records.append(
             VerificationRecord(
                 finding_ref=build_finding_ref(f),
+                # 17-04: stamp the per-finding identity token = the zero-based
+                # INPUT-list index. This is stamped BEFORE the (finding,record)
+                # re-sort below, so the record carries identity even though the
+                # finding's list position no longer survives the sort.
+                candidate_token=idx,
                 corroboration_tier=tier,  # type: ignore[arg-type]
                 corroborated_by=corroborated_by,
                 final_confidence=promoted.confidence,

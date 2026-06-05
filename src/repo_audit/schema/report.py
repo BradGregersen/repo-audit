@@ -195,6 +195,16 @@ class ReportMeta(BaseModel):
     # verification stage did not run; [] when it ran and refuted nothing.
     refuted_findings: list[dict] | None = None
 
+    # W1 (17-04) / T-17-04-04 — the COUNT of critic refutations DISCARDED because
+    # their citation did not resolve against the real repo. A fabricated/unresolvable
+    # refutation is inert (the finding stands) but previously left NO audit trail;
+    # surfacing the count makes citation-fabrication provably visible to the auditor.
+    # Additive Optional field — schema_version STAYS "1" (D-21), forward-compatible:
+    # Phase 1-16 sidecars (no discarded_refutations key) round-trip-validate with the
+    # field defaulting to None. None means the verification stage did not run; 0 means
+    # it ran and discarded nothing.
+    discarded_refutations: int | None = None
+
 
 class ScanReport(BaseModel):
     """The structured scan report. Serialized as the JSON sidecar (SCH-06).

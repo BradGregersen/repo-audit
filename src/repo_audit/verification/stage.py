@@ -99,17 +99,27 @@ def _apply_verdicts(
     findings: "list[Finding]",
     verdicts: list,
     records: "list[VerificationRecord]",
-    *,
-    pre_evidence: dict[str, str],
-) -> "tuple[list[Finding], list[dict]]":
+) -> "tuple[list[Finding], list[int], list[dict]]":
     """Apply the confirmed gate + refuted appendix to the corroborated findings.
 
-    Returns ``(active, refuted)`` where ``refuted`` is a list of free-form audit
-    dicts (one per validly-refuted finding) carrying ``finding_ref`` + reason +
-    citation + ``confidence_dropped``. Nothing vanishes: every input finding is
-    either in ``active`` or ``refuted``.
+    Returns ``(active, active_tokens, refuted)`` where ``active_tokens`` is the
+    per-candidate identity token parallel to ``active`` (so the downgrade-only
+    post-pass can read each active finding's BORN evidence_type by token even
+    after a confirming model_copy breaks object identity), and ``refuted`` is a
+    list of free-form audit dicts (one per validly-refuted finding) carrying
+    ``finding_ref`` + reason + citation + ``confidence_dropped``. Nothing vanishes:
+    every input finding is either in ``active`` or ``refuted``.
 
-    Disposition per finding (keyed by build_finding_ref):
+    DISPATCH IS BY IDENTITY TOKEN (17-04), NOT build_finding_ref. ``findings`` is
+    the corroborated finding list, index-paired with ``records`` (the pairing the
+    corroboration stage produced + run_verification preserves). Each finding's
+    per-candidate token is its paired ``record.candidate_token`` — the SAME token
+    the critic stamped onto its Verdict. Two fingerprint-colliding findings have
+    DISTINCT tokens → distinct verdicts/tiers → no last-write-wins collapse and no
+    tier cross-inheritance. ``build_finding_ref`` is used ONLY for the refuted[]
+    entry's display ``finding_ref`` field (and sibling citation), never to dispatch.
+
+    Disposition per finding (keyed by candidate_token):
       * a "refuted" verdict (citation already validated by the critic) → moved to
         ``refuted[]``, confidence dropped (D-17-14).
       * corroborated AND a "survived" verdict → confirmed (D-17-05).
@@ -119,19 +129,28 @@ def _apply_verdicts(
         (D-17-06 — never auto-confirmed).
       * everything else → unchanged (still candidate / whatever stage-1 left).
     """
-    # Index verdicts + corroboration tiers by finding_ref.
-    verdict_by_ref: dict[str, object] = {v.finding_ref: v for v in verdicts}
-    tier_by_ref: dict[str, str] = {
-        r.finding_ref: r.corroboration_tier for r in records
+    # Index verdicts + corroboration tiers by the per-candidate IDENTITY token
+    # (17-04) — NOT by the non-unique build_finding_ref fingerprint.
+    verdict_by_token: dict[int, object] = {
+        getattr(v, "candidate_token", -1): v for v in verdicts
+    }
+    tier_by_token: dict[int, str] = {
+        r.candidate_token: r.corroboration_tier for r in records
     }
 
     active: list[Finding] = []
+    active_tokens: list[int] = []
     refuted: list[dict] = []
 
-    for f in findings:
+    # findings is index-paired with records (the corroboration-stage pairing the
+    # caller preserves). Use strict=False defensively: a length mismatch (should
+    # never happen) degrades to token=-1 rather than raising (D-25 never-raise).
+    paired_tokens = [r.candidate_token for r in records]
+    for i, f in enumerate(findings):
+        token = paired_tokens[i] if i < len(paired_tokens) else -1
         ref = build_finding_ref(f)
-        verdict = verdict_by_ref.get(ref)
-        tier = tier_by_ref.get(ref, "none")
+        verdict = verdict_by_token.get(token)
+        tier = tier_by_token.get(token, "none")
         corroborated = tier in _CORROBORATED_TIERS
         is_runtime = getattr(f, "evidence_type", None) == "runtime"
 
@@ -168,8 +187,11 @@ def _apply_verdicts(
             # D-17-06: corroborated-non-runtime-no-verdict STAYS corroborated;
             # everything else unchanged.
             active.append(f)
+        # Carry the identity token parallel to the active finding (every non-refuted
+        # branch appends exactly one finding above; mirror it here).
+        active_tokens.append(token)
 
-    return active, refuted
+    return active, active_tokens, refuted
 
 
 def run_verification(
@@ -200,12 +222,16 @@ def run_verification(
     NEVER raises: any failure in any stage leaves findings at their deterministic
     rungs and still returns the full tuple.
     """
-    # Snapshot the BORN evidence_type by fingerprint BEFORE stage-1, so the
-    # downgrade-only post-pass can detect a static→runtime smuggle (D-17-16).
+    # Snapshot the BORN evidence_type by per-candidate IDENTITY token BEFORE
+    # stage-1, so the downgrade-only post-pass can detect a static→runtime smuggle
+    # (D-17-16). The token is the zero-based INPUT-list index (17-04) — the SAME
+    # identity tiered_corroborate stamps onto each record — so keying pre_evidence
+    # by token (not the non-unique build_finding_ref) means two fingerprint-twins
+    # each keep their OWN born evidence_type (no collision-driven cross-read).
     try:
-        pre_evidence: dict[str, str] = {
-            build_finding_ref(f): (getattr(f, "evidence_type", "") or "")
-            for f in findings
+        pre_evidence: dict[int, str] = {
+            idx: (getattr(f, "evidence_type", "") or "")
+            for idx, f in enumerate(findings)
         }
     except Exception:
         pre_evidence = {}
@@ -234,6 +260,10 @@ def run_verification(
                     records=records,
                     meta=_critic.VerificationMeta(),
                     client_factory=client_factory,
+                    # 17-04: pass the corroborated findings so the session can build
+                    # the exact id(finding)->record.candidate_token map for verdict
+                    # token stamping (records is index-paired with these findings).
+                    corroborated_findings=corroborated_findings,
                 )
             )
         except Exception:
@@ -243,11 +273,13 @@ def run_verification(
 
     # --- confirmed gate + refuted appendix (never-raise wrap). -----------------
     try:
-        active, refuted = _apply_verdicts(
-            corroborated_findings, verdicts, records, pre_evidence=pre_evidence
+        active, active_tokens, refuted = _apply_verdicts(
+            corroborated_findings, verdicts, records
         )
     except Exception:
-        active, refuted = list(corroborated_findings), []
+        active = list(corroborated_findings)
+        active_tokens = [-1] * len(active)
+        refuted = []
 
     # --- downgrade-only post-pass (guarded assert, NEVER raises — D-17-16). ----
     # Cloned from scan_runner.py L780-797: express the invariant as an assert
@@ -255,10 +287,14 @@ def run_verification(
     # offender, accumulate violations. NOTHING raises out of this block.
     downgrade_violations = 0
     kept: list = []
-    for f in active:
+    for i, f in enumerate(active):
         try:
-            ref = build_finding_ref(f)
-            born = pre_evidence.get(ref, getattr(f, "evidence_type", "") or "")
+            # 17-04: read the BORN evidence_type by the finding's per-candidate
+            # IDENTITY token (parallel to ``active``), NOT by the non-unique
+            # build_finding_ref — so two fingerprint-twins never cross-read each
+            # other's born evidence in the smuggle check.
+            token = active_tokens[i] if i < len(active_tokens) else -1
+            born = pre_evidence.get(token, getattr(f, "evidence_type", "") or "")
             now = getattr(f, "evidence_type", "") or ""
             if now == "runtime" and born != "runtime":
                 # A finding gained runtime it was NOT born with — the exact
@@ -291,6 +327,12 @@ def run_verification(
         "critic_total_queue": vmeta_obj.critic_total_queue,
         "refuted_findings": refuted,
         "downgrade_violations": downgrade_violations,
+        # W1 (17-04): surface the COUNT of refutations DISCARDED for an invalid
+        # citation. Previously omitted — an LLM fabricating a citation left no
+        # audit trail. The count flows into ReportMeta.discarded_refutations via
+        # the explicit scan_runner assignment, so a fabricated refutation is
+        # provably visible to the auditor (T-17-04-04).
+        "discarded_refutations": len(vmeta_obj.discarded_refutations),
     }
 
     return active, refuted, records, verification_meta

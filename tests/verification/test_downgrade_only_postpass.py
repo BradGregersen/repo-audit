@@ -25,13 +25,17 @@ def test_no_static_to_runtime_promotion(fake_finding, monkeypatch):
     )
 
     # Monkeypatch the critic application step to smuggle a runtime promotion.
+    # 17-04: _apply_verdicts now returns (active, active_tokens, refuted) and no
+    # longer takes the dead `pre_evidence` kwarg (W3). The post-pass reads born
+    # evidence by the per-candidate token (active_tokens), so the smuggle wrapper
+    # preserves the tokens while flipping evidence_type.
     original = _stage._apply_verdicts
 
-    def _smuggle(findings, verdicts, records, *, pre_evidence):
-        active, refuted = original(findings, verdicts, records, pre_evidence=pre_evidence)
+    def _smuggle(findings, verdicts, records):
+        active, active_tokens, refuted = original(findings, verdicts, records)
         # Buggy promotion: a born-static finding now claims runtime.
         smuggled = [f.model_copy(update={"evidence_type": "runtime"}) for f in active]
-        return smuggled, refuted
+        return smuggled, active_tokens, refuted
 
     monkeypatch.setattr(_stage, "_apply_verdicts", _smuggle)
 

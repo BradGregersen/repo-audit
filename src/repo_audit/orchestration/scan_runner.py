@@ -1179,6 +1179,12 @@ def run_scan(
     meta.critic_reviewed = _verification_meta.get("critic_reviewed")
     meta.critic_total_queue = _verification_meta.get("critic_total_queue")
     meta.refuted_findings = list(_refuted_findings)
+    # W1 (Plan 17-04) / T-17-04-04: carry the discarded-refutation COUNT onto the
+    # (mutable) ReportMeta. There is NO generic verification_meta -> ReportMeta
+    # carry — each field is copied INDIVIDUALLY (above), so this explicit
+    # assignment is REQUIRED or the field stays None in all output. Makes a
+    # fabricated/unresolvable critic citation provably visible to the auditor.
+    meta.discarded_refutations = _verification_meta.get("discarded_refutations")
 
     # Plan 05-03 / TREND-02: compute the TrendDelta when a prior sidecar exists.
     # Parsed defensively — find_prior_sidecar already validated parseability, but
