@@ -34,8 +34,19 @@ from pathlib import Path
 from repo_audit import __version__
 from repo_audit.adapters import run_adapters
 from repo_audit.adapters.architecture import run_architecture
+from repo_audit.adapters.byo.commercial import (
+    COMMERCIAL_TOOLS,
+    run_byo_commercial,
+)
+from repo_audit.adapters.byo.config import load_byo_config
 from repo_audit.adapters.cache_env import build_scan_env, scan_tempdir
 from repo_audit.adapters.cicd import run_cicd
+from repo_audit.adapters.codeql import run_codeql
+from repo_audit.adapters.codeql.config import load_codeql_config
+from repo_audit.adapters.dast import run_dast
+from repo_audit.adapters.dast.config import read_dast_config
+from repo_audit.adapters.e2e import run_e2e
+from repo_audit.adapters.fuzz import run_fuzz
 from repo_audit.adapters.mobile import run_mobile
 from repo_audit.adapters.quality_depth import run_quality_depth
 from repo_audit.adapters.sast import run_sast
@@ -106,6 +117,32 @@ def _phase11_step_degraded(status: str) -> bool:
     ``ok`` and ``not_applicable`` are non-degrading; everything else degrades.
     """
     return status not in _PHASE11_NON_PARTIAL_STATUSES
+
+
+# Phase 16 (Plan 16-07): the CONFIG-DRIVEN deep lanes (CodeQL / DAST) are
+# default-OFF opt-in lanes that, unlike the dataclass lanes, return
+# ``unavailable`` (NOT ``not_applicable``) for BOTH their disclosed
+# non-applicability (default-OFF / no configured target) AND a genuine
+# degradation (binary absent, exec failure). The must-have is explicit: a lane
+# that is OFF-by-default / has no configured target is DISCLOSED in the ledger
+# but does NOT flip partial. Since these lanes cannot distinguish those cases via
+# status alone — and an opt-in lane that the user never enabled is the
+# overwhelmingly common case — their ``unavailable`` is treated as non-flipping
+# (disclosed-not-degrading), mirroring the spirit of the Phase-11 not_applicable
+# precedent. ``timeout`` / ``partial`` (the lane actually RAN and degraded) still
+# flip partial. ``--no-sast`` is the deliberate counter-precedent: SAST is
+# default-ON, so its ``unavailable`` DOES flip; CodeQL/DAST are default-OFF.
+_PHASE16_OPTIN_NON_PARTIAL_STATUSES = ("ok", "not_applicable", "unavailable")
+
+
+def _phase16_optin_lane_degraded(status: str) -> bool:
+    """True when a config-driven Phase-16 opt-in lane status flips partial.
+
+    ``ok`` / ``not_applicable`` / ``unavailable`` are non-degrading (the lane is
+    OFF-by-default or has no configured target — DISCLOSED, not a degradation).
+    ``timeout`` / ``partial`` (the lane ran and degraded) DO flip partial.
+    """
+    return status not in _PHASE16_OPTIN_NON_PARTIAL_STATUSES
 
 
 @dataclass
@@ -247,6 +284,8 @@ def run_scan(
     mutation: bool = False,
     typed_detekt: bool = True,
     qd_build: bool = False,
+    e2e: bool = False,
+    fuzz: bool = False,
 ) -> ScanResult:
     """Run the full single-repo scan pipeline and return a :class:`ScanResult`.
 
@@ -592,6 +631,90 @@ def run_scan(
             injected_line_pct=injected_line_pct,
         )
 
+    # Phase 16 (Plan 16-07): FIVE NEW DYNAMIC/DEEP LANES wired exactly like the
+    # Phase-11 cross-stack steps — each under its OWN ``scan_tempdir`` (scratch
+    # OUTSIDE the read-only repo, REP-03 / T-16-07-02) and dispatched via
+    # ``_THIS_MODULE.<name>`` so tests monkeypatch the lane functions (no live
+    # tools needed). Findings merge below; status folds into ``partial`` via
+    # ``_phase11_step_degraded`` (a not_applicable lane — no harness / no target /
+    # default-OFF — is DISCLOSED in the ledger but does NOT flip partial); notes
+    # fold into the scope ledger (SAFE-08). The heavy E2E/fuzz lanes are opt-in
+    # ONLY: ``e2e``/``fuzz`` default OFF here so a fleet sweep
+    # (run_scan(no_agent=True)) never runs them (T-16-07-03, mirrors --mutation).
+    # CodeQL/DAST/commercial are config-driven (default-OFF behind attestation /
+    # a configured target URL) — no CLI flag.
+    #
+    # Config readers (load_codeql_config / load_byo_config) can raise a pydantic
+    # ValidationError on a MALFORMED opt-in block (fail-loud by design). run_scan
+    # must NEVER raise (D-25), so each config read is wrapped defensively: a
+    # malformed block degrades the lane to absent (None / {}) and is disclosed via
+    # a ledger note rather than crashing the scan. read_dast_config already never
+    # raises (it degrades to documented defaults).
+    _yaml_path = repo_path / ".repo-audit.yaml"
+    _lane_cfg_notes: list[str] = []
+    try:
+        codeql_cfg = load_codeql_config(_yaml_path)
+    except Exception as exc:  # noqa: BLE001 — a malformed opt-in block must not crash
+        codeql_cfg = None
+        _lane_cfg_notes.append(
+            f"CodeQL config ignored (malformed): {type(exc).__name__}"
+        )
+    try:
+        _byo_all = load_byo_config(_yaml_path)
+    except Exception as exc:  # noqa: BLE001
+        _byo_all = {}
+        _lane_cfg_notes.append(
+            f"BYO commercial config ignored (malformed): {type(exc).__name__}"
+        )
+    # The commercial slice of the BYO config = entries whose name is one of the
+    # five first-class commercial tools (the rest of byo_tools is the generic
+    # BYO-01 pattern, not the BYO-02 commercial wrappers).
+    commercial_configs = {
+        name: cfg for name, cfg in _byo_all.items() if name in COMMERCIAL_TOOLS
+    }
+
+    with scan_tempdir() as _e2e_td:
+        e2e_base = build_scan_env(_e2e_td)
+        # infra_present=False: a built app + booted device/browser is absent on
+        # this machine → the lane degrades to detected-not-run (D-16-02).
+        e2e_result = _THIS_MODULE.run_e2e(
+            repo_path, base_env=e2e_base, opt_in=e2e, infra_present=False
+        )
+    with scan_tempdir() as _fuzz_td:
+        fuzz_base = build_scan_env(_fuzz_td)
+        fuzz_result = _THIS_MODULE.run_fuzz(
+            repo_path, base_env=fuzz_base, opt_in=fuzz
+        )
+    with scan_tempdir() as _cq_td:
+        cq_base = build_scan_env(_cq_td)
+        codeql_result = _THIS_MODULE.run_codeql(
+            repo_path,
+            base_env=cq_base,
+            cfg=codeql_cfg,
+            scratch_dir=_cq_td,
+            detection=detection,
+        )
+    with scan_tempdir() as _dast_td:
+        dast_base = build_scan_env(_dast_td)
+        # opt_in=True: providing the configured target_url IS the opt-in
+        # (D-16-10); with no target_url the lane refuses + degrades to
+        # unavailable WITHOUT a subprocess.
+        dast_result = _THIS_MODULE.run_dast(
+            repo_path,
+            base_env=dast_base,
+            opt_in=True,
+            scratch_dir=_dast_td,
+            cfg=read_dast_config(repo_path),
+        )
+    with scan_tempdir() as _byo_td:
+        byo_base = build_scan_env(_byo_td)
+        byo_commercial_result = _THIS_MODULE.run_byo_commercial(
+            repo_path,
+            base_env=byo_base,
+            scratch_dir=_byo_td,
+            configs=commercial_configs,
+        )
+
     # Aggregate findings across collectors + adapters + SCA + RLS (sequential
     # preserves ledger order). SCA + RLS findings are appended deterministically
     # so SC-5 determinism holds. Built BEFORE the refresh sub-steps below so the
@@ -632,7 +755,46 @@ def run_scan(
         + list(cicd_result.findings)
         + list(arch_result.findings)
         + list(qd_result.findings)
+        # Phase 16 (Plan 16-07): the five dynamic/deep lanes, appended in
+        # deterministic order (SC-5) after every prior step.
+        + list(e2e_result.findings)
+        + list(fuzz_result.findings)
+        + list(codeql_result.findings)
+        + list(dast_result.findings)
+        + list(byo_commercial_result.findings)
     )
+
+    # Phase 16 (Plan 16-07) — SCAN-RUNNER-LEVEL DAST RUNTIME POST-PASS GUARD
+    # (D-16-12 / SAFE-01 / T-16-07-01). Defence-in-depth complementing the
+    # per-lane guard in dast/__init__.py: NO merged DAST finding may carry
+    # evidence_type='runtime' (runtime is reserved for the Phase-8 Supabase
+    # two-account test — the sole legitimate runtime emitter). A DAST finding
+    # that somehow reached the merged set tagged 'runtime' is a false-confidence
+    # breach: it is DROPPED here and a SAFE-01 violation note is folded into the
+    # ledger below. This MUST NOT raise across run_scan (D-25 never-raise
+    # contract): the invariant is expressed as a guarded assert so a maintainer
+    # who reads it understands the contract, but any AssertionError is caught,
+    # the offending finding is dropped, and the scan completes + returns a
+    # ScanResult. We identify DAST findings by source_tool (the DAST lane stamps
+    # a fixed source_tool on every finding it emits).
+    _dast_source_tools = {f.source_tool for f in dast_result.findings}
+    _dast_runtime_violations: list = []
+    if _dast_source_tools:
+        kept_findings: list = []
+        for f in findings:
+            is_dast = getattr(f, "source_tool", None) in _dast_source_tools
+            if is_dast and getattr(f, "evidence_type", None) == "runtime":
+                try:
+                    # Express the invariant as an assert (documentation +
+                    # contract), but NEVER let it crash run_scan.
+                    assert f.evidence_type != "runtime", (
+                        "DAST finding must never be runtime (D-16-12/SAFE-01)"
+                    )
+                except AssertionError:
+                    _dast_runtime_violations.append(f)
+                continue  # drop the offending runtime-tagged DAST finding
+            kept_findings.append(f)
+        findings = kept_findings
 
     # Sub-step C + D: --refresh-coverage opt-in wiring (D-41' / Decision A).
     # Runs BEFORE build_scope_ledger so the ledger reflects the
@@ -699,6 +861,32 @@ def run_scan(
         # step is DISCLOSED but does NOT flip — the first-class degrade, via
         # _phase11_step_degraded (which swallows not_applicable).
         or _phase11_step_degraded(qd_result.status)
+        # Phase 16: each of the five dynamic/deep lanes is a DEFAULT-OFF opt-in
+        # lane. A lane in its disclosed off/no-target state is DISCLOSED via a
+        # ledger note but does NOT flip partial (the must-have: a default-OFF lane
+        # never degrades the scan).
+        #
+        # The DATACLASS lanes (E2E / fuzz / commercial) self-report
+        # ``not_applicable`` when there is no harness / native target / enabled
+        # commercial tool, so the standard ``_phase11_step_degraded`` (which
+        # swallows ok + not_applicable) applies: a real degradation
+        # (unavailable/partial/timeout once the lane is actually applicable) flips
+        # partial; the off/no-surface state does not.
+        #
+        # The CONFIG-DRIVEN AdapterResult lanes (CodeQL / DAST) cannot return
+        # ``not_applicable`` (AdapterStatus has no such member) — they return
+        # ``unavailable`` for BOTH their disclosed default-OFF / no-configured-
+        # target state AND a genuine degradation. Since these are opt-in lanes the
+        # user almost always leaves OFF, their ``unavailable`` is treated as
+        # disclosed-not-degrading via ``_phase16_optin_lane_degraded`` (which also
+        # swallows ``unavailable``); only ``timeout`` / ``partial`` (the lane RAN
+        # and degraded) flips. This is the counter-precedent to default-ON SAST,
+        # whose ``unavailable`` DOES flip.
+        or _phase11_step_degraded(e2e_result.status)
+        or _phase11_step_degraded(fuzz_result.status)
+        or _phase11_step_degraded(byo_commercial_result.status)
+        or _phase16_optin_lane_degraded(codeql_result.status)
+        or _phase16_optin_lane_degraded(dast_result.status)
     )
 
     # Fold the SCA status/notes into the scope ledger so the SCA dimension's
@@ -843,6 +1031,53 @@ def run_scan(
             scope_ledger.notes += "; " + qd_note_text
         else:
             scope_ledger.notes = qd_note_text
+
+    # Fold the Phase-16 dynamic/deep lanes' status + ledger notes into the scope
+    # ledger so each lane's availability is disclosed honestly (SAFE-08),
+    # mirroring the Quality-depth / Architecture folds. A not_applicable lane (no
+    # harness / no native target / no configured DAST target / all-default-OFF
+    # commercial) is DISCLOSED here but does NOT flip partial (above). codeql's
+    # AdapterResult carries no ``ledger_notes`` field — getattr defaults to [].
+    for _label, _res in (
+        ("E2E", e2e_result),
+        ("Fuzz", fuzz_result),
+        ("CodeQL", codeql_result),
+        ("DAST", dast_result),
+        ("Commercial", byo_commercial_result),
+    ):
+        _notes = list(getattr(_res, "ledger_notes", []) or [])
+        if _res.notes:
+            _notes.insert(0, f"{_label} ({_res.status}): {_res.notes}")
+        if _notes:
+            _note_text = "; ".join(_notes)
+            if scope_ledger.notes:
+                scope_ledger.notes += "; " + _note_text
+            else:
+                scope_ledger.notes = _note_text
+
+    # Fold any malformed-opt-in-config disclosures (a CodeQL / BYO commercial
+    # block that failed validation was ignored rather than crashing the scan).
+    for _cfg_note in _lane_cfg_notes:
+        if scope_ledger.notes:
+            scope_ledger.notes += "; " + _cfg_note
+        else:
+            scope_ledger.notes = _cfg_note
+
+    # Fold the DAST runtime-guard violation note (D-16-12 / SAFE-01). If any DAST
+    # finding reached the merged set tagged evidence_type='runtime', it was
+    # DROPPED above; record the SAFE-01 breach in the ledger so the disclosure is
+    # honest. The scan still completed (never raised) — this is a tripwire note,
+    # not a failure.
+    if _dast_runtime_violations:
+        _viol_note = (
+            f"SAFE-01 violation: dropped {len(_dast_runtime_violations)} DAST "
+            "finding(s) tagged evidence_type='runtime' (D-16-12 — DAST is never "
+            "runtime; runtime is reserved for the Supabase two-account test)"
+        )
+        if scope_ledger.notes:
+            scope_ledger.notes += "; " + _viol_note
+        else:
+            scope_ledger.notes = _viol_note
 
     # Plan 05-01 / TREND-01: baseline_run is conditional on a prior sidecar.
     # find_prior_sidecar returns the most-recent JSON sidecar with
