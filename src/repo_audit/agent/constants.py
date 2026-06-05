@@ -32,6 +32,21 @@ AGENT_DEFAULTS: dict[str, Any] = {
     # narration ~$0.63 documentation-grade under Max OAuth; ~$0 actual
     # under a Max subscription).
     "agent.max_budget_usd": 3.00,
+    # --- Phase 17 critic budget knobs (A1 — RESEARCH §"Separate budget knobs") ---
+    # The adversarial critic (Plan 17-02) runs as a SECOND, isolated
+    # ClaudeSDKClient with its OWN token + wall-clock + turn + usd budget,
+    # distinct from the narrator's agent.* knobs above. These are the A1
+    # RESEARCH-recommended defaults, pinned per CONTEXT D-17-10 (Claude's
+    # discretion). Like the agent.* knobs they are config-overridable via
+    # Phase 7's .repo-audit.yaml overlay (which plugs in on top of
+    # this dict); the critic budget is sized smaller than the narrator's
+    # because each per-candidate review is short (one finding, ~1 tool call,
+    # one submit_verdict). max_wall_clock_seconds is the CRIT-5 honest-partial
+    # bound: on exhaustion the priority queue STOPS and meta records N of M.
+    "critic.max_tokens_per_scan": 60_000,
+    "critic.max_turns": 6,
+    "critic.max_budget_usd": 1.50,
+    "critic.max_wall_clock_seconds": 180,
 }
 
 
