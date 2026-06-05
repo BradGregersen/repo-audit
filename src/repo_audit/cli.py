@@ -203,6 +203,24 @@ def scan(
             "RN bundle size is measured only from an existing build artifact."
         ),
     ),
+    e2e: bool = typer.Option(
+        False,
+        "--e2e",
+        help=(
+            "Opt-in: RUN existing E2E harness (Detox/Maestro/Playwright) if "
+            "present + infra available; never auto-authors; default OFF, never "
+            "fleet-wide (E2E-01/D-16-01)."
+        ),
+    ),
+    fuzz: bool = typer.Option(
+        False,
+        "--fuzz",
+        help=(
+            "Opt-in: RUN existing native fuzz suites (atheris/jazzer) under a "
+            "short wall-clock budget; never auto-authors a target; default OFF "
+            "(FUZZ-01/D-16-04)."
+        ),
+    ),
 ) -> None:
     """Scan a repo and emit a state report + JSON sidecar (CLI-02 / SC-3).
 
@@ -271,6 +289,8 @@ def scan(
         mutation=mutation,
         typed_detekt=typed_detekt,
         qd_build=qd_build,
+        e2e=e2e,
+        fuzz=fuzz,
     )
 
     # render refused (secret-lint rc=2 / completion-honesty rc=3) → sidecar
