@@ -15,10 +15,12 @@ from repo_audit.verification.record import (
     VerificationRecord,
     build_finding_ref,
 )
+from repo_audit.verification.stage import run_verification
 
 __all__ = [
     "Citation",
     "RefutationRecord",
     "VerificationRecord",
     "build_finding_ref",
+    "run_verification",
 ]
