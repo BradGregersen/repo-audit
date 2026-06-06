@@ -208,7 +208,11 @@ def build_drafts(
             continue
         fp = build_fingerprint(finding, repo_root=repo_root)
         body = _solo_body(finding, report, fp)
-        title = f"[arch][{finding.severity}] {finding.dimension}: {finding.rule_id}"
+        # WR-03: guard against a trailing-empty rule_id (it defaults to "") so the
+        # title never renders as "[arch][critical] security: " with a dangling
+        # colon-space.
+        rule = finding.rule_id or "(unlabeled)"
+        title = f"[arch][{finding.severity}] {finding.dimension}: {rule}"
         draft = IssueDraft(
             kind="solo",
             title=title,

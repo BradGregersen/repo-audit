@@ -527,6 +527,57 @@ def test_fingerprint_excludes_line(tmp_path):
     assert fingerprint.fingerprint(a) == fingerprint.fingerprint(b)
 
 
+def test_empty_rule_recommendation_no_collision(tmp_path):
+    """WR-03: two distinct findings in the same file with EMPTY rule_id and
+    recommendation must not fingerprint identically (a folded discriminator
+    keeps them distinct)."""
+    fingerprint = pytest.importorskip("repo_audit.issues.fingerprint")
+
+    a = Finding(
+        dimension="security", severity="major", confidence="confirmed",
+        evidence_type="static",
+        evidence=Evidence(tool="repo", output_snippet="finding A snippet"),
+        rule_id="", recommendation="", source_tool="repo",
+        file="src/same.py", line=1,
+    )
+    b = Finding(
+        dimension="security", severity="major", confidence="confirmed",
+        evidence_type="static",
+        evidence=Evidence(tool="repo", output_snippet="finding B snippet"),
+        rule_id="", recommendation="", source_tool="repo",
+        file="src/same.py", line=2,
+    )
+    assert fingerprint.build_fingerprint(a) != fingerprint.build_fingerprint(b)
+
+
+def test_solo_title_guards_empty_rule_id(tmp_path):
+    """WR-03: a solo draft for a finding with an empty rule_id renders a guarded
+    title (no trailing colon-space)."""
+    draft = pytest.importorskip("repo_audit.issues.draft")
+    from repo_audit.schema.report import ReportMeta, ScanReport
+
+    finding = Finding(
+        dimension="security", severity="critical", confidence="confirmed",
+        evidence_type="static",
+        evidence=Evidence(tool="repo", output_snippet="snippet"),
+        confidence_caveat="Static only.",
+        rule_id="", recommendation="Fix it.", source_tool="repo",
+        file="src/auth.py", line=10,
+    )
+    report = ScanReport(
+        meta=ReportMeta(
+            repo_slug=_CANON_SLUG, commit_sha="a" * 40,
+            scan_date=date.today(), tool_version="0.1.0",
+        ),
+        findings=[finding],
+    )
+    drafts = draft.build_drafts(report)
+    solos = [d for d in drafts if d.kind == "solo"]
+    assert len(solos) == 1
+    assert not solos[0].title.rstrip().endswith(":")
+    assert "(unlabeled)" in solos[0].title
+
+
 def test_rollup_fingerprint_distinct_and_order_stable(tmp_path):
     """The rollup identity (CR-01) is membership-aware: it differs from
     members[0]'s solo fingerprint and is stable regardless of member order."""

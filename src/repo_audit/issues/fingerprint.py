@@ -89,7 +89,27 @@ def build_fingerprint(finding: Finding, *, repo_root: Path | None = None) -> str
     # to reflowing/indent churn in the recommendation text.
     recommendation = " ".join((getattr(finding, "recommendation", "") or "").split())
 
-    identity = _SEP.join((tool, rule, path, recommendation))
+    # WR-03: when BOTH rule_id and recommendation are empty (both default to ""),
+    # the identity collapses to just (tool, path) — so two distinct confirmed
+    # findings in the same file would hash identically and dedup would treat one
+    # as a duplicate of the other. Fold in an extra stable discriminator in that
+    # degenerate case only (kept conditional so the common, well-populated case
+    # keeps its existing, line-stable identity): prefer ``source_collector``, and
+    # fall back to a hash of the evidence ``output_snippet``.
+    discriminator = ""
+    if not rule and not recommendation:
+        collector = (getattr(finding, "source_collector", "") or "").lower()
+        if collector:
+            discriminator = collector
+        else:
+            evidence = getattr(finding, "evidence", None)
+            snippet = (getattr(evidence, "output_snippet", "") or "").strip()
+            if snippet:
+                discriminator = hashlib.sha256(
+                    snippet.encode("utf-8")
+                ).hexdigest()
+
+    identity = _SEP.join((tool, rule, path, recommendation, discriminator))
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
