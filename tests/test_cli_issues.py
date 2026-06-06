@@ -369,10 +369,16 @@ def test_propose_gate_n_files_nothing(tmp_path, monkeypatch):
     pytest.importorskip("repo_audit.issues")
     from repo_audit import cli as cli_mod
     import repo_audit.issues.filer as filer_mod
+    import repo_audit.issues.targeting as targeting_mod
+    import repo_audit.issues.dedup as dedup_mod
 
     repo = _make_repo(tmp_path)
     _write_sidecar(repo)
+    # WR-01: patch ALL THREE run_tool seams (targeting/dedup/filer) so the test
+    # is hermetic — nothing shells out to git/gh against the live repo.
     monkeypatch.setattr(filer_mod, "run_tool", fake_run_tool)
+    monkeypatch.setattr(targeting_mod, "run_tool", fake_run_tool)
+    monkeypatch.setattr(dedup_mod, "run_tool", fake_run_tool)
 
     result = runner.invoke(cli_mod.app, ["issues", str(repo)], input="n\n")
     assert result.exit_code == 0, result.output
@@ -386,10 +392,16 @@ def test_propose_gate_y_files_all(tmp_path, monkeypatch):
     pytest.importorskip("repo_audit.issues")
     from repo_audit import cli as cli_mod
     import repo_audit.issues.filer as filer_mod
+    import repo_audit.issues.targeting as targeting_mod
+    import repo_audit.issues.dedup as dedup_mod
 
     repo = _make_repo(tmp_path)
     _write_sidecar(repo)
+    # WR-01: patch ALL THREE run_tool seams (targeting/dedup/filer) so the test
+    # is hermetic — nothing shells out to git/gh against the live repo.
     monkeypatch.setattr(filer_mod, "run_tool", fake_run_tool)
+    monkeypatch.setattr(targeting_mod, "run_tool", fake_run_tool)
+    monkeypatch.setattr(dedup_mod, "run_tool", fake_run_tool)
 
     result = runner.invoke(cli_mod.app, ["issues", str(repo)], input="y\n")
     assert result.exit_code == 0, result.output
