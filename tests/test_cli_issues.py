@@ -308,6 +308,47 @@ def test_draft_solo_and_rollup(tmp_path, monkeypatch):
     assert "QUAL-CAND-1" not in all_rule_ids
 
 
+def test_same_day_tie_picks_newest_written(tmp_path):
+    """WR-02: when two sidecars share the same scan_date, the LATER-WRITTEN file
+    wins deterministically (not whatever glob order yields first)."""
+    import os
+    import time
+
+    loader = pytest.importorskip("repo_audit.issues.loader")
+
+    repo = _make_repo(tmp_path)
+    today = date.today()
+    out_dir = repo / "docs" / "state-reports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    older = out_dir / f"{_CANON_SLUG}-state-report-{today}-1.json"
+    newer = out_dir / f"{_CANON_SLUG}-state-report-{today}-2.json"
+
+    report = ScanReport(
+        meta=ReportMeta(
+            repo_slug=_CANON_SLUG, commit_sha="a" * 40,
+            scan_date=today, tool_version="0.1.0",
+        ),
+        findings=[
+            _make_finding(
+                dimension="security", severity="critical", confidence="confirmed",
+                evidence_type="static",
+                confidence_caveat="Static only.", rule_id="SEC-1", file="src/auth.py",
+            )
+        ],
+    )
+    payload = report.model_dump_json()
+    older.write_text(payload, encoding="utf-8")
+    newer.write_text(payload, encoding="utf-8")
+
+    # Force a deterministic mtime ordering: older file older, newer file newest.
+    now = time.time()
+    os.utime(older, (now - 100, now - 100))
+    os.utime(newer, (now, now))
+
+    assert loader.find_latest_sidecar(repo) == newer
+
+
 def test_no_sidecar_errors_clearly(tmp_path):
     """No sidecar present → a clear, actionable error (not a stack trace)."""
     loader = pytest.importorskip("repo_audit.issues.loader")

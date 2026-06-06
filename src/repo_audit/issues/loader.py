@@ -75,9 +75,18 @@ def find_latest_sidecar(repo_path: Path) -> Path | None:
     if not out_dir.is_dir():
         return None
 
+    # WR-02: iterate in a deterministic mtime order (oldest → newest) and break a
+    # same-day scan_date tie toward the LATER-WRITTEN file. ``Path.glob`` order is
+    # filesystem-dependent and unsorted, so on the expected same-day-collision
+    # case (running ``repo-audit scan`` twice in one day, the exact scenario this loader
+    # exists for) an unordered glob could silently draft from the OLDER same-day
+    # sidecar. Sorting by mtime first, then using ``>=`` on the date tie, makes
+    # the newest-written same-day sidecar deterministically win.
+    candidates = sorted(out_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+
     best_path: Path | None = None
     best_date: date | None = None
-    for candidate in out_dir.glob("*.json"):
+    for candidate in candidates:
         try:
             text = candidate.read_text(encoding="utf-8")
             report = ScanReport.model_validate_json(text)
@@ -88,7 +97,10 @@ def find_latest_sidecar(repo_path: Path) -> Path | None:
         sidecar_date = report.meta.scan_date
         # NOTE (OQ1 / D-01): the find_prior_sidecar future-exclusion guard is
         # DROPPED here on purpose — today's sidecar is the one we draft from.
-        if best_date is None or sidecar_date > best_date:
+        # ``>=`` (not ``>``) makes a same-day tie resolve toward the later
+        # candidate — safe here because the iteration order is mtime-ascending,
+        # so "later candidate" means "newest-written file" (WR-02).
+        if best_date is None or sidecar_date >= best_date:
             best_date = sidecar_date
             best_path = candidate
     return best_path
