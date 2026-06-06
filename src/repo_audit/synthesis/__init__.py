@@ -16,11 +16,16 @@ from repo_audit.synthesis.factors import (
     exploitability,
     locus_class,
 )
+from repo_audit.synthesis.rank import rank_findings
 from repo_audit.synthesis.record import PriorityScore
+from repo_audit.synthesis.score import compute_priority_score, score_findings
 
 __all__ = [
     "PriorityScore",
     "blast_radius",
     "exploitability",
     "locus_class",
+    "compute_priority_score",
+    "score_findings",
+    "rank_findings",
 ]

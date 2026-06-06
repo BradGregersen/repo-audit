@@ -15,6 +15,7 @@ def test_composite_is_multiplicative(finding_factory, record_factory):
     f = finding_factory(
         severity="critical", dimension="security", file="src/auth/login.ts",
         evidence_type="static", confidence="corroborated",
+        confidence_caveat="runtime not verified — static analysis only",
     )
     rec = record_factory(candidate_token=0, final_confidence="corroborated")
 

@@ -41,6 +41,7 @@ def make_finding(
     confidence: str = "high",
     parsed_value: dict[str, Any] | None = None,
     source_tool: str = "x",
+    confidence_caveat: str | None = None,
 ) -> Finding:
     """Build a valid Finding seeding the synthesis-relevant fields.
 
@@ -63,6 +64,7 @@ def make_finding(
         confidence=confidence,
         rule_id=rule_id,
         source_tool=source_tool,
+        confidence_caveat=confidence_caveat,
     )
 
 
