@@ -130,8 +130,19 @@ def run_issues(
             rc=_RC_TARGET, notes=[*notes, resolution.reason or "target check failed"]
         )
 
-    # [3] build the confirmed-only, tiered, secret-lint-gated drafts.
-    drafts = build_drafts(report, repo_root=repo_path, owner_repo=owner_repo)
+    # [3] build the confirmed-only, tiered, secret-lint-gated drafts. Capture the
+    #     build-time secret-lint blocks (first pass) so the D-13 summary's
+    #     blocked count reflects them too — without these, a draft dropped at
+    #     build time would be invisible to the report (it never reaches the
+    #     filer's outward-boundary re-lint). The two passes are DISJOINT: a
+    #     build-time block never reaches the filer, so there is no double-count.
+    build_blocked: list[str] = []
+    drafts = build_drafts(
+        report,
+        repo_root=repo_path,
+        owner_repo=owner_repo,
+        blocked_out=build_blocked,
+    )
 
     # [4] dedup against OPEN issues' fingerprint markers (D-14/D-16). Degrades to
     #     an empty open set on any gh failure (never raises) → no false skips.
@@ -145,12 +156,14 @@ def run_issues(
         else:
             survivors.append(draft)
 
-    # [5] nothing to file is success.
+    # [5] nothing to file is success. Build-time secret-lint blocks are still
+    #     surfaced in the D-13 count even when no draft survives to be filed.
     if not survivors:
         return IssuesResult(
             rc=_RC_OK,
             filed=[],
             skipped_duplicate=skipped_duplicate,
+            blocked_by_secret_lint=list(build_blocked),
             notes=[*notes, "Nothing to file."],
         )
 
@@ -164,19 +177,24 @@ def run_issues(
             rc=_RC_OK,
             filed=[],
             skipped_duplicate=skipped_duplicate,
+            blocked_by_secret_lint=list(build_blocked),
             notes=[*notes, "Aborted — nothing filed (D-12)."],
         )
 
     # [7] FILE — the one outward write, strictly after approval.
     outcome = file_all(repo_path, survivors, owner_repo=owner_repo)
 
-    # [8] assemble the result. Per-issue create failures fold into notes; a
-    #     late secret-lint block folds into blocked_by_secret_lint.
+    # [8] assemble the result. Per-issue create failures fold into notes; the
+    #     blocked count is the TOTAL across both secret-lint passes: the
+    #     build-time blocks (first pass, ``build_blocked``) PLUS the filer's
+    #     outward-boundary blocks (second pass, ``outcome.blocked_refs``). The
+    #     two sets are disjoint (a build-time block never reaches the filer), so
+    #     concatenation never double-counts.
     return IssuesResult(
         rc=_RC_OK,
         filed=outcome.filed_urls,
         skipped_duplicate=skipped_duplicate,
-        blocked_by_secret_lint=outcome.blocked_refs,
+        blocked_by_secret_lint=[*build_blocked, *outcome.blocked_refs],
         notes=[*notes, *outcome.errors],
     )
 

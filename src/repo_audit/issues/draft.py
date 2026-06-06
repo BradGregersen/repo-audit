@@ -200,6 +200,7 @@ def build_drafts(
     *,
     repo_root: Path | None = None,
     owner_repo: str | None = None,
+    blocked_out: list[str] | None = None,
 ) -> list[IssueDraft]:
     """Build the confirmed-only, tiered, secret-lint-gated issue drafts.
 
@@ -211,6 +212,15 @@ def build_drafts(
     Returns the clean drafts (solos first, then rollups in canonical dimension
     order). The owner_repo / repo_root params are accepted for the filer's call
     shape; identity normalization of paths is handled in the fingerprint layer.
+
+    D-13 audit trail: when ``blocked_out`` is supplied, the ref
+    (:attr:`IssueDraft.ref`) of every draft dropped HERE by the build-time
+    secret-lint chokepoint is appended to it, so the orchestrator can fold these
+    first-pass blocks into ``IssuesResult.blocked_by_secret_lint``. These blocks
+    are DISJOINT from the filer's outward-boundary blocks (a draft blocked at
+    build time never reaches the filer), so there is no double-counting. Passing
+    ``blocked_out`` does NOT change the (clean-only) return value — the
+    double-lint design is untouched.
     """
     confirmed = [f for f in report.findings if f.confidence == "confirmed"]
 
@@ -282,7 +292,16 @@ def build_drafts(
     # not unfinished work in this phase.
 
     # --- D-19/D-20 secret-lint gate: drop tainted drafts, keep the rest --- #
-    return [d for d in drafts if _lint_clean(d)]
+    # Evaluate the chokepoint for EVERY draft (not a lazy filter) so the
+    # build-time blocks can be recorded for the D-13 audit trail when the caller
+    # supplies ``blocked_out``. The clean-only return value is unchanged.
+    clean: list[IssueDraft] = []
+    for d in drafts:
+        if _lint_clean(d):
+            clean.append(d)
+        elif blocked_out is not None:
+            blocked_out.append(d.ref)
+    return clean
 
 
 __all__ = ["IssueDraft", "SOLO", "ROLLUP", "build_drafts"]

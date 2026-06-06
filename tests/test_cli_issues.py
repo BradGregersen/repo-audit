@@ -536,6 +536,63 @@ def test_dry_run_shows_resolved_target_before_gate(tmp_path, monkeypatch):
     assert CREATED_ISSUE_ARGV == []
 
 
+@pytestmark_iss02
+def test_build_time_secret_lint_block_counted_in_summary(tmp_path, monkeypatch):
+    """D-13 audit trail: a finding whose body trips the BUILD-TIME secret-lint
+    chokepoint (first pass, in ``build_drafts``) is reflected in the summary's
+    blocked count — not just the filer's outward-boundary (second-pass) blocks.
+
+    The double-lint design is preserved; this only makes the first-pass block
+    visible to the D-13 report. No secret reaches ``gh issue create``."""
+    pytest.importorskip("repo_audit.issues")
+    from repo_audit import cli as cli_mod
+    import repo_audit.issues.filer as filer_mod
+    import repo_audit.issues.targeting as targeting_mod
+    import repo_audit.issues.dedup as dedup_mod
+    from repo_audit.schema.report import ReportMeta, ScanReport
+
+    repo = _make_repo(tmp_path)
+    # A single confirmed-critical finding whose RECOMMENDATION carries a secret
+    # the build-time secret-lint must catch — so the only solo draft is blocked
+    # at build time and never reaches the filer's outward boundary.
+    tainted = _make_finding(
+        dimension="security",
+        severity="critical",
+        confidence="confirmed",
+        evidence_type="static",
+        confidence_caveat="Static only.",
+        rule_id="SEC-LEAK-1",
+        file="src/auth.py",
+        line=10,
+    )
+    tainted.recommendation = "Rotate this key: AKIAIOSFODNN7EXAMPLE"
+    report = ScanReport(
+        meta=ReportMeta(
+            repo_slug=_CANON_SLUG,
+            commit_sha="a" * 40,
+            scan_date=date.today(),
+            tool_version="0.1.0",
+        ),
+        findings=[tainted],
+    )
+    out_dir = repo / "docs" / "state-reports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / f"{_CANON_SLUG}-state-report-{date.today()}.json").write_text(
+        report.model_dump_json(), encoding="utf-8"
+    )
+
+    monkeypatch.setattr(filer_mod, "run_tool", fake_run_tool)
+    monkeypatch.setattr(targeting_mod, "run_tool", fake_run_tool)
+    monkeypatch.setattr(dedup_mod, "run_tool", fake_run_tool)
+
+    result = runner.invoke(cli_mod.app, ["issues", str(repo), "--yes"])
+    assert result.exit_code == 0, result.output
+    # The build-time block is surfaced in the D-13 summary's blocked count.
+    assert "1 blocked by secret-lint" in result.stdout
+    # The security property holds: the tainted draft never reached gh create.
+    assert CREATED_ISSUE_ARGV == []
+
+
 # =========================================================================== #
 # ISS-03 — secret-lint blocks ONE draft, files the rest (never aborts the     #
 #           whole run); labels created idempotently.                          #
