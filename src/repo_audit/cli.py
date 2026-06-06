@@ -37,6 +37,7 @@ import repo_audit.adapters.sast  # noqa: F401, E402
 import repo_audit.adapters.supabase  # noqa: F401, E402
 from repo_audit.fleet.dashboard import render_fleet_dashboard
 from repo_audit.fleet.sweep import run_fleet
+from repo_audit.issues import run_issues
 from repo_audit.meta.paths import fleet_report_paths
 from repo_audit.orchestration import run_scan
 
@@ -465,3 +466,65 @@ def fleet(
         f"across fleet · {snapshot.failed_count} failed · "
         f"total cost {cost} · swept in {secs}"
     )
+
+
+@app.command()
+def issues(
+    path: Path = typer.Argument(
+        Path("."), help="Path to the scanned repo (carries the sidecar + origin)."
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        help=(
+            "Skip the interactive y/N gate and file immediately (CI). Default "
+            "OFF — `repo-audit issues` is interactive propose-then-approve (D-11)."
+        ),
+    ),
+) -> None:
+    """File confirmed findings as GitHub issues — the gated outward action (ISS-01..04).
+
+    Reads the most-recent (today-inclusive) state-report sidecar, drafts
+    confirmed-only solo (critical/blocker) + per-dimension rollup issues, dedups
+    against already-open issues, shows a DRY-RUN of exactly what would be filed,
+    and files NOTHING until you answer ``y`` (all-or-nothing — D-11/D-12). Filing
+    is the ONLY outward write the tool performs: ``gh issue create`` with an
+    idempotent ``arch-audit`` label, strictly after approval.
+
+    This command is THIN: every gh shell-out + tempfile lives in
+    ``repo_audit.issues.*``; the CLI parses options, prints the dry-run +
+    the D-13 result report, and surfaces the exit code.
+
+    Exit codes:
+        0 — success (issues filed, nothing-to-file, or you declined the gate)
+        4 — gh unavailable / unauthenticated / wrong-repo identity guard (D-10)
+        5 — no usable sidecar found (run `repo-audit scan` first — D-02)
+    """
+    repo_path = Path(path).resolve()
+
+    def _print_dry_run(
+        survivors: list, skipped_duplicate: list[tuple[str, str]]
+    ) -> None:
+        """Print the pre-gate dry-run to stdout (what a ``y`` would file)."""
+        typer.echo(f"Proposing {len(survivors)} issue(s) to file:")
+        for draft in survivors:
+            labels = ", ".join(draft.labels)
+            typer.echo(f"  - [{draft.kind}] {draft.title}  ({labels})")
+        for ref, existing_url in skipped_duplicate:
+            typer.echo(f"  (skip duplicate) {ref} -> {existing_url}")
+
+    result = run_issues(
+        repo_path,
+        assume_yes=yes,
+        confirm=lambda: typer.confirm("File these issues?", default=False),
+        on_propose=_print_dry_run,
+    )
+
+    # Diagnostic notes (staleness warning, no-sidecar reason, gh failures, abort)
+    # go to stderr; the D-13 result report goes to stdout.
+    for note in result.notes:
+        typer.echo(note, err=True)
+    typer.echo(result.summary())
+
+    if result.rc != 0:
+        raise typer.Exit(code=result.rc)

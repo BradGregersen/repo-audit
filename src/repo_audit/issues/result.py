@@ -64,9 +64,9 @@ class IssuesResult:
         for ref in self.blocked_by_secret_lint:
             lines.append(f"  - {ref}")
 
-        # Any diagnostic notes (no-sidecar reason, staleness, abort, gh failure).
-        for note in self.notes:
-            lines.append(note)
+        # Diagnostic notes (no-sidecar reason, staleness, abort, gh failure) are
+        # surfaced to STDERR by the CLI, kept out of the stdout result body so the
+        # D-13 report stays clean for piping/diffing.
 
         return "\n".join(lines)
 
