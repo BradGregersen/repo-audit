@@ -623,6 +623,20 @@ def test_dedup_skips_open_marker_match(tmp_path, monkeypatch):
     assert dedup.is_duplicate("nomatch000000", existing) is False
 
 
+def test_find_duplicate_match_without_url_is_still_skip(tmp_path):
+    """WR-04: a marker match on an issue whose JSON lacks ``url`` still returns a
+    non-None value (a placeholder) so the caller treats it as a duplicate."""
+    dedup = pytest.importorskip("repo_audit.issues.dedup")
+
+    open_issues = [
+        {"number": 9, "body": f"x <!-- arch-fingerprint: {_OPEN_ISSUE_FINGERPRINT} -->"}
+    ]  # NOTE: no "url" key.
+    result = dedup.find_duplicate(_OPEN_ISSUE_FINGERPRINT, open_issues)
+    assert result is not None
+    # A genuine miss still returns None.
+    assert dedup.find_duplicate("nomatch000000", open_issues) is None
+
+
 def test_origin_parse_all_four_forms():
     """All four ``git remote`` URL forms parse to the same owner/repo."""
     targeting = pytest.importorskip("repo_audit.issues.targeting")

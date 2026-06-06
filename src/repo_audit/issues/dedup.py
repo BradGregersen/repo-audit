@@ -93,11 +93,18 @@ def find_duplicate(fingerprint: str, open_issues: list[dict]) -> str | None:
     """Plan-named variant: return the URL of an OPEN issue carrying the marker.
 
     Substring-matches the fingerprint marker over each issue body (D-14/D-16).
-    Returns the matching issue's ``url`` or ``None`` if no open issue carries it.
+    Returns the matching issue's ``url`` if no open issue carries it, ``None``.
+
+    WR-04: a marker match is ALWAYS a duplicate (skip), even when the gh JSON
+    payload omits ``url`` (the payload is parsed defensively as a plain dict, so
+    ``url`` may be missing). Returning ``None`` on a real match would let the
+    caller (``run_issues`` step [4], which treats only a non-``None`` return as a
+    duplicate) RE-FILE a genuinely-open duplicate. So we return a url-or-
+    placeholder: the function never returns ``None`` once the marker matched.
     """
     for issue in open_issues:
         if fingerprint in extract_fingerprints(issue.get("body", "")):
-            return issue.get("url")
+            return issue.get("url") or "(open issue, url unavailable)"
     return None
 
 
