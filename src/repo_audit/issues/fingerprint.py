@@ -26,8 +26,9 @@ body, with no visible clutter for human readers.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from repo_audit.schema.finding import Finding
 
@@ -49,21 +50,33 @@ _SEP = "\x1f"
 def _normalize_path(finding: Finding, repo_root: Path | None) -> str:
     """Repo-relative POSIX path for the finding's file, or '' when absent.
 
-    When ``repo_root`` is given, the path is resolved repo-relative so an
+    When ``repo_root`` is given, the path is normalized repo-relative so an
     absolute and a repo-relative reference to the same logical file normalize
-    identically. Falls back to the path as POSIX text on ValueError (the file
-    lies outside repo_root) or when no repo_root is supplied.
+    identically. Falls back to the lexically-normalized POSIX text when the file
+    lies outside ``repo_root`` or when no ``repo_root`` is supplied.
+
+    IN-04: normalization is purely LEXICAL (``os.path.normpath`` / ``PurePosixPath``)
+    — it does NOT touch the filesystem or resolve symlinks. ``Path.resolve()``
+    would canonicalize symlinks and depend on the working checkout, so the SAME
+    logical finding could fingerprint differently across machines/checkouts (a
+    deleted-since file, a symlinked path), weakening cross-run dedup stability —
+    the opposite of the fingerprint's stated goal. No filesystem fact is needed
+    here: the input is already a repo-relative-or-absolute path string.
     """
     raw = getattr(finding, "file", None)
     if not raw:
         return ""
-    p = Path(raw)
+    norm = os.path.normpath(raw)
     if repo_root is not None:
+        root_norm = os.path.normpath(str(repo_root))
         try:
-            return p.resolve().relative_to(repo_root.resolve()).as_posix()
+            rel = PurePosixPath(Path(norm).as_posix()).relative_to(
+                PurePosixPath(Path(root_norm).as_posix())
+            )
+            return rel.as_posix()
         except ValueError:
-            return p.as_posix()
-    return p.as_posix()
+            return Path(norm).as_posix()
+    return Path(norm).as_posix()
 
 
 def build_fingerprint(finding: Finding, *, repo_root: Path | None = None) -> str:
