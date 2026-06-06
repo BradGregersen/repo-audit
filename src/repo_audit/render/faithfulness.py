@@ -44,11 +44,13 @@ from repo_audit.render.secret_lint import (
 )
 
 if TYPE_CHECKING:
+    from repo_audit.agent.schema import TopFinding
     from repo_audit.schema.enums import Dimension
     from repo_audit.schema.finding import Finding
     from repo_audit.schema.report import ReportMeta
     from repo_audit.schema.scope_ledger import ScopeLedger
     from repo_audit.schema.trend import TrendDelta
+    from repo_audit.synthesis.record import PriorityScore
 
 
 # D-63 abbreviation pre-mask list (RESEARCH Pitfall 5). "Eg." is included as a
@@ -113,12 +115,62 @@ def walk_parsed_value(
             yield from walk_parsed_value(v, depth + 1, max_depth)
 
 
+def _fold_top_findings(
+    allowed: set[float],
+    top_findings: "list[TopFinding] | None",
+    top_scores: "list[PriorityScore] | None",
+) -> None:
+    """SYN-02 (T-18-09): fold the Top-N synthesis numbers into ``allowed`` IN PLACE.
+
+    For every TopFinding the agent's ``why_it_matters`` may legitimately cite the
+    deterministic ``rank``, ``composite`` (raw AND its 2-decimal display form),
+    and ``band``. The four factor magnitudes
+    (``severity_w``/``confidence_w``/``exploitability_w``/``blast_radius_w``) and
+    the ``epss`` multiplier live on the paired :class:`PriorityScore`; they are
+    folded from ``top_scores`` when supplied. These are NOT findings, so — exactly
+    like the trend fold — they must be admitted explicitly or genuine citations
+    would be stripped. A number NOT in this set is still stripped (negative
+    control), which is what keeps the fold safe.
+    """
+    for tf in top_findings or []:
+        rank = getattr(tf, "rank", None)
+        if rank is not None:
+            allowed.add(float(rank))
+        composite = getattr(tf, "composite", None)
+        if composite is not None:
+            allowed.add(float(composite))
+            # The 2-decimal display form the renderer prints (and the agent
+            # most naturally quotes, e.g. "composite 0.62").
+            allowed.add(round(float(composite), 2))
+        band = getattr(tf, "band", None)
+        if band is not None:
+            allowed.add(float(band))
+    for sc in top_scores or []:
+        for magnitude in (
+            getattr(sc, "severity_w", None),
+            getattr(sc, "confidence_w", None),
+            getattr(sc, "exploitability_w", None),
+            getattr(sc, "blast_radius_w", None),
+            getattr(sc, "composite", None),
+            getattr(sc, "epss", None),
+        ):
+            if magnitude is not None:
+                try:
+                    val = float(magnitude)
+                except (TypeError, ValueError):
+                    continue
+                allowed.add(val)
+                allowed.add(round(val, 2))
+
+
 def build_allowed_numbers(
     findings: list[Finding],
     scope_ledger: ScopeLedger,
     meta: ReportMeta,
     *,
     trend: "TrendDelta | None" = None,
+    top_findings: "list[TopFinding] | None" = None,
+    top_scores: "list[PriorityScore] | None" = None,
 ) -> set[float]:
     """D-62: build the AllowedNumbers set deterministically BEFORE the agent runs.
 
@@ -208,6 +260,12 @@ def build_allowed_numbers(
                 allowed.add(float(total))
             except (TypeError, ValueError):
                 pass
+
+    # SYN-02 (T-18-09): fold the Top-N composite + factor magnitudes + epss so the
+    # agent's why_it_matters prose survives the gate. Like the trend fold, these
+    # are not findings and must be admitted explicitly; a number NOT folded here
+    # is still stripped (the load-bearing negative control).
+    _fold_top_findings(allowed, top_findings, top_scores)
 
     return allowed
 

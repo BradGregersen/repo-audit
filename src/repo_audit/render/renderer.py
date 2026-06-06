@@ -162,6 +162,8 @@ def render_and_write(
     *,
     agent_output: "AgentScanReport | None" = None,
     trend: "TrendDelta | None" = None,
+    top_findings: "list | None" = None,
+    top_scores: "list | None" = None,
 ) -> int:
     """Build markdown + JSON buffers, run chokepoint pipeline, write both.
 
@@ -187,10 +189,21 @@ def render_and_write(
       2 -- secret-lint refused (REP-05 / D-06)
       3 -- completion-honesty refused (SAFE-08 / D-32)
     """
+    # SYN-02: the effective Top-N for the fold + the template. The Python-authored
+    # list (``top_findings`` param, with the merged-in why_it_matters) is
+    # authoritative; fall back to ``agent_output.top_findings`` if a caller only
+    # threaded it through the agent boundary, else an empty list (no-agent + no
+    # synthesis → no section). The Python rank/score/ids stay authoritative (D-69).
+    effective_top_findings = top_findings
+    if effective_top_findings is None and agent_output is not None:
+        effective_top_findings = list(agent_output.top_findings)
+
     # ----- Build allowed_numbers + load regex BEFORE prose touches anything. -----
     allowed_numbers = build_allowed_numbers(
         scan_report.findings, scan_report.scope_ledger, scan_report.meta,
         trend=trend,
+        top_findings=effective_top_findings,
+        top_scores=top_scores,
     )
     trigger_regex, allowlist_regex = load_faithfulness_allowlist()
     deterministic_exec_header = build_deterministic_exec_header(scan_report.findings)
