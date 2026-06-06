@@ -58,7 +58,8 @@ def run_issues(
     *,
     assume_yes: bool = False,
     confirm: Callable[[], bool] | None = None,
-    on_propose: Callable[[list[IssueDraft], list[tuple[str, str]]], None] | None = None,
+    on_propose: Callable[[str, list[IssueDraft], list[tuple[str, str]]], None]
+    | None = None,
 ) -> IssuesResult:
     """Run the full ``repo-audit issues`` pipeline; never raise across the boundary.
 
@@ -74,11 +75,13 @@ def run_issues(
         confirm: a zero-arg callable returning the gate verdict (the CLI passes a
             ``typer.confirm`` thunk). When ``assume_yes`` is False and ``confirm``
             is None or returns False, nothing is filed.
-        on_propose: an optional hook invoked with ``(survivors, skipped_duplicate)``
-            at the propose step (step [6]), BEFORE the gate — the CLI uses it to
-            print the dry-run so the user sees exactly what a ``y`` would file.
-            Keeps the CLI thin (it only prints) while ``run_issues`` owns the
-            pipeline that computes the survivor set.
+        on_propose: an optional hook invoked with
+            ``(owner_repo, survivors, skipped_duplicate)`` at the propose step
+            (step [6]), BEFORE the gate — the CLI uses it to print the dry-run so
+            the user sees exactly which repo (``owner_repo``, D-09/D-11) a ``y``
+            would write to and what it would file. Keeps the CLI thin (it only
+            prints) while ``run_issues`` owns the pipeline that resolves the
+            target and computes the survivor set.
 
     Returns:
         An :class:`IssuesResult` with rc + filed / skipped_duplicate /
@@ -154,7 +157,7 @@ def run_issues(
     # [6] PROPOSE → the all-or-nothing gate (D-11/D-12). Surface the dry-run via
     #     the CLI's on_propose hook BEFORE the gate, then honor the verdict.
     if on_propose is not None:
-        on_propose(survivors, skipped_duplicate)
+        on_propose(owner_repo, survivors, skipped_duplicate)
     approved = assume_yes or (confirm is not None and bool(confirm()))
     if not approved:
         return IssuesResult(

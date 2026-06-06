@@ -503,9 +503,17 @@ def issues(
     repo_path = Path(path).resolve()
 
     def _print_dry_run(
-        survivors: list, skipped_duplicate: list[tuple[str, str]]
+        owner_repo: str,
+        survivors: list,
+        skipped_duplicate: list[tuple[str, str]],
     ) -> None:
-        """Print the pre-gate dry-run to stdout (what a ``y`` would file)."""
+        """Print the pre-gate dry-run to stdout (what a ``y`` would file).
+
+        D-09/D-11: lead with the resolved ``Owner/Repo`` target so the user sees
+        EXACTLY which repo a ``y`` would write to before the y/N gate — the
+        outward write goes to this repo and no other.
+        """
+        typer.echo(f"Filing to: {owner_repo}")
         typer.echo(f"Proposing {len(survivors)} issue(s) to file:")
         for draft in survivors:
             labels = ", ".join(draft.labels)

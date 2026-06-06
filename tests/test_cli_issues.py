@@ -503,6 +503,39 @@ def test_online_unauthenticated_surfaces_rc4(tmp_path, monkeypatch):
     assert CREATED_ISSUE_ARGV == []
 
 
+@pytestmark_iss02
+def test_dry_run_shows_resolved_target_before_gate(tmp_path, monkeypatch):
+    """D-09/D-11 (Success Criterion 4): the dry-run proposal shows the resolved
+    ``Owner/Repo`` the issues will be filed to, and that line appears BEFORE the
+    y/N confirmation prompt — so the user sees which repo a ``y`` would write to
+    before approving. Declining (``n``) still files nothing."""
+    pytest.importorskip("repo_audit.issues")
+    from repo_audit import cli as cli_mod
+    import repo_audit.issues.filer as filer_mod
+    import repo_audit.issues.targeting as targeting_mod
+    import repo_audit.issues.dedup as dedup_mod
+
+    repo = _make_repo(tmp_path)
+    _write_sidecar(repo)
+    monkeypatch.setattr(filer_mod, "run_tool", fake_run_tool)
+    monkeypatch.setattr(targeting_mod, "run_tool", fake_run_tool)
+    monkeypatch.setattr(dedup_mod, "run_tool", fake_run_tool)
+
+    result = runner.invoke(cli_mod.app, ["issues", str(repo)], input="n\n")
+    assert result.exit_code == 0, result.output
+
+    out = result.output
+    # The resolved target repo is shown explicitly in the proposal.
+    assert f"Filing to: {_CANON_OWNER_REPO}" in out
+    # And it appears BEFORE the confirmation prompt (no y can fire before the
+    # user has seen exactly which repo would be written to).
+    target_idx = out.index(f"Filing to: {_CANON_OWNER_REPO}")
+    prompt_idx = out.index("File these issues?")
+    assert target_idx < prompt_idx
+    # Declining still files nothing (the gate is unaffected).
+    assert CREATED_ISSUE_ARGV == []
+
+
 # =========================================================================== #
 # ISS-03 — secret-lint blocks ONE draft, files the rest (never aborts the     #
 #           whole run); labels created idempotently.                          #
