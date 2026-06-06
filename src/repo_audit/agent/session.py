@@ -72,6 +72,7 @@ async def run_agent_session(
     detection: "DetectionResult",
     meta: "ReportMeta",
     trend: "object | None" = None,
+    top_findings: "object | None" = None,
 ) -> tuple["AgentScanReport | None", "ReportMeta"]:
     """Run the agent loop. Returns (emitted_report_or_None, mutated_meta).
 
@@ -83,8 +84,11 @@ async def run_agent_session(
     reset_state()
 
     # Plan 04-05 contract: returns the McpServerConfig + populates _RESULTS.
+    # Plan 18-03: the pre-ranked Top-N shortlist is handed in so the agent can
+    # fill ONLY why_it_matters per item (Python rank/score/ids stay authoritative).
     mcp_server = build_mcp_server(
         findings=findings, scope_ledger=scope_ledger, meta=meta, trend=trend,
+        top_findings=top_findings,
     )
 
     options = build_options(

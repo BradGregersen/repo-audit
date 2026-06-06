@@ -67,6 +67,7 @@ _RESULTS: dict[str, Any] = {
     "scope_ledger": None,
     "meta": None,
     "trend": None,
+    "top_findings": None,
 }
 
 # Set by emit_report on successful validation; consumed by session loop
@@ -497,6 +498,7 @@ def build_mcp_server(
     scope_ledger: "ScopeLedger",
     meta: "ReportMeta",
     trend: "object | None" = None,
+    top_findings: "object | None" = None,
 ):
     """Populate _RESULTS + return the in-process MCP server.
 
@@ -509,6 +511,12 @@ def build_mcp_server(
     (or None on a baseline run). It is JSON-serialized and stashed so the
     ``trend_baseline`` getter can hand the agent the Python-computed deltas
     to narrate (TREND-02). None → the getter returns ``{"baseline_run": True}``.
+
+    ``top_findings`` (Plan 18-03) is the pre-ranked, Python-authored Top-N
+    shortlist (a list of ``TopFinding``); it is stashed so a getter can hand the
+    agent the shortlist to fill ONLY ``why_it_matters`` per item. None → no
+    synthesis shortlist (the agent simply does not narrate the headline band).
+    Rank/score/ids are NEVER read back from the agent (T-18-08).
     """
     global _EMITTED_REPORT
     _RESULTS.update(
@@ -516,6 +524,7 @@ def build_mcp_server(
         scope_ledger=scope_ledger,
         meta=meta,
         trend=(trend.model_dump(mode="json") if trend is not None else None),
+        top_findings=top_findings,
     )
     _EMITTED_REPORT = None  # reset for this scan
     return create_sdk_mcp_server(name="arch", version="1", tools=ALL_TOOLS)
@@ -530,5 +539,7 @@ def reset_state() -> None:
     """Test helper: clear _RESULTS + _EMITTED_REPORT between scans."""
     global _EMITTED_REPORT
     _RESULTS.clear()
-    _RESULTS.update(findings=[], scope_ledger=None, meta=None, trend=None)
+    _RESULTS.update(
+        findings=[], scope_ledger=None, meta=None, trend=None, top_findings=None,
+    )
     _EMITTED_REPORT = None

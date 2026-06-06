@@ -120,6 +120,30 @@ _Unable to curate executive summary — see per-dimension findings below ({{ rep
 {% endif %}
 <!--HONESTY:END-->
 
+{# SYN-02 (D-18-09): the Top-N headline section sits AFTER §1 and BEFORE §2
+   Scope ledger. Python authors rank/score/ids; the agent supplies ONLY
+   why_it_matters (faithfulness-gated). Omitted entirely when there are zero
+   eligible findings — NEVER padded (T-18-11). The no-agent degrade branch renders
+   the deterministic spine with empty why_it_matters (never crashes). #}
+{% if top_findings is defined and top_findings %}
+
+---
+
+## What matters most
+
+{% for tf in top_findings %}
+### {{ tf.rank }}. `{{ tf.finding_ref }}`{% if tf.file %} — `{{ tf.file }}{% if tf.line is not none %}:{{ tf.line }}{% endif %}`{% endif %}
+
+**{{ tf.severity }}** · confidence: {{ tf.confidence }} · score {{ "%.2f"|format(tf.composite) }}{% if tf.dominant_driver %} (driver: {{ tf.dominant_driver }}){% endif %}
+{% if tf.why_it_matters %}
+<!--HONESTY:START-->
+{{ tf.why_it_matters }}
+<!--HONESTY:END-->
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
 ---
 
 ## 2. Scope ledger

@@ -268,6 +268,40 @@ def _maybe_refresh_coverage(repo_path: Path, findings: list) -> list:
     return findings
 
 
+def _merge_why_it_matters(top_findings: list, agent_output) -> list:
+    """Merge the agent's ``why_it_matters`` prose onto the Python-authored Top-N.
+
+    Plan 18-03 (D-69 / T-18-08): the agent fills ONLY the ``why_it_matters`` field
+    per :class:`TopFinding`; the deterministic rank/score/ids stay AUTHORITATIVE.
+    This matches the agent's emitted entries to the Python list by ``finding_ref``
+    and copies ACROSS ONLY the prose — never the agent's rank/composite/band/ids
+    (an agent that reorders or rescores is ignored). Never raises: on any shape
+    mismatch the Python list is returned unchanged (the section still renders
+    deterministically, just without prose).
+    """
+    if not top_findings or agent_output is None:
+        return top_findings
+    try:
+        agent_tops = list(getattr(agent_output, "top_findings", None) or [])
+        if not agent_tops:
+            return top_findings
+        prose_by_ref: dict[str, str] = {}
+        for at in agent_tops:
+            ref = getattr(at, "finding_ref", "") or ""
+            why = (getattr(at, "why_it_matters", "") or "").strip()
+            if ref and why:
+                prose_by_ref[ref] = why
+        if not prose_by_ref:
+            return top_findings
+        merged = []
+        for tf in top_findings:
+            why = prose_by_ref.get(getattr(tf, "finding_ref", ""), "")
+            merged.append(tf.model_copy(update={"why_it_matters": why}) if why else tf)
+        return merged
+    except Exception:  # noqa: BLE001 — never break the scan over a prose merge
+        return top_findings
+
+
 def run_scan(
     repo_path: Path,
     *,
@@ -320,12 +354,10 @@ def run_scan(
     Exit codes (carried on ScanResult.rc): 0 success / 2 secret-lint / 3
     completion-honesty.
     """
-    # Plan 18-02 exposes ``epss`` (the --epss opt-in egress gate) on this signature
-    # so the CLI can pass it through without a wiring break; Plan 18-03 owns the
-    # actual thread into ``run_synthesis(..., epss_enabled=epss)`` at the synthesis
-    # call site (this plan deliberately does NOT add that call here). Bind it to a
-    # throwaway so linters do not flag the accepted-but-not-yet-threaded parameter.
-    _ = epss
+    # Plan 18-02 exposed ``epss`` (the --epss opt-in egress gate) as an
+    # accept-and-hold parameter; Plan 18-03 threads it into
+    # ``run_synthesis(..., epss_enabled=epss)`` at the synthesis call site below
+    # (after run_verification, before build_scope_ledger).
 
     repo_path = Path(repo_path).resolve()
     overall_start = time.perf_counter()  # Phase 4 — overall arch-scan wall-clock
@@ -846,6 +878,36 @@ def run_scan(
         findings, repo_path=repo_path, no_critic=no_agent
     )
 
+    # Phase 18 (Plan 18-03) — SYNTHESIS STAGE (SYN-01/02 / D-18-09 / D-18-10).
+    # Inserted AFTER run_verification and BEFORE build_scope_ledger so the ledger,
+    # narrator, and renderer all consume the POST-synthesis ranking. run_synthesis
+    # scores → ranks → selects the no-pad Top-N, fusing the bundled offline KEV
+    # band + (opt-in) EPSS. The --epss boolean threads through here
+    # (epss_enabled=epss); a per-repo config epss_enabled:true is OR'd inside.
+    # Dispatched through the module attribute (_synthesis) so the stage is
+    # patchable in tests (mirrors _verification / _agent_session). run_synthesis is
+    # NEVER-RAISE (D-25): any failure leaves findings unranked-but-present and the
+    # scan completes. build_top_findings then maps the ranked shortlist into the
+    # Python-authored TopFinding list (rank/score/ids authoritative — D-69); the
+    # narrator later fills ONLY why_it_matters per item.
+    from repo_audit.synthesis import stage as _synthesis
+    from repo_audit.synthesis.topfinding import build_top_findings
+    (
+        findings,
+        _synthesis_scores_by_token,
+        _synthesis_top_data,
+        _synthesis_meta,
+    ) = _synthesis.run_synthesis(
+        findings,
+        _verification_records,
+        repo_path=repo_path,
+        epss_enabled=epss,
+    )
+    top_findings = build_top_findings(_synthesis_top_data)
+    # The paired PriorityScore list (token order) feeds the AllowedNumbers fold so
+    # a why_it_matters citing a factor magnitude survives the faithfulness gate.
+    top_scores = [score for (_t, _f, score) in _synthesis_top_data if score is not None]
+
     # D-30 scope ledger assembly (Phase 3: adapter_results folded).
     scope_ledger = build_scope_ledger(
         walker_result, collector_results,
@@ -1241,7 +1303,13 @@ def run_scan(
             detection=detection,
             meta=meta,
             trend=trend,
+            top_findings=top_findings,
         ))
+        # Plan 18-03 (D-69 / T-18-08): merge the agent's why_it_matters prose back
+        # onto the Python-authored Top-N, matched by finding_ref. The Python
+        # rank/score/ids stay AUTHORITATIVE — an agent that reorders or rescores is
+        # ignored because only the prose field is read back from the emitted report.
+        top_findings = _merge_why_it_matters(top_findings, agent_output)
 
     # Phase 4 NEW: AGENT-07 post-flight ledger-gap auto-fill (D-60).
     # Under D-57 read-only tools this is defense in depth — the agent path
@@ -1268,6 +1336,7 @@ def run_scan(
     # takes the deterministic-only path (Plan 04-08).
     rc = render_and_write(
         scan_report, md_path, json_path, agent_output=agent_output, trend=trend,
+        top_findings=top_findings, top_scores=top_scores,
     )
     # Phase 4: overwrite wall_clock_seconds with the overall arch-scan duration
     # (RESEARCH Open Question 2 — caller-overrides-session). This is the

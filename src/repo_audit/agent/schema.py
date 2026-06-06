@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from repo_audit.schema.enums import Dimension, Severity
+from repo_audit.schema.enums import Confidence, Dimension, Severity
 
 
 class SeverityCall(BaseModel):
@@ -66,6 +66,48 @@ class DimensionNarrative(BaseModel):
     severity_calls: list[SeverityCall] = Field(default_factory=list)
 
 
+class TopFinding(BaseModel):
+    """One "What matters most" Top-N entry — Python-authoritative except prose.
+
+    SYN-02 / D-18-09 / D-18-10: the deterministic synthesis stage authors EVERY
+    field here EXCEPT ``why_it_matters``. ``rank``/``composite``/``band``/the ids
+    come from ``build_top_findings`` (Python, D-69) — the agent supplies ONLY the
+    ``why_it_matters`` prose, and even that rides the D-64 faithfulness gate at
+    render time (a number not folded into AllowedNumbers is stripped).
+
+    THREAT T-18-08: an agent that tries to smuggle an invented rank/score/id is
+    ignored — the renderer reads the Python-authored list, never the agent's
+    TopFinding rank/score fields. Only ``why_it_matters`` is read back.
+
+    ``finding_ref`` reuses the ``SeverityCall.finding_ref`` composite scheme
+    (``"{source_tool}::{rule_id}::{file}:{line}"`` — SC3 / D-18-09) so every
+    Top-N item links back to a real deterministic Finding.
+
+    ``extra='forbid'`` (D-03): an unknown field at construction or
+    JSON-deserialization raises before the object exists.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    rank: int
+    finding_ref: str = Field(..., min_length=1)
+    file: str | None = None
+    line: int | None = None
+    severity: Severity
+    confidence: Confidence
+    composite: float
+    band: int = 0
+    dominant_driver: str = ""
+    why_it_matters: str = ""
+    """The ONLY agent-authored field on this model.
+
+    Filled by the narrator per pre-ranked TopFinding; subject to the D-64
+    faithfulness gate. Defaults to "" — under ``--no-agent`` the deterministic
+    ranking still lands and the section renders WITHOUT prose (the degrade
+    branch). Python never invents prose; the agent never invents the numbers.
+    """
+
+
 class AgentScanReport(BaseModel):
     """The agent → renderer boundary type (D-54, AGENT-04).
 
@@ -96,6 +138,15 @@ class AgentScanReport(BaseModel):
     executive_summary: str = ""
     cross_cutting_notes: str | None = None
     trend_narrative: str | None = None
+    top_findings: list[TopFinding] = Field(default_factory=list)
+    """SYN-02 "What matters most" Top-N (additive — schema_version stays "1").
+
+    The SAME additive discipline as ``trend_narrative``: a default-empty list, so
+    a Phase 1-17 sidecar with NO ``top_findings`` key still validates and
+    round-trips. Python authors every TopFinding field except ``why_it_matters``;
+    the agent fills ONLY the prose per pre-ranked item (D-18-10). Empty when there
+    are zero eligible findings — the section is NEVER padded (T-18-11).
+    """
     """Agent's movement-framed interpretation of the Python-computed trend deltas.
 
     Filled ONLY from the `trend_baseline` tool's payload — the agent narrates

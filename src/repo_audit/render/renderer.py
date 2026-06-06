@@ -95,6 +95,7 @@ def render_markdown(
     scan_report: ScanReport,
     *,
     trend: "TrendDelta | None" = None,
+    top_findings: "list | None" = None,
 ) -> str:
     """Render the markdown buffer. Pure; no I/O.
 
@@ -117,6 +118,7 @@ def render_markdown(
         deterministic_exec_header=build_deterministic_exec_header(scan_report.findings),
         critical_render_classes=_compute_critical_render_classes(scan_report),
         trend=trend,
+        top_findings=top_findings or [],
     )
 
 
@@ -162,6 +164,8 @@ def render_and_write(
     *,
     agent_output: "AgentScanReport | None" = None,
     trend: "TrendDelta | None" = None,
+    top_findings: "list | None" = None,
+    top_scores: "list | None" = None,
 ) -> int:
     """Build markdown + JSON buffers, run chokepoint pipeline, write both.
 
@@ -187,10 +191,21 @@ def render_and_write(
       2 -- secret-lint refused (REP-05 / D-06)
       3 -- completion-honesty refused (SAFE-08 / D-32)
     """
+    # SYN-02: the effective Top-N for the fold + the template. The Python-authored
+    # list (``top_findings`` param, with the merged-in why_it_matters) is
+    # authoritative; fall back to ``agent_output.top_findings`` if a caller only
+    # threaded it through the agent boundary, else an empty list (no-agent + no
+    # synthesis → no section). The Python rank/score/ids stay authoritative (D-69).
+    effective_top_findings = top_findings
+    if effective_top_findings is None and agent_output is not None:
+        effective_top_findings = list(agent_output.top_findings)
+
     # ----- Build allowed_numbers + load regex BEFORE prose touches anything. -----
     allowed_numbers = build_allowed_numbers(
         scan_report.findings, scan_report.scope_ledger, scan_report.meta,
         trend=trend,
+        top_findings=effective_top_findings,
+        top_scores=top_scores,
     )
     trigger_regex, allowlist_regex = load_faithfulness_allowlist()
     deterministic_exec_header = build_deterministic_exec_header(scan_report.findings)
@@ -293,7 +308,9 @@ def render_and_write(
     # intercept the buffer there still work). The agent path needs the extra
     # kwargs and builds the buffer directly.
     if cleaned_agent_output is None:
-        markdown_buf = render_markdown(scan_report, trend=trend)
+        markdown_buf = render_markdown(
+            scan_report, trend=trend, top_findings=effective_top_findings,
+        )
     else:
         markdown_buf = _render_markdown_with_agent(
             scan_report=scan_report,
@@ -301,6 +318,7 @@ def render_and_write(
             deterministic_exec_header=deterministic_exec_header,
             critical_render_classes=critical_render_classes,
             trend=trend,
+            top_findings=effective_top_findings,
         )
     json_buf = scan_report.model_dump_json(indent=2)
 
@@ -365,6 +383,7 @@ def _render_markdown_with_agent(
     deterministic_exec_header: str,
     critical_render_classes: dict[str, str],
     trend: "TrendDelta | None" = None,
+    top_findings: "list | None" = None,
 ) -> str:
     """Template render with the Phase 4 agent kwargs (+ Plan 05-03 trend)."""
     env = _make_env()
@@ -375,6 +394,7 @@ def _render_markdown_with_agent(
         deterministic_exec_header=deterministic_exec_header,
         critical_render_classes=critical_render_classes,
         trend=trend,
+        top_findings=top_findings or [],
     )
 
 
