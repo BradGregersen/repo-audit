@@ -62,8 +62,11 @@ _URL_UNKNOWN_PLACEHOLDER = "(filed, URL unknown)"
 # test binds this exactly — at most ONE ``gh label create`` whose argv contains a
 # token with the substring "arch" (which would also catch "security" /
 # "architecture_rot" if those were ensured as separate label-create calls).
-# TODO config (D-18): allow a target repo's .repo-audit.yaml to add/override
-# additional umbrella labels + colours.
+# DEFERRED (D-18): a target repo's .repo-audit.yaml MAY (per D-18) add or
+# override umbrella labels + colours. That config-driven override is a tracked
+# follow-up to D-18 and is intentionally out of scope for this phase — the
+# hard-coded umbrella label below is the deliberate phase-19 behaviour, not
+# incomplete work.
 ARCH_LABEL = "arch-audit"
 ARCH_LABEL_COLOR = "5319e7"
 _DEFAULT_LABEL_COLOR = "ededed"

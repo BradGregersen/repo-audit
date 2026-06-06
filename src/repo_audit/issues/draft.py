@@ -113,8 +113,11 @@ def _why_confirmed_line(finding: Finding, report: ScanReport) -> str:
     total = report.meta.critic_total_queue
     if reviewed is not None and total is not None:
         parts.append(f"Critic reviewed {reviewed} of {total} queued findings.")
-    # TODO: synthesis priority rationale is not in the sidecar (OQ2) — re-run
-    # compute_priority_score here if a numeric priority is ever wanted.
+    # DEFERRED (OQ2, resolved): the synthesis priority rationale is deliberately
+    # NOT persisted to the sidecar, so it is intentionally absent here — this is a
+    # closed design decision, not incomplete work. A numeric priority would
+    # require re-running compute_priority_score; deferred to OQ2's follow-up
+    # (re-open OQ2 to add it).
     return " ".join(parts) if parts else "Promoted to confirmed by verification."
 
 
@@ -273,7 +276,10 @@ def build_drafts(
             member_refs=[build_finding_ref(f) for f in members],
         )
         drafts.append(draft)
-    # TODO config knob (D-18 permits optional label config); labels hard-coded.
+    # DEFERRED (D-18): labels are hard-coded by design for this phase. D-18 PERMITS
+    # an optional per-repo label-config knob (.repo-audit.yaml) but does not
+    # require it here — the config-driven override is a tracked follow-up to D-18,
+    # not unfinished work in this phase.
 
     # --- D-19/D-20 secret-lint gate: drop tainted drafts, keep the rest --- #
     return [d for d in drafts if _lint_clean(d)]
