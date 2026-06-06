@@ -55,10 +55,18 @@ def test_epss_is_raise_only_neutral_when_absent(finding_factory, record_factory)
     )
     assert abs(absent.composite - base) < 1e-9
 
-    # present EPSS multiplies within band; 0.9 < 1.0 means it does not RAISE here,
-    # but the no-EPSS baseline is the neutral 1.0 reference — never a penalty
-    # relative to "no EPSS data at all". Assert the multiplier was applied.
-    assert abs(present.composite - base * 0.9) < 1e-9
-    # And a high EPSS raises above the neutral baseline.
-    high = compute_priority_score(f, rec, kev=False, epss=1.0)
-    assert abs(high.composite - base) < 1e-9  # 1.0 multiplier == neutral
+    # RAISE-ONLY (D-18-02): a present EPSS may ONLY raise the composite above the
+    # neutral no-EPSS baseline, NEVER lower it. The multiplier is (1.0 + epss): a
+    # finding WITH EPSS data is never penalized relative to one without.
+    assert abs(present.composite - base * (1.0 + 0.9)) < 1e-9
+    assert present.composite > base  # strictly raises — never a penalty
+
+    # Monotonic: a higher EPSS yields a strictly higher composite.
+    higher = compute_priority_score(f, rec, kev=False, epss=1.0)
+    assert higher.composite > present.composite
+    assert abs(higher.composite - base * 2.0) < 1e-9
+
+    # EPSS == 0.0 (no predicted exploitation) is the neutral floor — exactly the
+    # no-data baseline, never below it.
+    zero = compute_priority_score(f, rec, kev=False, epss=0.0)
+    assert abs(zero.composite - base) < 1e-9

@@ -58,9 +58,17 @@ def compute_priority_score(
     blast_radius_w = blast_radius(finding.dimension, finding.file)
 
     composite = severity_w * confidence_w * exploitability_w * blast_radius_w
-    # EPSS: raise-only / neutral-when-absent. None → 1.0 (the neutral baseline,
-    # NEVER a penalty relative to having no EPSS data at all — D-18-02).
-    composite *= epss if epss is not None else 1.0
+    # EPSS: raise-only / neutral-when-absent (D-18-02). Absent EPSS is the neutral
+    # baseline (multiplier 1.0). A present EPSS in [0,1] maps to a multiplier of
+    # (1.0 + epss) ∈ [1.0, 2.0] — it can ONLY RAISE the composite, NEVER lower it
+    # below a finding that has no EPSS data at all. A bare ``composite *= epss``
+    # (epss < 1.0) would PENALIZE a finding that HAS data relative to one that does
+    # not — exactly the penalty the contract forbids. The value is clamped into
+    # [0,1] first so a hostile/garbage network float cannot break the raise-only
+    # invariant (WR-05 defense-in-depth, redundant with the epss.py range guard).
+    if epss is not None:
+        epss_clamped = min(1.0, max(0.0, epss))
+        composite *= 1.0 + epss_clamped
 
     band = 1 if kev else 0
 
@@ -92,19 +100,29 @@ def score_findings(
     findings: "list[Finding]",
     records_by_token: "dict[int, VerificationRecord]",
     *,
+    tokens: "list[int] | None" = None,
     kev_tokens: frozenset[int] | set[int] = frozenset(),
     epss_by_token: dict[int, float] | None = None,
 ) -> dict[int, PriorityScore]:
-    """Score every finding, keyed on ``candidate_token`` (NEVER ``finding_ref``).
+    """Score every finding, keyed on its IDENTITY ``candidate_token`` (NEVER ``finding_ref``).
 
-    ``candidate_token`` is the zero-based index stamped over the INPUT finding
-    list; ``records_by_token`` carries one record per token. The returned dispatch
-    map is keyed on that token, so two findings colliding on ``build_finding_ref``
-    keep DISTINCT scores (the 17-04 guarantee).
+    ``candidate_token`` is the zero-based index stamped over the ORIGINAL input
+    finding list; ``records_by_token`` carries one record per token. ``tokens`` is
+    the per-finding identity token list PARALLEL to ``findings`` — pass it whenever
+    ``findings`` is a post-verification SUBSET (refuted findings removed), because
+    the surviving findings' positions no longer equal their identity tokens. Only
+    when ``tokens is None`` (the unfiltered case, e.g. unit tests) does the token
+    default to list position. Re-deriving tokens by ``enumerate(findings)`` over a
+    refuted-filtered list mispairs every finding after a refutation with the wrong
+    record — the exact 17-04 landmine this dispatch identity exists to prevent.
+
+    The returned dispatch map is keyed on the identity token, so two findings
+    colliding on ``build_finding_ref`` keep DISTINCT scores (the 17-04 guarantee).
     """
     epss_by_token = epss_by_token or {}
     out: dict[int, PriorityScore] = {}
-    for token, finding in enumerate(findings):
+    pairs = zip(tokens, findings) if tokens is not None else enumerate(findings)
+    for token, finding in pairs:
         record = records_by_token.get(token)
         if record is None:
             continue

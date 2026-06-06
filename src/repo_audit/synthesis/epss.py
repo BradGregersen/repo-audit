@@ -64,7 +64,17 @@ def epss_lookup(
         if not data:
             return None
         raw = data[0].get("epss")
-        return float(raw) if raw is not None else None
+        if raw is None:
+            return None
+        # EPSS is a probability in [0,1]. Validate the network-supplied float and
+        # degrade to neutral (None) on anything out of range — a hostile/garbage
+        # response (e.g. "1e9" or a negative) must NEVER reach the multiplicative
+        # composite, where it could arbitrarily inflate or zero a finding's priority
+        # and break the raise-only / never-penalize contract (WR-05).
+        val = float(raw)
+        if not (0.0 <= val <= 1.0):
+            return None
+        return val
     except Exception:  # noqa: BLE001 — timeout/unreachable/parse → neutral, never breaks a scan
         return None
 

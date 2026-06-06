@@ -902,6 +902,10 @@ def run_scan(
         _verification_records,
         repo_path=repo_path,
         epss_enabled=epss,
+        # 18-02 CR-01: thread the post-verification identity tokens (parallel to the
+        # refuted-filtered ``findings``) so synthesis pairs each surviving finding to
+        # its OWN VerificationRecord by ``candidate_token``, never by list position.
+        active_tokens=_verification_meta.get("active_tokens"),
     )
     top_findings = build_top_findings(_synthesis_top_data)
     # The paired PriorityScore list (token order) feeds the AllowedNumbers fold so

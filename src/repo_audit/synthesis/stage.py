@@ -38,17 +38,26 @@ def run_synthesis(
     *,
     repo_path: Any = None,
     epss_enabled: bool = False,
+    active_tokens: "list[int] | None" = None,
 ) -> "tuple[list[Finding], dict[int, PriorityScore], list[tuple[int, Finding, PriorityScore | None]], dict]":
     """Score, rank, and select the Top-N under a never-raise contract (D-25).
 
     Args:
         findings: the active (post-verification) finding set.
-        records: the parallel :class:`VerificationRecord` list; each carries a
-            ``candidate_token`` (the zero-based input index dispatch identity).
+        records: the FULL :class:`VerificationRecord` list (one per corroborated
+            finding); each carries a ``candidate_token`` (the zero-based ORIGINAL
+            input index dispatch identity). It is NOT positionally parallel to the
+            refuted-filtered ``findings`` — the pairing is by ``candidate_token``.
         repo_path: repo root for ``read_synthesis_config`` (None → defaults).
         epss_enabled: the opt-in EPSS egress gate (default OFF → EPSS neutral).
             The CLI ``--epss`` flag threads through here; a config
             ``epss_enabled: true`` is honored too.
+        active_tokens: the per-finding identity token list PARALLEL to ``findings``
+            (each entry is the surviving finding's ``candidate_token``). Supplied by
+            ``run_verification`` so that, after the critic refutes a finding, the
+            surviving findings stay paired to their OWN records rather than being
+            re-numbered by list position. ``None`` (or a length mismatch) falls back
+            to positional tokens — correct only when nothing was refuted.
 
     Returns:
         ``(findings, scores_by_token, top_findings_data, synthesis_meta)``.
@@ -80,10 +89,20 @@ def run_synthesis(
     meta["top_n"] = config.top_n
     meta["epss_enabled"] = epss_on
 
-    # --- stamp candidate_token over the INPUT findings (mirror run_verification:
-    # the pairing identity is the zero-based input index, stamped BEFORE re-sort). -
+    # --- pair each surviving finding to its IDENTITY token (mirror run_verification:
+    # the pairing identity is the zero-based ORIGINAL input index). When
+    # ``active_tokens`` is supplied and length-matched it is authoritative — the
+    # surviving findings keep their own ``candidate_token`` even after a refutation
+    # shortened the list. Re-deriving tokens by ``enumerate(findings)`` over a
+    # refuted-filtered list mispairs every finding after the refuted index with the
+    # wrong record (the 17-04 landmine). Positional fallback is correct ONLY when
+    # nothing was refuted (``active_tokens is None`` / length mismatch). -----------
     try:
-        tokened: list[tuple[int, "Finding"]] = list(enumerate(findings))
+        if active_tokens is not None and len(active_tokens) == len(findings):
+            token_list = list(active_tokens)
+        else:
+            token_list = list(range(len(findings)))
+        tokened: list[tuple[int, "Finding"]] = list(zip(token_list, findings))
         records_by_token: dict[int, "VerificationRecord"] = {
             getattr(r, "candidate_token", -1): r for r in (records or [])
         }
@@ -122,6 +141,7 @@ def run_synthesis(
         scores_by_token = score_findings(
             findings,
             records_by_token,
+            tokens=token_list,
             kev_tokens=kev_tokens,
             epss_by_token=epss_by_token,
         )

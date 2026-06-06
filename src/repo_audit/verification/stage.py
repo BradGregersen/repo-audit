@@ -287,13 +287,17 @@ def run_verification(
     # offender, accumulate violations. NOTHING raises out of this block.
     downgrade_violations = 0
     kept: list = []
+    kept_tokens: list = []
     for i, f in enumerate(active):
+        # 17-04: read the BORN evidence_type by the finding's per-candidate
+        # IDENTITY token (parallel to ``active``), NOT by the non-unique
+        # build_finding_ref — so two fingerprint-twins never cross-read each
+        # other's born evidence in the smuggle check. ``kept_tokens`` is appended
+        # in lockstep with ``kept`` so the surviving identity tokens stay parallel
+        # to the final ``active`` even when an offender is dropped (the downstream
+        # synthesis pairing — 18-02 CR-01 — depends on this alignment).
+        token = active_tokens[i] if i < len(active_tokens) else -1
         try:
-            # 17-04: read the BORN evidence_type by the finding's per-candidate
-            # IDENTITY token (parallel to ``active``), NOT by the non-unique
-            # build_finding_ref — so two fingerprint-twins never cross-read each
-            # other's born evidence in the smuggle check.
-            token = active_tokens[i] if i < len(active_tokens) else -1
             born = pre_evidence.get(token, getattr(f, "evidence_type", "") or "")
             now = getattr(f, "evidence_type", "") or ""
             if now == "runtime" and born != "runtime":
@@ -310,23 +314,34 @@ def run_verification(
                 try:
                     reverted = f.model_copy(update={"evidence_type": born or "static"})
                     kept.append(reverted)
+                    kept_tokens.append(token)
                 except Exception:
                     # If the revert itself fails, drop the offender entirely
-                    # rather than let a smuggled runtime finding survive.
+                    # rather than let a smuggled runtime finding survive (its token
+                    # is dropped in lockstep so ``kept``/``kept_tokens`` stay aligned).
                     pass
                 continue
             kept.append(f)
+            kept_tokens.append(token)
         except Exception:
             # Never-raise: if a single finding's post-pass check explodes, keep
             # it at its current rung rather than abort the stage.
             kept.append(f)
+            kept_tokens.append(token)
     active = kept
+    active_tokens = kept_tokens
 
     verification_meta: dict = {
         "critic_reviewed": vmeta_obj.critic_reviewed,
         "critic_total_queue": vmeta_obj.critic_total_queue,
         "refuted_findings": refuted,
         "downgrade_violations": downgrade_violations,
+        # 18-02 CR-01: surface the per-finding IDENTITY tokens parallel to
+        # ``active`` so the synthesis stage pairs each surviving finding to its OWN
+        # VerificationRecord by ``candidate_token`` instead of re-numbering by list
+        # position (which mispairs everything after a refutation). Additive — the
+        # returned 4-tuple shape is unchanged.
+        "active_tokens": list(active_tokens),
         # W1 (17-04): surface the COUNT of refutations DISCARDED for an invalid
         # citation. Previously omitted — an LLM fabricating a citation left no
         # audit trail. The count flows into ReportMeta.discarded_refutations via
