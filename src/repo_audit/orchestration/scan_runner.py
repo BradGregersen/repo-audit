@@ -286,6 +286,7 @@ def run_scan(
     qd_build: bool = False,
     e2e: bool = False,
     fuzz: bool = False,
+    epss: bool = False,
 ) -> ScanResult:
     """Run the full single-repo scan pipeline and return a :class:`ScanResult`.
 
@@ -319,6 +320,13 @@ def run_scan(
     Exit codes (carried on ScanResult.rc): 0 success / 2 secret-lint / 3
     completion-honesty.
     """
+    # Plan 18-02 exposes ``epss`` (the --epss opt-in egress gate) on this signature
+    # so the CLI can pass it through without a wiring break; Plan 18-03 owns the
+    # actual thread into ``run_synthesis(..., epss_enabled=epss)`` at the synthesis
+    # call site (this plan deliberately does NOT add that call here). Bind it to a
+    # throwaway so linters do not flag the accepted-but-not-yet-threaded parameter.
+    _ = epss
+
     repo_path = Path(repo_path).resolve()
     overall_start = time.perf_counter()  # Phase 4 — overall arch-scan wall-clock
 

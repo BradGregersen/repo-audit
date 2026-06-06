@@ -73,6 +73,68 @@ def finding_cve(finding: "Finding") -> str | None:
     return cve if isinstance(cve, str) and cve else None
 
 
+# The upstream CISA KEV feed (recorded in vendor/kev/PROVENANCE). The ONLY URL the
+# explicit --refresh-kev step fetches; the default scan path NEVER reaches it.
+KEV_FEED_URL = (
+    "https://www.cisa.gov/sites/default/files/feeds/"
+    "known_exploited_vulnerabilities.json"
+)
+
+
+def refresh_kev_snapshot(*, timeout_seconds: int = 30) -> str:
+    """Re-fetch the CISA KEV feed into ``vendor/kev/`` and restamp PROVENANCE.
+
+    The SOLE path that advances the pinned KEV snapshot (the ``--refresh-kev``
+    step, mirroring ``--refresh-vuln-db``). NEVER invoked on a default scan
+    (zero-egress default, D-18-06). The ``urllib`` import is LOCAL to this explicit
+    refresh path so the default-scan import graph never reaches the network.
+
+    Args:
+        timeout_seconds: wall-clock cap on the feed GET.
+
+    Returns:
+        The SHA-256 of the freshly written snapshot.
+
+    Raises:
+        Propagates network/IO errors to the caller — refresh is an explicit,
+        user-invoked step (unlike the never-raise default scan path), so a failed
+        fetch surfaces loudly rather than silently shipping a stale snapshot.
+    """
+    import datetime as _dt
+    import hashlib
+    import urllib.request  # noqa: PLC0415 — local to the explicit refresh step
+
+    with urllib.request.urlopen(KEV_FEED_URL, timeout=timeout_seconds) as resp:  # noqa: S310 — fixed gov https feed
+        raw = resp.read()
+
+    # Validate it parses as the expected KEV shape before overwriting the pin.
+    doc = json.loads(raw.decode("utf-8"))
+    if "vulnerabilities" not in doc:
+        raise ValueError("KEV feed missing 'vulnerabilities' — refusing to restamp")
+
+    _VENDOR_KEV.write_bytes(raw)
+    sha = hashlib.sha256(raw).hexdigest()
+
+    provenance = _VENDOR_KEV.parent / "PROVENANCE"
+    today = _dt.date.today().isoformat()
+    catalog_version = str(doc.get("catalogVersion", "unknown"))
+    provenance.write_text(
+        "# Vendored CISA Known Exploited Vulnerabilities (KEV) snapshot\n"
+        "#\n"
+        "# Re-fetched by `repo-audit scan --refresh-kev` (the SOLE re-fetch path).\n"
+        "# The default scan path NEVER auto-fetches this file (zero egress, T-18-06).\n"
+        "\n"
+        f"source_url:  {KEV_FEED_URL}\n"
+        f"fetch_date:  {today}\n"
+        f"catalog_version: {catalog_version}\n"
+        "file:        known_exploited_vulnerabilities.json\n"
+        f"sha256:      {sha}\n"
+        "license:     U.S. public domain (CISA, https://www.cisa.gov/about/site-policies)\n",
+        encoding="utf-8",
+    )
+    return sha
+
+
 def is_kev(finding: "Finding", kev_set: frozenset[str] | set[str] = KEV_SET) -> bool:
     """Return True iff this finding's CVE is in the KEV catalog.
 
@@ -85,4 +147,11 @@ def is_kev(finding: "Finding", kev_set: frozenset[str] | set[str] = KEV_SET) -> 
     return normalize_cve(cve) in kev_set
 
 
-__all__ = ["KEV_SET", "load_kev_set", "finding_cve", "is_kev"]
+__all__ = [
+    "KEV_SET",
+    "KEV_FEED_URL",
+    "load_kev_set",
+    "refresh_kev_snapshot",
+    "finding_cve",
+    "is_kev",
+]
