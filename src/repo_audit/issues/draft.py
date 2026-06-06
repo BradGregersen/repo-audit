@@ -40,7 +40,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from repo_audit.issues.fingerprint import build_fingerprint, embed_marker
+from repo_audit.issues.fingerprint import (
+    build_fingerprint,
+    build_rollup_fingerprint,
+    embed_marker,
+)
 from repo_audit.render.secret_lint import SecretsDetected, lint_buffer
 from repo_audit.schema.enums import Dimension
 from repo_audit.schema.finding import Finding
@@ -126,12 +130,21 @@ def _solo_body(finding: Finding, report: ScanReport, fp: str) -> str:
 
 
 def _rollup_body(
-    dimension: str, members: list[Finding], report: ScanReport, dim_fp: str
+    dimension: str,
+    members: list[Finding],
+    report: ScanReport,
+    dim_fp: str,
+    member_fps: list[str],
 ) -> tuple[str, list[str]]:
     """Assemble a rollup checklist body; return (body, member_rule_ids).
 
     Each checklist line embeds its own per-finding fingerprint marker; the body
-    tail carries the dimension-level fingerprint.
+    tail carries the SYNTHETIC dimension-level fingerprint (``dim_fp``, CR-01) —
+    distinct from any single member's marker, so the tail marker uniquely
+    identifies the rollup for dedup. ``member_fps`` is the parallel list of
+    per-member fingerprints (same order as ``members``) computed once by the
+    caller so the inline per-member markers and the synthetic rollup identity
+    are derived from one consistent set.
     """
     lines = [
         f"Confirmed `{dimension}` findings grouped into one rollup "
@@ -139,8 +152,7 @@ def _rollup_body(
         "",
     ]
     rule_ids: list[str] = []
-    for f in members:
-        member_fp = build_fingerprint(f)
+    for f, member_fp in zip(members, member_fps):
         ref = build_finding_ref(f)
         rule_ids.append(f.rule_id)
         rec = (f.recommendation or "").strip() or "(no recommendation)"
@@ -222,10 +234,18 @@ def build_drafts(
         members = buckets[dimension]
         if not members:
             continue
-        # Dimension-level fingerprint: hash a synthetic identity over the
-        # dimension + its member fingerprints so the rollup itself dedups.
-        dim_fp = build_fingerprint(members[0], repo_root=repo_root)
-        body, rule_ids = _rollup_body(dimension, members, report, dim_fp)
+        # Dimension-level fingerprint (CR-01): a SYNTHETIC identity hashed over
+        # ``("rollup", dimension, *sorted(member_fingerprints))`` — distinct from
+        # any single member's fingerprint (the "rollup" prefix guarantees no
+        # collision) and order-stable, so a whole dimension can never be
+        # false-dropped on one member's marker and membership churn is visible to
+        # dedup. Member fingerprints are computed once here and threaded into the
+        # body so the inline per-member markers match the synthetic identity.
+        member_fps = [build_fingerprint(m, repo_root=repo_root) for m in members]
+        dim_fp = build_rollup_fingerprint(member_fps, dimension=dimension)
+        body, rule_ids = _rollup_body(
+            dimension, members, report, dim_fp, member_fps
+        )
         title = f"[arch][rollup] {dimension}: {len(members)} confirmed finding(s)"
         draft = IssueDraft(
             kind="rollup",

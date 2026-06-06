@@ -101,6 +101,27 @@ def fingerprint(finding: Finding, *, repo_root: Path | None = None) -> str:
     return build_fingerprint(finding, repo_root=repo_root)
 
 
+def build_rollup_fingerprint(member_fingerprints: list[str], *, dimension: str) -> str:
+    """Synthetic, membership-aware identity for a per-dimension rollup (CR-01).
+
+    The rollup's dedup identity is a sha256 over ``("rollup", dimension,
+    *sorted(member_fingerprints))``. Two properties follow:
+
+      * The ``"rollup"`` prefix guarantees it can NEVER collide with a solo /
+        member fingerprint (which hash over ``(tool, rule, path, recommendation)``
+        with no such prefix) — so an open issue carrying a single member's marker
+        can never false-duplicate the whole rollup (the silent whole-dimension
+        drop the original ``members[0]`` identity caused).
+      * Sorting the member fingerprints makes the identity ORDER-STABLE, and
+        folding in the full member set makes membership churn VISIBLE to dedup:
+        adding/removing a confirmed finding changes the rollup's identity, so a
+        rollup that gained new findings no longer hashes identically to an
+        already-open one.
+    """
+    parts = ("rollup", dimension, *sorted(member_fingerprints))
+    return hashlib.sha256(_SEP.join(parts).encode("utf-8")).hexdigest()
+
+
 def embed_marker(body: str, fp: str) -> str:
     """Append the hidden D-14 fingerprint marker to a body's tail."""
     tail = MARKER.format(fp)
@@ -117,6 +138,7 @@ def extract_fingerprints(body: str) -> set[str]:
 __all__ = [
     "MARKER",
     "build_fingerprint",
+    "build_rollup_fingerprint",
     "fingerprint",
     "embed_marker",
     "extract_fingerprints",

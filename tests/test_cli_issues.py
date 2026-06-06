@@ -474,6 +474,36 @@ def test_fingerprint_excludes_line(tmp_path):
     assert fingerprint.fingerprint(a) == fingerprint.fingerprint(b)
 
 
+def test_rollup_fingerprint_distinct_and_order_stable(tmp_path):
+    """The rollup identity (CR-01) is membership-aware: it differs from
+    members[0]'s solo fingerprint and is stable regardless of member order."""
+    fingerprint = pytest.importorskip("repo_audit.issues.fingerprint")
+
+    a = _make_finding(
+        dimension="quality", severity="major", confidence="confirmed",
+        rule_id="Q-1", file="src/a.py",
+    )
+    b = _make_finding(
+        dimension="quality", severity="major", confidence="confirmed",
+        rule_id="Q-2", file="src/b.py",
+    )
+    fp_a = fingerprint.build_fingerprint(a)
+    fp_b = fingerprint.build_fingerprint(b)
+
+    rollup = fingerprint.build_rollup_fingerprint([fp_a, fp_b], dimension="quality")
+    # Distinct from any single member's fingerprint (no false-duplicate drop).
+    assert rollup != fp_a
+    assert rollup != fp_b
+    # Order-stable: member order does not change the identity.
+    assert rollup == fingerprint.build_rollup_fingerprint(
+        [fp_b, fp_a], dimension="quality"
+    )
+    # Membership churn IS visible: dropping a member changes the identity.
+    assert rollup != fingerprint.build_rollup_fingerprint(
+        [fp_a], dimension="quality"
+    )
+
+
 def test_dedup_skips_open_marker_match(tmp_path, monkeypatch):
     """A draft whose fingerprint matches an OPEN issue's marker is skipped as a
     duplicate; a non-matching fingerprint is kept."""
