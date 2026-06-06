@@ -52,11 +52,6 @@ _RC_TARGET = 4  # gh unavailable / unauthenticated / wrong-repo guard
 _RC_NO_SIDECAR = 5  # no usable sidecar (run `repo-audit scan` first, D-02)
 
 
-def _draft_ref(draft: IssueDraft) -> str:
-    """A human-readable ref for a draft in the result report."""
-    return draft.title
-
-
 def run_issues(
     repo_path: Path,
     *,
@@ -129,7 +124,7 @@ def run_issues(
     for draft in drafts:
         existing_url = find_duplicate(draft.fingerprint, open_issues)
         if existing_url is not None:
-            skipped_duplicate.append((_draft_ref(draft), existing_url))
+            skipped_duplicate.append((draft.ref, existing_url))
         else:
             survivors.append(draft)
 

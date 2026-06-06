@@ -88,6 +88,17 @@ class IssueDraft:
     member_refs: list[str] = field(default_factory=list)
     secret_lint_blocked: bool = False
 
+    @property
+    def ref(self) -> str:
+        """Human-readable ref for result accounting (IN-02).
+
+        The single source of truth for "how a draft is named in the result
+        report / filer accounting". Hoisted here so the ref shape changes in ONE
+        place (previously duplicated as ``_draft_ref`` in both ``__init__`` and
+        ``filer``).
+        """
+        return self.title
+
 
 def _why_confirmed_line(finding: Finding, report: ScanReport) -> str:
     """The 'why confirmed' rationale — sidecar-faithful (OQ2/OQ3).

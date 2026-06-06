@@ -212,11 +212,6 @@ def file_issue(
     )
 
 
-def _draft_ref(draft: IssueDraft) -> str:
-    """A human-readable ref for a draft (used in result accounting)."""
-    return draft.title
-
-
 def _is_clean(draft: IssueDraft) -> bool:
     """Re-run the D-19 secret-lint chokepoint over a draft's title+body.
 
@@ -261,7 +256,7 @@ def file_all(
         if _is_clean(draft):
             clean.append(draft)
         else:
-            outcome.blocked_refs.append(_draft_ref(draft))
+            outcome.blocked_refs.append(draft.ref)
 
     if not clean:
         return outcome
@@ -281,11 +276,11 @@ def file_all(
             # NOT as a create failure.
             outcome.filed_urls.append(_URL_UNKNOWN_PLACEHOLDER)
             outcome.errors.append(
-                f"filed '{_draft_ref(draft)}' but no URL captured ({_NO_URL_NOTE})"
+                f"filed '{draft.ref}' but no URL captured ({_NO_URL_NOTE})"
             )
         else:
             outcome.errors.append(
-                f"failed to file '{_draft_ref(draft)}': {error or 'unknown error'}"
+                f"failed to file '{draft.ref}': {error or 'unknown error'}"
             )
     return outcome
 
