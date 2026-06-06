@@ -95,6 +95,7 @@ def render_markdown(
     scan_report: ScanReport,
     *,
     trend: "TrendDelta | None" = None,
+    top_findings: "list | None" = None,
 ) -> str:
     """Render the markdown buffer. Pure; no I/O.
 
@@ -117,6 +118,7 @@ def render_markdown(
         deterministic_exec_header=build_deterministic_exec_header(scan_report.findings),
         critical_render_classes=_compute_critical_render_classes(scan_report),
         trend=trend,
+        top_findings=top_findings or [],
     )
 
 
@@ -306,7 +308,9 @@ def render_and_write(
     # intercept the buffer there still work). The agent path needs the extra
     # kwargs and builds the buffer directly.
     if cleaned_agent_output is None:
-        markdown_buf = render_markdown(scan_report, trend=trend)
+        markdown_buf = render_markdown(
+            scan_report, trend=trend, top_findings=effective_top_findings,
+        )
     else:
         markdown_buf = _render_markdown_with_agent(
             scan_report=scan_report,
@@ -314,6 +318,7 @@ def render_and_write(
             deterministic_exec_header=deterministic_exec_header,
             critical_render_classes=critical_render_classes,
             trend=trend,
+            top_findings=effective_top_findings,
         )
     json_buf = scan_report.model_dump_json(indent=2)
 
@@ -378,6 +383,7 @@ def _render_markdown_with_agent(
     deterministic_exec_header: str,
     critical_render_classes: dict[str, str],
     trend: "TrendDelta | None" = None,
+    top_findings: "list | None" = None,
 ) -> str:
     """Template render with the Phase 4 agent kwargs (+ Plan 05-03 trend)."""
     env = _make_env()
@@ -388,6 +394,7 @@ def _render_markdown_with_agent(
         deterministic_exec_header=deterministic_exec_header,
         critical_render_classes=critical_render_classes,
         trend=trend,
+        top_findings=top_findings or [],
     )
 
 
