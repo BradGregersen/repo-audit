@@ -524,7 +524,13 @@ def issues(
     # go to stderr; the D-13 result report goes to stdout.
     for note in result.notes:
         typer.echo(note, err=True)
-    typer.echo(result.summary())
 
+    # WR-06: on a hard error (rc=4 wrong-repo/gh-unavailable, rc=5 no-sidecar) the
+    # result envelope is empty, so the D-13 summary would print a misleading
+    # "0 filed / 0 skipped / 0 blocked" to stdout — a script reading stdout would
+    # see a "successful empty run" shape. Suppress the summary on a non-zero rc:
+    # the real error is already on stderr.
     if result.rc != 0:
         raise typer.Exit(code=result.rc)
+
+    typer.echo(result.summary())

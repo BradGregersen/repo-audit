@@ -450,6 +450,28 @@ def test_propose_gate_y_files_all(tmp_path, monkeypatch):
     assert len(CREATED_ISSUE_ARGV) >= 4
 
 
+@pytestmark_iss02
+def test_error_path_suppresses_summary(tmp_path, monkeypatch):
+    """WR-06: on the no-sidecar (rc=5) error path the CLI does NOT print the
+    zeroed D-13 summary to stdout (the real error rides stderr)."""
+    pytest.importorskip("repo_audit.issues")
+    from repo_audit import cli as cli_mod
+    import repo_audit.issues.filer as filer_mod
+    import repo_audit.issues.targeting as targeting_mod
+    import repo_audit.issues.dedup as dedup_mod
+
+    repo = _make_repo(tmp_path)  # NOTE: no _write_sidecar → rc=5 no-sidecar path.
+    monkeypatch.setattr(filer_mod, "run_tool", fake_run_tool)
+    monkeypatch.setattr(targeting_mod, "run_tool", fake_run_tool)
+    monkeypatch.setattr(dedup_mod, "run_tool", fake_run_tool)
+
+    result = runner.invoke(cli_mod.app, ["issues", str(repo)], input="y\n")
+    assert result.exit_code == 5, result.output
+    # The zeroed summary must NOT appear in the combined output (stdout half).
+    assert "0 filed" not in result.stdout
+    assert "blocked by secret-lint" not in result.stdout
+
+
 # =========================================================================== #
 # ISS-03 — secret-lint blocks ONE draft, files the rest (never aborts the     #
 #           whole run); labels created idempotently.                          #
