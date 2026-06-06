@@ -477,6 +477,36 @@ def test_secret_lint_block_one_files_rest(tmp_path, monkeypatch):
     assert len(CREATED_ISSUE_ARGV) == len(drafts) - 1
 
 
+def test_rc0_empty_stdout_counts_as_filed_url_unknown(tmp_path, monkeypatch):
+    """WR-05: gh issue create returning rc=0 with EMPTY stdout is recorded as
+    'filed, URL unknown' (counted in filed_count), not as a create failure."""
+    filer = pytest.importorskip("repo_audit.issues.filer")
+    draft = pytest.importorskip("repo_audit.issues.draft")
+
+    repo = _make_repo(tmp_path)
+    _write_sidecar(repo)
+
+    def no_url_run_tool(argv, *, env, cwd, timeout_seconds):
+        argv = list(argv)
+        if "create" in argv:
+            CREATED_ISSUE_ARGV.append(argv)
+            # rc=0 but NO url on stdout (the WR-05 case).
+            return InvocationResult(stdout="", returncode=0, command=argv)
+        return fake_run_tool(argv, env=env, cwd=cwd, timeout_seconds=timeout_seconds)
+
+    monkeypatch.setattr(filer, "run_tool", no_url_run_tool)
+
+    drafts = draft.build_drafts(loader_report(repo))
+    outcome = filer.file_all(repo, drafts, owner_repo=_CANON_OWNER_REPO)
+
+    # Every clean draft is counted as filed (placeholder URL), none as a failure.
+    assert outcome.filed_count == len(drafts)
+    # A disclosure note was emitted for each URL-unknown create.
+    assert any("no URL captured" in n for n in outcome.errors)
+    # And none were mis-recorded as "failed to file".
+    assert not any(n.startswith("failed to file") for n in outcome.errors)
+
+
 def test_label_created_idempotently(tmp_path, monkeypatch):
     """``gh label create`` is idempotent: a re-run does not error on an
     already-existing label (rc=0 path), and the same label is not created twice

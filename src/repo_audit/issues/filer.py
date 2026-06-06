@@ -46,6 +46,14 @@ from repo_audit.render.secret_lint import SecretsDetected, lint_buffer
 _LABEL_TIMEOUT_SECONDS: float = 30.0
 _CREATE_TIMEOUT_SECONDS: float = 60.0
 
+# WR-05: the exact note :func:`file_issue` returns on rc=0 with empty stdout.
+# ``file_all`` recognizes it to record a "filed, URL unknown" outcome (the issue
+# WAS created) instead of mis-recording it as a create failure.
+_NO_URL_NOTE = "gh issue create returned rc=0 but no URL on stdout"
+# Placeholder URL recorded for a "filed, URL unknown" outcome so the filed_count
+# stays accurate (the issue exists) while the missing URL is disclosed in a note.
+_URL_UNKNOWN_PLACEHOLDER = "(filed, URL unknown)"
+
 # D-18 the single umbrella label every arch-filed issue carries. We ensure ONLY
 # this one label via ``gh label create`` (idempotently, once per run); the
 # severity:* / dimension labels ride on ``gh issue create --label`` (gh creates a
@@ -161,8 +169,11 @@ def file_issue(
     ``list[str]`` argv). Title and labels are list args, never shell-quoted.
 
     Returns:
-        ``(url, None)`` on rc=0 (url is the new issue URL from stdout), else
-        ``(None, error)`` with the stderr / rc note. NEVER raises.
+        ``(url, None)`` on rc=0 with a non-empty stdout URL; ``(None, note)`` on
+        rc=0 with EMPTY stdout (WR-05: gh created the issue but emitted no URL on
+        stdout — a "filed, URL unknown" outcome, surfaced as a note rather than a
+        filed empty-string URL); and ``(None, error)`` on a non-zero rc. NEVER
+        raises.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         body_path = Path(tmpdir) / "issue-body.md"
@@ -187,7 +198,14 @@ def file_issue(
             timeout_seconds=_CREATE_TIMEOUT_SECONDS,
         )
     if res.returncode == 0:
-        return (res.stdout.strip(), None)
+        url = (res.stdout or "").strip()
+        if not url:
+            # WR-05: rc=0 but no URL on stdout (emitted to stderr, or a future gh
+            # format change). The issue WAS created — report it as "filed, URL
+            # unknown" via a note rather than a filed empty-string URL (which
+            # ``file_all``'s ``if url:`` would otherwise mis-record as a failure).
+            return (None, _NO_URL_NOTE)
+        return (url, None)
     return (
         None,
         (res.stderr or "").strip() or f"gh issue create rc={res.returncode}",
@@ -257,6 +275,14 @@ def file_all(
         url, error = file_issue(owner_repo, draft, repo_path)
         if url:
             outcome.filed_urls.append(url)
+        elif error == _NO_URL_NOTE:
+            # WR-05: the issue WAS created (rc=0) but gh gave no URL. Count it as
+            # filed (placeholder URL) and disclose the missing URL in a note —
+            # NOT as a create failure.
+            outcome.filed_urls.append(_URL_UNKNOWN_PLACEHOLDER)
+            outcome.errors.append(
+                f"filed '{_draft_ref(draft)}' but no URL captured ({_NO_URL_NOTE})"
+            )
         else:
             outcome.errors.append(
                 f"failed to file '{_draft_ref(draft)}': {error or 'unknown error'}"
