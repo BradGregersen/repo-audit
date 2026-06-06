@@ -44,6 +44,7 @@ from repo_audit.issues.result import IssuesResult
 from repo_audit.issues.targeting import (
     IdentityGuardError,
     assert_target_matches,
+    resolve_target,
 )
 
 # Exit codes (mirrored in the CLI docstring).
@@ -104,14 +105,27 @@ def run_issues(
 
     # [1] resolve/guard the file target from the git origin BEFORE any draft.
     #     assert_target_matches uses ONLY the origin remote (no gh required) so
-    #     the guard works offline; the gh nameWithOwner cross-check is the second
-    #     online layer (resolve_target) the CLI may surface separately.
+    #     the OFFLINE guard works without network (defense in depth).
     try:
         owner_repo = assert_target_matches(
             repo_path, scanned_slug=report.meta.repo_slug
         )
     except IdentityGuardError as exc:
         return IssuesResult(rc=_RC_TARGET, notes=[*notes, str(exc)])
+
+    # [1b] IN-03: the SECOND, ONLINE identity layer — gh ``nameWithOwner``
+    #      cross-check + unauthenticated surfacing. ``resolve_target`` is now
+    #      WIRED into the pipeline (it was previously exported but never called,
+    #      so the advertised online wrong-repo cross-check and the
+    #      unauthenticated→rc=4 surface did not actually run). It folds gh-missing
+    #      / unauthenticated / online-wrong-repo into rc=4 with a clear reason.
+    #      The offline guard above still runs first (defense in depth); this adds
+    #      the gh-side confirmation.
+    resolution = resolve_target(repo_path)
+    if not resolution.ok:
+        return IssuesResult(
+            rc=_RC_TARGET, notes=[*notes, resolution.reason or "target check failed"]
+        )
 
     # [3] build the confirmed-only, tiered, secret-lint-gated drafts.
     drafts = build_drafts(report, repo_root=repo_path, owner_repo=owner_repo)

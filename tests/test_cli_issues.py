@@ -472,6 +472,37 @@ def test_error_path_suppresses_summary(tmp_path, monkeypatch):
     assert "blocked by secret-lint" not in result.stdout
 
 
+@pytestmark_iss02
+def test_online_unauthenticated_surfaces_rc4(tmp_path, monkeypatch):
+    """IN-03: resolve_target is wired into run_issues, so a gh ``repo view`` that
+    reports unauthenticated (rc=4) surfaces as the rc=4 target error and files
+    nothing — even though the OFFLINE origin guard passed."""
+    pytest.importorskip("repo_audit.issues")
+    from repo_audit import cli as cli_mod
+    import repo_audit.issues.filer as filer_mod
+    import repo_audit.issues.targeting as targeting_mod
+    import repo_audit.issues.dedup as dedup_mod
+
+    repo = _make_repo(tmp_path)
+    _write_sidecar(repo)
+
+    def unauth_view(argv, *, env, cwd, timeout_seconds):
+        argv = list(argv)
+        if "view" in argv:
+            # gh reports unauthenticated as rc=4.
+            return InvocationResult(stdout="", returncode=4, command=argv)
+        return fake_run_tool(argv, env=env, cwd=cwd, timeout_seconds=timeout_seconds)
+
+    monkeypatch.setattr(filer_mod, "run_tool", unauth_view)
+    monkeypatch.setattr(targeting_mod, "run_tool", unauth_view)
+    monkeypatch.setattr(dedup_mod, "run_tool", unauth_view)
+
+    result = runner.invoke(cli_mod.app, ["issues", str(repo)], input="y\n")
+    assert result.exit_code == 4, result.output
+    # Nothing was filed (the online layer blocked before the gate).
+    assert CREATED_ISSUE_ARGV == []
+
+
 # =========================================================================== #
 # ISS-03 — secret-lint blocks ONE draft, files the rest (never aborts the     #
 #           whole run); labels created idempotently.                          #
