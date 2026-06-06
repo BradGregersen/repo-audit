@@ -221,6 +221,25 @@ def scan(
             "(FUZZ-01/D-16-04)."
         ),
     ),
+    epss: bool = typer.Option(
+        False,
+        "--epss",
+        help=(
+            "Opt-in: fetch live EPSS scores from FIRST (network egress); "
+            "default OFF -> EPSS unavailable, factor neutral (D-18-06). "
+            "Never fleet-wide."
+        ),
+    ),
+    refresh_kev: bool = typer.Option(
+        False,
+        "--refresh-kev",
+        help=(
+            "Advance the pinned CISA KEV snapshot (vendor/kev/) before scanning; "
+            "the ONLY path that re-fetches the KEV feed + restamps PROVENANCE "
+            "(mirrors --refresh-vuln-db). Default off: the KEV top-band runs "
+            "pinned/offline against the bundled snapshot (zero egress, D-18-06)."
+        ),
+    ),
 ) -> None:
     """Scan a repo and emit a state report + JSON sidecar (CLI-02 / SC-3).
 
@@ -266,6 +285,21 @@ def scan(
         2 — secret-lint refused (REP-05 / D-06)
         3 — completion-honesty refused (SAFE-08 / D-32)
     """
+    # Plan 18-02: --refresh-kev is the SOLE path that advances the pinned CISA KEV
+    # snapshot (mirrors --refresh-vuln-db). It is an EXPLICIT, user-invoked step run
+    # BEFORE the scan; the default scan path never re-fetches (zero egress,
+    # D-18-06). A fetch failure surfaces on stderr and aborts (rc=4) rather than
+    # silently scanning against a stale pin.
+    if refresh_kev:
+        from repo_audit.synthesis.kev import refresh_kev_snapshot
+
+        try:
+            sha = refresh_kev_snapshot()
+            typer.echo(f"Refreshed KEV snapshot (sha256: {sha})")
+        except Exception as exc:  # noqa: BLE001 — explicit step: surface + abort
+            typer.echo(f"--refresh-kev failed: {exc}", err=True)
+            raise typer.Exit(code=4) from exc
+
     # Plan 05-01: the entire pipeline body now lives in
     # orchestration.scan_runner.run_scan (single source of truth; repo-audit fleet
     # reuses the identical pipeline). This command is a thin wrapper that
@@ -291,6 +325,7 @@ def scan(
         qd_build=qd_build,
         e2e=e2e,
         fuzz=fuzz,
+        epss=epss,
     )
 
     # render refused (secret-lint rc=2 / completion-honesty rc=3) → sidecar
