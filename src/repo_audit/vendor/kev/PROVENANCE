@@ -1,0 +1,18 @@
+# Vendored CISA Known Exploited Vulnerabilities (KEV) snapshot
+#
+# This is a SHA-256-pinned snapshot of the CISA KEV catalog, vendored so the
+# default `repo-audit scan` KEV top-band works with ZERO network egress (T-18-06).
+# The default scan path NEVER auto-fetches this file; `repo-audit scan --refresh-kev`
+# is the SOLE path that re-fetches the upstream catalog and restamps this file
+# (mirrors the --refresh-vuln-db checksum-checkpoint discipline, Phase 7/12).
+#
+# The KEV JSON is a U.S.-government public-domain data artifact (CISA), not a
+# package-registry dependency — it is pinned by SHA-256 here, not by a lockfile
+# (18-RESEARCH §Package Legitimacy Audit / T-18-SC: zero new packages).
+
+source_url:  https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+fetch_date:  2026-06-05
+catalog_version: 2026.06.05
+file:        known_exploited_vulnerabilities.json
+sha256:      59d92de6a49bddb14023a0d0d89e80b8263001ca12405546104966f236400ba2
+license:     U.S. public domain (CISA, https://www.cisa.gov/about/site-policies)
