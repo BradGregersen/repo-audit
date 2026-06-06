@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from repo_audit.agent._shared_sort import _SEVERITY_RANK
 from repo_audit.agent.schema import AgentScanReport
 from repo_audit.render.completion_honesty import (
     CompletionHonestyViolation,
@@ -45,15 +46,10 @@ if TYPE_CHECKING:
 # top_n cap for representative findings in every finding-list getter summary.
 TOP_N: int = 12
 
-# Severity rank for ranking — lower = more severe → sorts first. Mirrors the
-# Severity Literal order in schema/enums.py.
-_SEVERITY_RANK: dict[str, int] = {
-    "blocker": 0,
-    "critical": 1,
-    "major": 2,
-    "minor": 3,
-    "info": 4,
-}
+# Severity rank for ranking — lower = more severe → sorts first. Now sourced from
+# the shared `agent._shared_sort` module (imported above) so `_summarize` and
+# `synthesis.rank` cannot drift (D-18 / T-18-02). The name stays bound here for
+# backward compat; the literal table lives in ONE place.
 
 # All five severity keys, present-with-zeros for a stable summary shape.
 _ALL_SEVERITIES: tuple[str, ...] = ("blocker", "critical", "major", "minor", "info")
