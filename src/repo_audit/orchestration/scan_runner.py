@@ -309,6 +309,7 @@ def run_scan(
     refresh_coverage: bool = False,
     refresh_vuln_db: bool = False,
     agent_budget: int | None = None,
+    uncapped: bool = False,
     rls_runtime: bool = False,
     rls_pgrls: bool = False,
     mobsf: bool = False,
@@ -343,7 +344,8 @@ def run_scan(
         8. partial determination — D-31
         8.5 find_prior_sidecar → baseline_run conditional (Plan 05-01)
         9. ReportMeta assembly
-        9.5 agent_budget override (AGENT-05 / D-65)
+        9.5 agent_budget override (AGENT-05 / D-65) — SKIPPED when uncapped
+            (UNCAPPED-01: --uncapped WINS over --agent-budget)
         10. run_agent_session (unless no_agent) — D-53 / D-67
         10.5 auto_fill_ledger_gaps — AGENT-07 / D-60
         11. ScanReport assembly
@@ -875,7 +877,7 @@ def run_scan(
         _verification_records,
         _verification_meta,
     ) = _verification.run_verification(
-        findings, repo_path=repo_path, no_critic=no_agent
+        findings, repo_path=repo_path, no_critic=no_agent, uncapped=uncapped
     )
 
     # Phase 18 (Plan 18-03) — SYNTHESIS STAGE (SYN-01/02 / D-18-09 / D-18-10).
@@ -1288,7 +1290,10 @@ def run_scan(
     # Phase 4 NEW: AGENT-05 budget override (D-65) — one-shot scan override.
     # Mutates the AGENT_DEFAULTS dict the agent loop reads via get_threshold();
     # process-local + benign (each Typer invocation is a fresh CLI context).
-    if agent_budget is not None:
+    # UNCAPPED-01: --uncapped WINS over --agent-budget — when uncapped, SKIP the
+    # mutation so the budget is ignored and AGENT_DEFAULTS stays pristine (the
+    # cap is removed at runtime via the resolution helpers instead).
+    if agent_budget is not None and not uncapped:
         from repo_audit.agent.constants import AGENT_DEFAULTS
         AGENT_DEFAULTS["agent.max_tokens_per_scan"] = int(agent_budget)
 
@@ -1306,6 +1311,7 @@ def run_scan(
             scope_ledger=scope_ledger,
             detection=detection,
             meta=meta,
+            uncapped=uncapped,
             trend=trend,
             top_findings=top_findings,
         ))

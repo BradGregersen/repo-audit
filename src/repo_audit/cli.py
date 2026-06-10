@@ -126,6 +126,22 @@ def scan(
             "disconnects when running tokens cross this threshold."
         ),
     ),
+    uncapped: bool = typer.Option(
+        False,
+        "--uncapped",
+        help=(
+            "Remove ALL agent AND critic budget caps for this run: the agent "
+            "token cap / max_turns / max_budget_usd AND the critic token cap / "
+            "wall-clock cap / max_turns / max_budget_usd. Intended for a "
+            "comprehensive/final-sweep run on a large multi-stack repo under "
+            "Max-plan OAuth (actual cost ~$0), where the documentation-grade "
+            "defaults would otherwise disconnect the agent or critic loop early. "
+            "Default OFF — every default threshold is unchanged when absent. "
+            "When BOTH --uncapped and --agent-budget are passed, --uncapped "
+            "WINS and --agent-budget is ignored. With --no-agent it is a "
+            "harmless no-op (no agent runs)."
+        ),
+    ),
     rls_runtime: bool = typer.Option(
         False,
         "--rls-runtime",
@@ -277,6 +293,15 @@ def scan(
         overall arch-scan duration after render_and_write returns (RESEARCH
         Open Question 2).
 
+    ``--uncapped`` (UNCAPPED-01) removes EVERY agent and critic budget cap at
+    RUNTIME ONLY (token cap, turn cap, USD cap, and the critic wall-clock cap)
+    so a comprehensive/final-sweep run completes without the agent or critic
+    loop disconnecting early under Max-plan OAuth. It edits no default value —
+    the caps are resolved through helpers to a "no cap" sentinel only for this
+    run. Precedence: ``--uncapped`` WINS over ``--agent-budget`` (the budget is
+    ignored and AGENT_DEFAULTS stays pristine). Under ``--no-agent`` it is a
+    harmless no-op. Default OFF — absent it, every existing cap is unchanged.
+
     D-67 honesty contract: every agent fallback mode (auth missing, network,
     cost-capped, SDK exception) still ships a deterministic report and exits 0;
     the agent_status is surfaced on stderr.
@@ -315,6 +340,7 @@ def scan(
         refresh_coverage=refresh_coverage,
         refresh_vuln_db=refresh_vuln_db,
         agent_budget=agent_budget,
+        uncapped=uncapped,
         rls_runtime=rls_runtime,
         rls_pgrls=rls_pgrls,
         mobsf=mobsf,
