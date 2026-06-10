@@ -111,10 +111,12 @@ def test_budget_exhaustion_honest_partial(
 
     # Force an immediate wall-clock exhaustion: tiny budget so the bound trips
     # after the first candidate (the loop checks the bound at the top of each
-    # iteration).
+    # iteration). UNCAPPED-01 routed the cap reads through the
+    # uncap_internal_threshold resolution helper, so patch THAT seam (the
+    # capped path, uncapped=False, returns the resolved value).
     monkeypatch.setattr(
-        "repo_audit.verification.critic.get_threshold",
-        lambda key: 0 if key == "critic.max_wall_clock_seconds" else 60_000,
+        "repo_audit.verification.critic.uncap_internal_threshold",
+        lambda key, uncapped=False: 0 if key == "critic.max_wall_clock_seconds" else 60_000,
     )
     client = mock_critic_client(
         verdicts=[{"outcome": "survived"} for _ in queue]
