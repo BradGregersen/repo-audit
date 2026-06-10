@@ -40,7 +40,7 @@ from claude_agent_sdk._errors import (
     ProcessError,
 )
 
-from repo_audit.agent.constants import get_threshold
+from repo_audit.agent.constants import uncap_internal_threshold
 from repo_audit.agent.options import build_options
 from repo_audit.agent.tools import (
     available_tools_for_prompt,
@@ -73,12 +73,17 @@ async def run_agent_session(
     meta: "ReportMeta",
     trend: "object | None" = None,
     top_findings: "object | None" = None,
+    uncapped: bool = False,
 ) -> tuple["AgentScanReport | None", "ReportMeta"]:
     """Run the agent loop. Returns (emitted_report_or_None, mutated_meta).
 
     meta is mutated in place AND returned for explicitness. The caller
     (cli.py / Plan 04-09) discards the return-tuple meta and uses the
     mutation directly — both spellings work.
+
+    UNCAPPED-01: when ``uncapped`` is True the agent token cap, max_turns, and
+    max_budget_usd are removed (no early disconnect) via the cap-resolution
+    helpers; default False preserves the D-65/D-66 defaults.
     """
     wall_clock_start = time.perf_counter()
     reset_state()
@@ -97,9 +102,11 @@ async def run_agent_session(
         partial=meta.partial,
         mcp_server=mcp_server,
         available_tools_for_prompt=available_tools_for_prompt(),
+        uncapped=uncapped,
     )
 
-    max_tokens = get_threshold("agent.max_tokens_per_scan")  # D-65 default 150_000
+    # UNCAPPED-01: float('inf') when uncapped so the in-loop tally never trips.
+    max_tokens = uncap_internal_threshold("agent.max_tokens_per_scan", uncapped)  # D-65 default 150_000
     running_tokens = 0
     emit_report_attempts = 0
     agent_status: str = "ok"

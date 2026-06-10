@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from repo_audit.adapters import get_adapter_registry
-from repo_audit.agent.constants import get_threshold
+from repo_audit.agent.constants import uncap_sdk_budget
 
 if TYPE_CHECKING:
     from claude_agent_sdk import ClaudeAgentOptions
@@ -164,6 +164,7 @@ def build_options(
     partial: bool,
     mcp_server: "McpServerConfig",
     available_tools_for_prompt: list[dict],
+    uncapped: bool = False,
 ) -> "ClaudeAgentOptions":
     """D-59 — build ClaudeAgentOptions once per scan.
 
@@ -175,12 +176,16 @@ def build_options(
       available_tools_for_prompt: list of {name, description} dicts the
           system prompt's Section 8 lists. Plan 04-05 supplies this
           (the docstring-lifted descriptions per D-58).
+      uncapped: UNCAPPED-01 — when True, the SDK budgets (max_turns,
+          max_budget_usd) resolve to None (no cap) via uncap_sdk_budget.
+          Default False preserves the D-65/D-66 defaults (20 / 3.00).
 
     Returns: ClaudeAgentOptions with:
       - tools=[]  (strips built-in Write/Bash/Read/etc. per Pitfall 2)
       - allowed_tools=UNIVERSAL + adapter_per_stack + ['emit_report']
-      - max_turns=20  (D-66 via get_threshold)
-      - max_budget_usd=0.50  (documentation-grade under Max OAuth; D-65)
+      - max_turns=20  (D-66 via uncap_sdk_budget; None when uncapped)
+      - max_budget_usd=3.00  (documentation-grade under Max OAuth; D-65;
+        None when uncapped)
       - system_prompt=<rendered D-56 template>
       - mcp_servers={'arch': mcp_server}
       - permission_mode='bypassPermissions'  (RESEARCH Assumption A2)
@@ -210,8 +215,8 @@ def build_options(
         tools=[],  # RESEARCH Pitfall 2 — strip ALL built-ins
         allowed_tools=allowed,
         mcp_servers={"arch": mcp_server},
-        max_turns=get_threshold("agent.max_turns"),
-        max_budget_usd=get_threshold("agent.max_budget_usd"),
+        max_turns=uncap_sdk_budget("agent.max_turns", uncapped),
+        max_budget_usd=uncap_sdk_budget("agent.max_budget_usd", uncapped),
         system_prompt=system_prompt,
         permission_mode="bypassPermissions",
     )

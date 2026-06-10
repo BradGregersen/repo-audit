@@ -200,6 +200,7 @@ def run_verification(
     repo_path=None,
     no_critic: bool = False,
     client_factory: Callable | None = None,
+    uncapped: bool = False,
 ) -> "tuple[list[Finding], list[dict], list[VerificationRecord], dict]":
     """Run the full verification stage under a never-raise contract (D-25).
 
@@ -212,6 +213,9 @@ def run_verification(
             findings stay corroborated (never auto-confirmed).
         client_factory: the test seam forwarded to ``run_critic_session`` — when
             provided the critic loop uses the injected canned-verdict client.
+        uncapped: UNCAPPED-01 — forwarded to ``run_critic_session`` so the critic
+            token cap, wall-clock cap, max_turns, and max_budget_usd are removed
+            (no early disconnect). Default False preserves the critic.* defaults.
 
     Returns:
         ``(active, refuted, records, verification_meta)`` where
@@ -264,6 +268,7 @@ def run_verification(
                     # the exact id(finding)->record.candidate_token map for verdict
                     # token stamping (records is index-paired with these findings).
                     corroborated_findings=corroborated_findings,
+                    uncapped=uncapped,
                 )
             )
         except Exception:

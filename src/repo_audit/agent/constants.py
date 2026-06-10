@@ -53,3 +53,44 @@ AGENT_DEFAULTS: dict[str, Any] = {
 def get_threshold(key: str) -> Any:
     """D-36 indirection lookup. Raises KeyError on unknown keys."""
     return AGENT_DEFAULTS[key]
+
+
+# --- UNCAPPED-01 cap-resolution helpers (single source of truth) -------------
+# These two helpers are the ONLY place the `--uncapped` sentinel values live.
+# AGENT_DEFAULTS is NEVER edited at runtime by the uncapped path; instead these
+# helpers resolve a cap value through `get_threshold` (capped path) or to the
+# appropriate "no cap" sentinel (uncapped path). Keeping them centralized makes
+# the cap-removal plumbing directly unit-testable without the live SDK.
+
+
+def uncap_internal_threshold(key: str, uncapped: bool) -> float:
+    """Resolve a cap consumed by OUR OWN in-loop comparisons.
+
+    Returns ``float("inf")`` when ``uncapped`` (an int running tally is never
+    ``>=`` inf, so the loop never self-disconnects), else ``get_threshold(key)``.
+
+    Feeds the internal-loop comparison sites:
+      - session.py            `running_tokens >= max_tokens`   (agent.max_tokens_per_scan)
+      - critic.py _run_live_candidate   `running >= max_tokens` (critic.max_tokens_per_scan)
+      - critic.py run_critic_session    `running_tokens >= max_tokens or ... >= max_wall`
+        (critic.max_tokens_per_scan, critic.max_wall_clock_seconds)
+    """
+    if uncapped:
+        return float("inf")
+    return get_threshold(key)
+
+
+def uncap_sdk_budget(key: str, uncapped: bool) -> Any:
+    """Resolve a cap passed straight to ``ClaudeAgentOptions``.
+
+    Returns ``None`` when ``uncapped`` (the verified SDK no-cap sentinel for
+    both ``max_turns`` and ``max_budget_usd`` in claude-agent-sdk 0.2.87 —
+    ``None`` means unlimited), else ``get_threshold(key)``.
+
+    Feeds the two SDK option budgets at each construction site:
+      - options.py build_options          (agent.max_turns, agent.max_budget_usd)
+      - critic.py build_critic_options    (critic.max_turns, critic.max_budget_usd)
+    """
+    if uncapped:
+        return None
+    return get_threshold(key)

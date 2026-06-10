@@ -34,7 +34,10 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 from jinja2 import Environment, PackageLoader, StrictUndefined
 from pydantic import BaseModel, ConfigDict, Field
 
-from repo_audit.agent.constants import get_threshold
+from repo_audit.agent.constants import (
+    uncap_internal_threshold,
+    uncap_sdk_budget,
+)
 from repo_audit.verification.record import (
     Citation,
     RefutationAngle,
@@ -455,6 +458,7 @@ def build_critic_options(
     *,
     mcp_server: "McpServerConfig",
     system_prompt: str,
+    uncapped: bool = False,
 ) -> "ClaudeAgentOptions":
     """Build the read-only critic ClaudeAgentOptions (V4 / Pitfall 2).
 
@@ -462,6 +466,10 @@ def build_critic_options(
     read-only ``mcp__critic__*`` tools. Budgets read the separate ``critic.*``
     knobs. The ``_FORBIDDEN_BUILTINS`` leak assertion (copied from options.py
     L197-200) fails the build if a Write/Bash/Edit name ever slips in.
+
+    UNCAPPED-01: when ``uncapped`` is True the SDK budgets (max_turns,
+    max_budget_usd) resolve to None (no cap) via ``uncap_sdk_budget``; default
+    False preserves the critic.* defaults (6 / 1.50).
     """
     from claude_agent_sdk import ClaudeAgentOptions
 
@@ -476,8 +484,8 @@ def build_critic_options(
         tools=[],  # strip ALL built-ins (Pitfall 2)
         allowed_tools=allowed,
         mcp_servers={"critic": mcp_server},
-        max_turns=get_threshold("critic.max_turns"),
-        max_budget_usd=get_threshold("critic.max_budget_usd"),
+        max_turns=uncap_sdk_budget("critic.max_turns", uncapped),
+        max_budget_usd=uncap_sdk_budget("critic.max_budget_usd", uncapped),
         system_prompt=system_prompt,
         permission_mode="bypassPermissions",
     )
@@ -590,16 +598,21 @@ def _render_critic_prompt(
 # --- run_critic_session — the bounded priority-queue loop (clone of session) -
 
 
-async def _run_live_candidate(*, candidate_ref: str, options, prompt: str) -> int:
+async def _run_live_candidate(
+    *, candidate_ref: str, options, prompt: str, uncapped: bool = False
+) -> int:
     """Run one candidate through a live ClaudeSDKClient. Returns tokens consumed.
 
     Clones the session.py token-tally + disconnect loop, scoped to ONE candidate
     (the critic reviews one finding per session). Never promotes a rung — the
     verdict is collected from the submit_verdict module state by the caller.
+
+    UNCAPPED-01: when ``uncapped`` the in-loop token cap resolves to inf so the
+    per-candidate disconnect never trips.
     """
     from claude_agent_sdk import AssistantMessage, ClaudeSDKClient, ResultMessage
 
-    max_tokens = get_threshold("critic.max_tokens_per_scan")
+    max_tokens = uncap_internal_threshold("critic.max_tokens_per_scan", uncapped)
     running = 0
     async with ClaudeSDKClient(options=options) as client:
         await client.query(prompt)
@@ -627,6 +640,7 @@ async def run_critic_session(
     repo_name: str = "",
     client_factory: Callable | None = None,
     corroborated_findings: "list[Finding] | None" = None,
+    uncapped: bool = False,
 ) -> "tuple[list[Verdict], VerificationMeta]":
     """Review the priority queue under separate token + wall-clock budgets.
 
@@ -672,8 +686,10 @@ async def run_critic_session(
     def _token_for_finding(f) -> int:
         return _token_by_id.get(id(f), -1)
 
-    max_tokens = get_threshold("critic.max_tokens_per_scan")
-    max_wall = get_threshold("critic.max_wall_clock_seconds")
+    # UNCAPPED-01: both resolve to inf when uncapped so the honest-partial
+    # budget bound never stops the queue early (no early disconnect).
+    max_tokens = uncap_internal_threshold("critic.max_tokens_per_scan", uncapped)
+    max_wall = uncap_internal_threshold("critic.max_wall_clock_seconds", uncapped)
     start = time.perf_counter()
     running_tokens = 0
 
@@ -706,10 +722,11 @@ async def run_critic_session(
                     repo_name=repo_name, finding=finding, sibling_refs=sibling_refs
                 )
                 options = build_critic_options(
-                    mcp_server=server, system_prompt=prompt
+                    mcp_server=server, system_prompt=prompt, uncapped=uncapped
                 )
                 running_tokens += await _run_live_candidate(
-                    candidate_ref=candidate_ref, options=options, prompt=prompt
+                    candidate_ref=candidate_ref, options=options, prompt=prompt,
+                    uncapped=uncapped,
                 )
         except Exception:
             # Never-raise: this candidate gets no verdict; the queue proceeds.
