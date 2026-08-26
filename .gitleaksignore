@@ -1,0 +1,5 @@
+95f42a71993274235e6c5a8ca12b64bec8c68a86:tests/adapters/fixtures/sonar/issues.json:generic-api-key:7
+add67cb4a5d59032a578f961985ac54500cfa09c:tests/adapters/fixtures/sast/secrets_anon.sarif:jwt:29
+add67cb4a5d59032a578f961985ac54500cfa09c:tests/adapters/fixtures/sast/secrets_anon.sarif:jwt:59
+f7adbe1593f15f3478e6b3f45843a570afcd2f7c:tests/adapters/fixtures/mobile/mobsf_report_json.json:jwt:9
+dd90d097c48c7300e83a2b9968f0610df4560d18:tests/test_secret_lint.py:generic-api-key:66
