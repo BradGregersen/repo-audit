@@ -1,13 +1,28 @@
 # Repo Audit
 
-A modular, polyglot **repo-health audit CLI**. Point `arch` at a repository and it
-auto-detects the stack, runs only the relevant checks, and writes a faithful
-**state report** — the same dimensions and quality you'd produce by hand, in
-minutes instead of days. Run it per-repo (`repo-audit scan`) or across a whole
-directory of repos (`repo-audit fleet ~/Code`).
+A modular, polyglot **repo-health audit CLI**. Point `repo-audit` at a repository
+and it auto-detects the stack, runs only the relevant checks, and writes a
+faithful **state report** — the same dimensions and quality you'd produce by
+hand, in minutes instead of days. Run it per-repo (`repo-audit scan`) or across a
+whole directory of repos (`repo-audit fleet ~/Code`).
 
-Built for a fleet of ~20 repos spanning TypeScript/React Native, Kotlin/Android,
-Python, C++, C#, Go, Rust, and Supabase.
+317 commits of development history. Exercised against a fleet spanning
+TypeScript/React Native, Kotlin/Android, Python, C++, C#, Go, Rust, and
+Supabase — 9 language ecosystems, each auto-detected from its manifest files.
+
+## Install and run
+
+Requires Python 3.11–3.12.
+
+```bash
+git clone https://github.com/BradGregersen/repo-audit
+cd repo-audit
+uv sync                     # or:  pip install -e .
+
+repo-audit scan .           # audit one repo  → state report + JSON sidecar
+repo-audit detect .         # just show the detected stack(s)
+repo-audit fleet ~/Code     # sweep every git repo under a directory
+```
 
 ## What it does
 
@@ -22,9 +37,6 @@ Python, C++, C#, Go, Rust, and Supabase.
   security scanners (SAST/SCA), RLS/data-privacy checks, mobile scanners,
   architecture and quality probes — and merges them into one prioritized report
   instead of raw tool dumps.
-- **Read-only.** The tool writes only to `docs/state-reports/` in the target
-  repo, never modifies code or config, and never produces shipping build
-  artifacts. Diagnostic builds, when needed, run in throwaway copies.
 - **Trend-aware.** Each scan diffs against the prior report (resolved / still
   present / vanished-with-file).
 
@@ -44,7 +56,15 @@ beside it), organized into:
 8. Process & backlog
 9. Observability & runtime
 
-## Install
+## What it does not do
+
+- **It never modifies the repository it audits** — no code edits, no config
+  changes, no commits, and no shipping build artifacts. Diagnostic builds, when
+  they are needed at all, run in throwaway copies.
+- **It writes to exactly one location:** `docs/state-reports/` inside the target
+  repo. Nothing else on your disk is touched.
+
+## Install (detail)
 
 Requires Python 3.11–3.12. [`uv`](https://docs.astral.sh/uv/) is recommended.
 
@@ -55,7 +75,7 @@ uv tool install --editable .
 pipx install --editable .
 ```
 
-Both create an isolated environment with the `arch` shim on PATH. The Claude
+Both create an isolated environment with the `repo-audit` shim on PATH. The Claude
 Code CLI binary is bundled with the Agent SDK — no separate install — and the
 tool reuses your existing Claude Code auth.
 
@@ -72,7 +92,7 @@ repo-audit fleet DIR        # Sweep every .git child of DIR → triage dashboard
 repo-audit issues [PATH]    # File confirmed findings as GitHub issues (gated)
 ```
 
-Run `arch` with no arguments for help.
+Run `repo-audit` with no arguments for help.
 
 ### `repo-audit scan`
 
@@ -119,7 +139,7 @@ per-repo AI narration (avoid fleet-wide unless you want cost × N).
 Reads the most-recent state-report sidecar, drafts confirmed-only issues
 (critical/blocker solos + per-dimension rollups), dedups against open issues,
 shows a dry-run of exactly what would be filed, and files **nothing** until you
-answer `y`. Filing — `gh issue create` with an idempotent `arch-audit` label —
+answer `y`. Filing — `gh issue create` with an idempotent `repo-audit` label —
 is the only outward write the tool performs. `--yes` skips the gate for CI.
 
 ## Configuration
