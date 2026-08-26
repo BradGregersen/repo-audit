@@ -67,7 +67,7 @@ _URL_UNKNOWN_PLACEHOLDER = "(filed, URL unknown)"
 # follow-up to D-18 and is intentionally out of scope for this phase — the
 # hard-coded umbrella label below is the deliberate phase-19 behaviour, not
 # incomplete work.
-ARCH_LABEL = "arch-audit"
+ARCH_LABEL = "repo-audit"
 ARCH_LABEL_COLOR = "5319e7"
 _DEFAULT_LABEL_COLOR = "ededed"
 _LABEL_COLORS: dict[str, str] = {
@@ -110,7 +110,7 @@ def _label_color(name: str) -> str:
 def ensure_labels(
     owner_repo: str, label_names: set[str], repo_path: Path
 ) -> list[str]:
-    """Idempotently ensure the arch-audit umbrella label via ``gh label create``.
+    """Idempotently ensure the repo-audit umbrella label via ``gh label create``.
 
     Only the single :data:`ARCH_LABEL` umbrella label is ensured here (once per
     run) — the stable "filed by repo-audit" provenance marker. ``--force``
@@ -240,7 +240,7 @@ def file_all(
 ) -> FileAllOutcome:
     """File every clean draft; block-one-keep-rest on a secret-lint hit (D-20).
 
-    Ensures the UNION of all survivor labels ONCE (idempotent — the arch-audit
+    Ensures the UNION of all survivor labels ONCE (idempotent — the repo-audit
     umbrella label is created at most once per run), then re-lints each draft and
     files only the clean ones via :func:`file_issue`. A draft that trips
     secret-lint is recorded in ``blocked_refs`` and skipped; a per-issue create

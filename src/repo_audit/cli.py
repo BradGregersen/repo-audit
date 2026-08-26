@@ -515,7 +515,7 @@ def issues(
     against already-open issues, shows a DRY-RUN of exactly what would be filed,
     and files NOTHING until you answer ``y`` (all-or-nothing — D-11/D-12). Filing
     is the ONLY outward write the tool performs: ``gh issue create`` with an
-    idempotent ``arch-audit`` label, strictly after approval.
+    idempotent ``repo-audit`` label, strictly after approval.
 
     This command is THIN: every gh shell-out + tempfile lives in
     ``repo_audit.issues.*``; the CLI parses options, prints the dry-run +
