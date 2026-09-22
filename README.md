@@ -6,9 +6,24 @@ faithful **state report** — the same dimensions and quality you'd produce by
 hand, in minutes instead of days. Run it per-repo (`repo-audit scan`) or across a
 whole directory of repos (`repo-audit fleet ~/Code`).
 
-317 commits of development history. Exercised against a fleet spanning
-TypeScript/React Native, Kotlin/Android, Python, C++, C#, Go, Rust, and
-Supabase — 9 language ecosystems, each auto-detected from its manifest files.
+Exercised against a fleet spanning TypeScript/React Native, Kotlin/Android,
+Python, C++, C#, Go, Rust, and Supabase — 9 language ecosystems, each
+auto-detected from its manifest files.
+
+## Maturity
+
+Not every dimension is equally exercised. Where a capability stands today:
+
+| Status | Capabilities |
+|---|---|
+| **Proven** — run against real repositories | SARIF adapter foundation · dependency/CVE scanning · SAST · stack-depth and test-integrity adapters · supply-chain and git-history secrets · CI/CD and IaC · architecture fitness and duplication · the verification layer · synthesis and prioritization · issue filing |
+| **Fixture-tested** — never run against a live target | Supabase/RLS runtime enforcement check · mobile pentest / APK scanning |
+| **Incomplete** | The performance regression-finding pipeline |
+
+Fixture-tested means the code exists and is tested against recorded fixtures. It
+has never touched a real database or a real APK. Findings from those two paths
+are unproven against live targets; everything in the Proven row has produced
+real findings on real repositories.
 
 ## Install and run
 
@@ -34,9 +49,10 @@ repo-audit fleet ~/Code     # sweep every git repo under a directory
   `failed`) and a confidence level. A faithfulness gate strips any number the
   agent didn't get from a collector.
 - **Aggregates many tools behind one entry point** — linters, type checkers,
-  security scanners (SAST/SCA), RLS/data-privacy checks, mobile scanners,
-  architecture and quality probes — and merges them into one prioritized report
-  instead of raw tool dumps.
+  SAST/SCA security scanners, architecture and quality probes — and merges them
+  into one prioritized report instead of raw tool dumps. The RLS/data-privacy and
+  mobile-scanning paths run through the same pipeline but are fixture-tested only
+  (see [Maturity](#maturity)).
 - **Trend-aware.** Each scan diffs against the prior report (resolved / still
   present / vanished-with-file).
 
@@ -51,10 +67,15 @@ beside it), organized into:
 3. Security & SAST
 4. Architecture rot
 5. Test integrity
-6. Correctness & data/privacy (incl. Supabase RLS)
-7. Quality / perf / footprint / docs
+6. Correctness & data/privacy — the static Supabase checks are proven; the
+   **runtime** RLS enforcement check is fixture-tested only
+7. Quality / footprint / docs — the performance regression-finding pipeline is
+   incomplete and reports nothing useful yet
 8. Process & backlog
 9. Observability & runtime
+
+Mobile/APK scanning is opt-in via `--mobsf` / `--apk` and is likewise
+fixture-tested only.
 
 ## What it does not do
 
@@ -167,14 +188,14 @@ pipx install semgrep==1.163.0
 uv sync --group sast
 ```
 
-The exact `semgrep==1.163.0` pin (D-10-01) is preserved for reproducibility.
+The exact `semgrep==1.163.0` pin is preserved for reproducibility.
 
 ## Development
 
 ```bash
 uv sync                       # install dev deps
-uv run pytest                 # unit tier (integration tests are marker-gated)
-uv run pytest -m integration  # live-binary tests (require the real toolchains)
+uv run pytest                 # full suite; finishes in minutes
+uv run pytest -m integration  # just the live-binary tests
 ```
 
 Tech stack: Python 3.11+, [Typer](https://typer.tiangolo.com/) CLI,
