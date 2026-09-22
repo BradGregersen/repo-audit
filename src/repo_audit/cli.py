@@ -59,14 +59,13 @@ def _root(
     doctor: bool = typer.Option(
         False,
         "--doctor",
-        help="Health-check mode (full diagnostic ships in Phase 7).",
+        help="Health-check mode: report tool availability and environment.",
     ),
     self_test_secret_lint: bool = typer.Option(
         False,
         "--self-test-secret-lint",
         help=(
-            "Verify the renderer's secret-lint catches a synthetic secret "
-            "(D-08 / REP-05)."
+            "Verify the renderer's secret-lint catches a synthetic secret."
         ),
     ),
 ) -> None:
@@ -258,7 +257,7 @@ def scan(
         ),
     ),
 ) -> None:
-    """Scan a repo and emit a state report + JSON sidecar (CLI-02 / SC-3).
+    """Scan a repo and emit a state report + JSON sidecar.
 
     Phase 3 pipeline:
         1. snapshot_git_status(repo) — BEFORE collectors (D-33 baseline)
@@ -397,7 +396,7 @@ def detect(
         help="Emit JSON instead of a human-readable table.",
     ),
 ) -> None:
-    """Show auto-detected stack(s) without running a full scan (CLI-04 / SC-2)."""
+    """Show auto-detected stack(s) without running a full scan."""
     result = detect_stacks(Path(path).resolve())
     if as_json:
         typer.echo(result.model_dump_json(indent=2))
@@ -429,7 +428,7 @@ def fleet(
         ),
     ),
 ) -> None:
-    """Sweep a directory of repos into a triage dashboard (CLI-03 / FLEET-03/04 / SC-4/5).
+    """Sweep a directory of repos into a triage dashboard.
 
     Discovers every immediate ``.git`` child of ``DIRECTORY``, re-scans each one
     FRESH and SEQUENTIALLY (D-05-13 / FLEET-01), and aggregates the per-repo JSON
@@ -508,7 +507,7 @@ def issues(
         ),
     ),
 ) -> None:
-    """File confirmed findings as GitHub issues — the gated outward action (ISS-01..04).
+    """File confirmed findings as GitHub issues — the gated outward action.
 
     Reads the most-recent (today-inclusive) state-report sidecar, drafts
     confirmed-only solo (critical/blocker) + per-dimension rollup issues, dedups
