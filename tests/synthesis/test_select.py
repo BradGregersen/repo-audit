@@ -1,8 +1,7 @@
 """SYN-02 — Top-N eligibility excludes candidates; never pads under-fill.
 
-These tests target the Wave-2 selection symbol (`synthesis.select`), not built in
-plan 18-01. They `importorskip` so they SKIP cleanly now and flip ACTIVE when the
-selection layer lands (the 03-01b importorskip discipline).
+These tests target the selection symbol `synthesis.select`. They `importorskip`
+so they skip cleanly in a build where the selection layer is not present.
 """
 from __future__ import annotations
 
@@ -10,7 +9,7 @@ import pytest
 
 select = pytest.importorskip(
     "repo_audit.synthesis.select",
-    reason="Wave 2 synthesis.select not yet implemented (plan 18-02+)",
+    reason="optional module repo_audit.synthesis.select not importable — feature not present in this build, or the install is incomplete",
 )
 
 

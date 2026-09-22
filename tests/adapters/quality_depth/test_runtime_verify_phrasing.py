@@ -43,11 +43,11 @@ def _assert_self_disciplined(recommendation: str) -> None:
 
 axe_json = pytest.importorskip(
     "repo_audit.adapters.quality_depth.axe_json",
-    reason="Wave 1 (Plan 02) not yet landed — quality_depth.axe_json missing",
+    reason="optional module repo_audit.adapters.quality_depth.axe_json not importable — feature not present in this build, or the install is incomplete",
 )
 lighthouse_json = pytest.importorskip(
     "repo_audit.adapters.quality_depth.lighthouse_json",
-    reason="Wave 1 (Plan 03) not yet landed — quality_depth.lighthouse_json missing",
+    reason="optional module repo_audit.adapters.quality_depth.lighthouse_json not importable — feature not present in this build, or the install is incomplete",
 )
 
 

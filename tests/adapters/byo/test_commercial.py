@@ -17,7 +17,7 @@ import pytest
 
 commercial = pytest.importorskip(
     "repo_audit.adapters.byo.commercial",
-    reason="Wave 1/2 (plan 16-06) not yet landed — byo.commercial missing",
+    reason="optional module repo_audit.adapters.byo.commercial not importable — feature not present in this build, or the install is incomplete",
 )
 
 

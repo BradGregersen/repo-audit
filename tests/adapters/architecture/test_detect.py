@@ -19,7 +19,7 @@ import pytest
 
 detect = pytest.importorskip(
     "repo_audit.adapters.architecture.detect",
-    reason="Wave 1/2 (Plan 02/03) not yet landed — architecture.detect missing",
+    reason="optional module repo_audit.adapters.architecture.detect not importable — feature not present in this build, or the install is incomplete",
 )
 
 

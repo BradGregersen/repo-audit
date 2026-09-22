@@ -21,7 +21,7 @@ import pytest
 
 workflows = pytest.importorskip(
     "repo_audit.adapters.cicd.workflows",
-    reason="Wave 1 (Plan 02) not yet landed — cicd.workflows missing",
+    reason="optional module repo_audit.adapters.cicd.workflows not importable — feature not present in this build, or the install is incomplete",
 )
 
 # A fake resolved-binary path so the recorded-fixture parse tests are HERMETIC —

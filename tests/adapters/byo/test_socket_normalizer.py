@@ -18,7 +18,7 @@ import pytest
 
 socket_mod = pytest.importorskip(
     "repo_audit.adapters.byo.socket_json",
-    reason="Wave 1/2 (plan 16-06) not yet landed — byo.socket_json missing",
+    reason="optional module repo_audit.adapters.byo.socket_json not importable — feature not present in this build, or the install is incomplete",
 )
 
 _SOCKET_JSON = (

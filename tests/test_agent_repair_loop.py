@@ -19,7 +19,7 @@ import pytest
 
 _mod = pytest.importorskip(
     "repo_audit.agent.session",
-    reason="agent.session lands in Plan 04-06.",
+    reason="optional module repo_audit.agent.session not importable — feature not present in this build, or the install is incomplete",
 )
 
 from claude_agent_sdk import (  # noqa: E402

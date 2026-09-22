@@ -17,7 +17,7 @@ import pytest
 
 _faith = pytest.importorskip(
     "repo_audit.synthesis.faithfulness",
-    reason="Wave 3 synthesis.faithfulness not yet implemented (plan 18-03)",
+    reason="optional module repo_audit.synthesis.faithfulness not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.agent.schema import TopFinding

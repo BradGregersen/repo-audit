@@ -19,7 +19,7 @@ import pytest
 
 mobsfscan = pytest.importorskip(
     "repo_audit.adapters.mobile.mobsfscan",
-    reason="Wave 1 (plan 09-01) not yet landed — mobile.mobsfscan missing",
+    reason="optional module repo_audit.adapters.mobile.mobsfscan not importable — feature not present in this build, or the install is incomplete",
 )
 
 _SARIF_FIXTURE = (

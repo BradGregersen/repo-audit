@@ -41,7 +41,7 @@ import pytest
 
 pytest.importorskip(
     "repo_audit.adapters.typescript.refresh",
-    reason="Wave 3 (plan 03-06) not yet landed — refresh runner missing",
+    reason="optional module repo_audit.adapters.typescript.refresh not importable — feature not present in this build, or the install is incomplete",
 )
 
 from pydantic import ValidationError  # noqa: E402
@@ -124,6 +124,8 @@ def test_refresh_coverage_failed_no_lcov(tmp_path, fp):
     assert "coverage/lcov.info not produced" in result.notes
 
 
+# real_subprocess: installs its own subprocess.run fake.
+@pytest.mark.real_subprocess
 def test_refresh_coverage_timeout(tmp_path, monkeypatch):
     """TimeoutExpired ⇒ status='timeout', exit_code=None, notes mentions timeout."""
 
@@ -142,6 +144,8 @@ def test_refresh_coverage_timeout(tmp_path, monkeypatch):
     assert "timeout after" in result.notes
 
 
+# real_subprocess: installs its own subprocess.run fake.
+@pytest.mark.real_subprocess
 def test_refresh_coverage_filenotfound(tmp_path, monkeypatch):
     """FileNotFoundError (binary absent) ⇒ status='failed', exit_code=None."""
 
@@ -163,6 +167,8 @@ def test_refresh_coverage_filenotfound(tmp_path, monkeypatch):
 # --- Structural hygiene (T-03-refresh-injection) --------------------------
 
 
+# real_subprocess: installs its own subprocess.run fake.
+@pytest.mark.real_subprocess
 def test_refresh_coverage_argv_is_list_str(tmp_path, monkeypatch):
     """The subprocess argv MUST be the literal list passed; shell=False; cwd=str(repo_root)."""
     captured: dict = {}
@@ -195,6 +201,8 @@ def test_refresh_coverage_argv_is_list_str(tmp_path, monkeypatch):
 # --- Env scrub (T-03-refresh-env-leak) ------------------------------------
 
 
+# real_subprocess: installs its own subprocess.run fake.
+@pytest.mark.real_subprocess
 def test_refresh_coverage_env_scrub_strips_secrets(tmp_path, monkeypatch):
     """Secret-shaped env vars (token/key/secret/password) stripped before subprocess."""
     captured_env: dict = {}
@@ -292,6 +300,8 @@ def test_tail_cap_constant_is_2048():
 # --- Default config behavior ----------------------------------------------
 
 
+# real_subprocess: installs its own subprocess.run fake.
+@pytest.mark.real_subprocess
 def test_default_command_is_npm_test(tmp_path, monkeypatch):
     """When cfg has no 'command', refresh_coverage defaults to ['npm', 'test']."""
     captured: dict = {}

@@ -6,6 +6,7 @@ Changing a name here means updating every test that imports it.
 from __future__ import annotations
 
 import datetime as _dt
+import functools as _functools
 from pathlib import Path
 
 import pygit2
@@ -217,6 +218,102 @@ def _stub_agent_session(monkeypatch):
         _session_mod, "run_agent_session", _noop_run_agent_session
     )
 
+    # The verification stage runs a SECOND agent loop — the adversarial critic —
+    # which was added after this fixture and never covered by it. With no
+    # ``client_factory`` (the documented test seam), ``run_critic_session``
+    # reaches for a live ClaudeSDKClient, blocks ~60 s waiting on a `claude` CLI
+    # subprocess that is not going to answer, and then has its exception
+    # swallowed by ``stage.run_verification``'s never-raise wrap (D-25). Every
+    # test that calls ``scan`` therefore paid ~60 s of dead wall-clock to reach
+    # `verdicts=[], VerificationMeta()`.
+    #
+    # Returning that pair directly is the SAME observable outcome those tests
+    # already assert against — the never-raise path produces exactly this — so no
+    # assertion changes meaning; only the 60 s wait disappears. Critic unit tests
+    # pass their own ``client_factory`` and call ``run_critic_session`` directly,
+    # so they are unaffected, and a test that wants a spy monkeypatches AFTER this
+    # fixture and takes precedence.
+    try:
+        import repo_audit.verification.critic as _critic_mod
+    except Exception:  # pragma: no cover — verification package always present
+        return
+
+    _real_run_critic_session = _critic_mod.run_critic_session
+
+    # ``functools.wraps`` keeps the stub honest about the contract it stands in
+    # for: ``inspect.signature`` follows ``__wrapped__``, so signature-plumbing
+    # tests (tests/test_uncapped_flag.py) still see the real parameter list
+    # rather than a bare ``**kwargs``.
+    @_functools.wraps(_real_run_critic_session)
+    async def _noop_run_critic_session(**kwargs):
+        # Only the LIVE path is stubbed. A test that supplies ``client_factory``
+        # has opted into driving the real critic loop against its own mock, so
+        # hand it straight through untouched.
+        if kwargs.get("client_factory") is not None:
+            return await _real_run_critic_session(**kwargs)
+        return [], _critic_mod.VerificationMeta()
+
+    monkeypatch.setattr(
+        _critic_mod, "run_critic_session", _noop_run_critic_session
+    )
+
+
+# ---- External-tool subprocess stub (deterministic tier) ----
+
+import importlib as _importlib
+
+from ._subprocess_stub import FakeSubprocess as _FakeSubprocess
+from ._subprocess_stub import STUBBED_MODULES as _STUBBED_MODULES
+
+
+def _is_integration_test(node) -> bool:
+    """True for anything under ``tests/integration/``.
+
+    The integration tier exists precisely to exercise real binaries, so it is
+    exempt from the stub. It is a single file costing ~36 s in total.
+    """
+    try:
+        path = Path(str(node.fspath)).resolve().as_posix()
+    except Exception:  # pragma: no cover — defensive
+        return False
+    return "/tests/integration/" in path
+
+
+@pytest.fixture(autouse=True)
+def _stub_external_tool_subprocess(request, monkeypatch):
+    """Replace ``subprocess`` inside the five external-tool spawn seams.
+
+    The deterministic suite spawned real gitleaks/npx/syft/grype/osv-scanner/scc
+    processes on every test that reached the scan pipeline — ~132 s per test on
+    a cold machine, which is what made the full suite unfinishable. This rebinds
+    each spawning module's own ``subprocess`` attribute to a canned stand-in
+    (see ``tests/_subprocess_stub.py`` for the contract; notably, an absent
+    binary still raises ``FileNotFoundError`` so the 'tool unavailable' path is
+    unchanged).
+
+    Opt out with ``@pytest.mark.real_subprocess`` for a test that must observe
+    genuine subprocess behaviour; ``tests/integration/`` is exempt wholesale.
+    A test that requests ``pytest-subprocess``'s ``fp``/``fake_process`` fixture
+    is exempt too — it has declared that it owns this seam, and shadowing the
+    module object would silently disable its own registrations.
+    """
+    if request.node.get_closest_marker("real_subprocess"):
+        return
+    if _is_integration_test(request.node):
+        return
+    if {"fp", "fake_process"} & set(request.fixturenames):
+        return
+
+    fake = _FakeSubprocess()
+    for module_name in _STUBBED_MODULES:
+        try:
+            module = _importlib.import_module(module_name)
+        except ImportError:  # pragma: no cover — module not present in build
+            continue
+        if not hasattr(module, "subprocess"):  # pragma: no cover — renamed seam
+            continue
+        monkeypatch.setattr(module, "subprocess", fake)
+
 
 # ---- Phase 4 Wave 0 fixtures (added by plan 04-01-PLAN.md) ----
 
@@ -268,7 +365,7 @@ def agent_scan_report_factory():
     """
     pytest.importorskip(
         "repo_audit.agent.schema",
-        reason="agent.schema lands in Plan 04-02; fixture skipped until then.",
+        reason="optional module repo_audit.agent.schema not importable — feature not present in this build, or the install is incomplete",
     )
     from repo_audit.agent.schema import AgentScanReport
 

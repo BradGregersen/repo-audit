@@ -1,8 +1,8 @@
 """SYN-02 — `top_findings` is additive on AgentScanReport; schema_version stays "1".
 
-Targets the Wave-3 schema extension (a `TopFinding` model + the `top_findings`
-field on `AgentScanReport`), landed in plan 18-03. `importorskip` guards the
-synthesis.topfinding module so the suite stays green before the symbol exists.
+Covers the schema extension: a `TopFinding` model plus the `top_findings` field
+on `AgentScanReport`. `importorskip` guards the synthesis.topfinding module so
+this file skips cleanly in a build where that optional module is not present.
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pytest
 
 _topfinding = pytest.importorskip(
     "repo_audit.synthesis.topfinding",
-    reason="Wave 3 synthesis.topfinding not yet implemented (plan 18-03)",
+    reason="optional module repo_audit.synthesis.topfinding not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.agent.schema import AgentScanReport, TopFinding

@@ -16,7 +16,7 @@ import pytest
 
 deprecated = pytest.importorskip(
     "repo_audit.adapters.sca.deprecated",
-    reason="Wave 1 not yet landed — sca.deprecated missing",
+    reason="optional module repo_audit.adapters.sca.deprecated not importable — feature not present in this build, or the install is incomplete",
 )
 
 

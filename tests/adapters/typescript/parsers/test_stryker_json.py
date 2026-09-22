@@ -27,7 +27,7 @@ import pytest
 
 stryker = pytest.importorskip(
     "repo_audit.adapters.typescript.parsers.stryker_json",
-    reason="Wave 1 (plan 11-04) not yet landed — parsers.stryker_json missing",
+    reason="optional module repo_audit.adapters.typescript.parsers.stryker_json not importable — feature not present in this build, or the install is incomplete",
 )
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "stryker-mutation.json"

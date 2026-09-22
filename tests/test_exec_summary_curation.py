@@ -15,7 +15,7 @@ import pytest
 
 _mod = pytest.importorskip(
     "repo_audit.render.exec_summary",
-    reason="Wave 1+ plan 04-07 has not landed yet — Wave 0 stub.",
+    reason="optional module repo_audit.render.exec_summary not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.render.exec_summary import (  # noqa: E402

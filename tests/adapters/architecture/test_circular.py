@@ -23,7 +23,7 @@ import pytest
 
 circular = pytest.importorskip(
     "repo_audit.adapters.architecture.circular",
-    reason="Wave 1 (Plan 02) not yet landed — architecture.circular missing",
+    reason="optional module repo_audit.adapters.architecture.circular not importable — feature not present in this build, or the install is incomplete",
 )
 
 _FAKE_BIN = "/usr/bin/__depcruise__"

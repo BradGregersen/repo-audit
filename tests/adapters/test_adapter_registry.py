@@ -1,4 +1,4 @@
-"""Phase 3 Wave 1 contract — SKIP via importorskip until plan 03-02 lands.
+"""Adapter-registry contract. Skipped via importorskip when the module is absent.
 
 Per checker Warning 8: module-level ``pytest.mark.xfail(strict=True)`` does
 NOT reliably catch collection-time ImportError. Use ``pytest.importorskip``
@@ -11,10 +11,10 @@ import pytest
 
 pytest.importorskip(
     "repo_audit.adapters.registry",
-    reason="Wave 1 (plan 03-02) not yet landed — adapters.registry missing",
+    reason="optional module repo_audit.adapters.registry not importable — feature not present in this build, or the install is incomplete",
 )
 
-# Once Wave 1 lands, importorskip becomes a no-op and these imports run.
+# The importorskip above has already established the module is importable.
 from repo_audit.adapters.base import AdapterResult  # noqa: E402
 from repo_audit.adapters.registry import (  # noqa: E402
     get_adapter_registry,

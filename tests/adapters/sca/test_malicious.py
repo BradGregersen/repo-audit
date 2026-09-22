@@ -21,7 +21,7 @@ from repo_audit.adapters.sarif.parser import sarif_to_findings
 
 malicious = pytest.importorskip(
     "repo_audit.adapters.sca.malicious",
-    reason="Wave 1 not yet landed — sca.malicious missing",
+    reason="optional module repo_audit.adapters.sca.malicious not importable — feature not present in this build, or the install is incomplete",
 )
 
 

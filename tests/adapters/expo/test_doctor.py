@@ -21,7 +21,7 @@ import pytest
 
 doctor = pytest.importorskip(
     "repo_audit.adapters.expo.doctor",
-    reason="Wave 1 (plan 11-03) not yet landed — expo.doctor missing",
+    reason="optional module repo_audit.adapters.expo.doctor not importable — feature not present in this build, or the install is incomplete",
 )
 
 _FIXTURES = Path(__file__).parent / "fixtures"

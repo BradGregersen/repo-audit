@@ -1,4 +1,4 @@
-"""Phase 3 Wave 1 contract — SKIP via importorskip until plan 03-02 lands.
+"""Cache-redirection contract. Skipped via importorskip when the module is absent.
 
 D-46 cache-redirection: one tempdir per scan exports
 ``XDG_CACHE_HOME``, ``npm_config_cache``, ``NO_COLOR=1``, ``CI=1`` for
@@ -9,7 +9,7 @@ NOTE: The host-independent SC-6 check lives in
 ``tests/adapters/test_post_scan_repo_clean_unit.py`` (checker Blocker 6).
 The live-binary integration check lives in
 ``tests/adapters/test_integration_typescript.py::test_post_scan_repo_clean``
-(canonical location per checker Warning 10 — see plan 03-05).
+(the canonical location for that check).
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import pytest
 
 pytest.importorskip(
     "repo_audit.adapters.cache_env",
-    reason="Wave 1 (plan 03-02) not yet landed — adapters.cache_env missing",
+    reason="optional module repo_audit.adapters.cache_env not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.adapters.cache_env import scan_cache_env  # noqa: E402

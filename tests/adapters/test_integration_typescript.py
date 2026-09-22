@@ -32,7 +32,7 @@ import pytest
 
 pytest.importorskip(
     "repo_audit.adapters",
-    reason="Wave 1 (plan 03-02) not yet landed — adapters package missing",
+    reason="optional module repo_audit.adapters not importable — feature not present in this build, or the install is incomplete",
 )
 
 # DI-03-03-01 closure: side-effect import triggers

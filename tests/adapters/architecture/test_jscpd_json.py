@@ -12,7 +12,7 @@ import pytest
 
 jscpd_json = pytest.importorskip(
     "repo_audit.adapters.architecture.jscpd_json",
-    reason="Wave 2 (Plan 03) not yet landed — architecture.jscpd_json missing",
+    reason="optional module repo_audit.adapters.architecture.jscpd_json not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.adapters.supabase.verify_phrasing import (  # noqa: E402

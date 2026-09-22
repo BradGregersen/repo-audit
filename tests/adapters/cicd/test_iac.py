@@ -27,7 +27,7 @@ import pytest
 
 iac = pytest.importorskip(
     "repo_audit.adapters.cicd.iac",
-    reason="Wave 2 (Plan 03/04) not yet landed — cicd.iac missing",
+    reason="optional module repo_audit.adapters.cicd.iac not importable — feature not present in this build, or the install is incomplete",
 )
 
 _FAKE_BIN = Path("/usr/bin/__checkov__")

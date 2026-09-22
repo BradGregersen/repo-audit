@@ -18,7 +18,7 @@ import pytest
 
 licenses = pytest.importorskip(
     "repo_audit.adapters.sca.licenses",
-    reason="Wave 1 not yet landed — sca.licenses missing",
+    reason="optional module repo_audit.adapters.sca.licenses not importable — feature not present in this build, or the install is incomplete",
 )
 
 

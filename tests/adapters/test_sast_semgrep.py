@@ -18,7 +18,7 @@ import pytest
 
 semgrep = pytest.importorskip(
     "repo_audit.adapters.sast.semgrep",
-    reason="Wave 2 (plan 10-03) not yet landed — sast.semgrep missing",
+    reason="optional module repo_audit.adapters.sast.semgrep not importable — feature not present in this build, or the install is incomplete",
 )
 
 _FIXTURES = Path(__file__).parent / "fixtures"
@@ -69,6 +69,8 @@ def test_unavailable(monkeypatch, sast_vuln_repo):
 
 
 @pytest.mark.integration
+# real_subprocess: live end-to-end run of the real semgrep binary.
+@pytest.mark.real_subprocess
 def test_live_semgrep(sast_vuln_repo):
     """Live Semgrep end-to-end (SAST-01/02/03) over the synthetic vuln repo.
 

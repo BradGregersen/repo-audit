@@ -1,15 +1,7 @@
-"""Phase 3 Wave 2 (plan 03-03): tsc parser contract tests.
+"""tsc parser contract tests.
 
-Replaces Wave 0b scaffolding (the previous test bodies were authored
-against a Finding-schema shape that does not match the current Phase-1
-schema — fields like `file_path`, `title`, `evidence.snippet`,
-`evidence.notes` do not exist). The plan instructs the executor to
-implement these tests as the contract for the Wave 2 parser.
-
-The opening ``pytest.importorskip`` line is retained so the module SKIPS
-cleanly when the parser is absent and flips ACTIVE once the symbol lands
-(per plan 03-01b Warning-8 pattern). Once the parser module ships, the
-importorskip is a no-op and these tests run.
+The opening ``pytest.importorskip`` guards the parser module, so this file skips
+cleanly in a build where that module is not present and runs in full where it is.
 """
 from __future__ import annotations
 
@@ -17,7 +9,7 @@ import pytest
 
 pytest.importorskip(
     "repo_audit.adapters.typescript.parsers.tsc",
-    reason="Wave 2 (plan 03-03) not yet landed — parsers.tsc missing",
+    reason="optional module repo_audit.adapters.typescript.parsers.tsc not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.adapters.base import InvocationResult  # noqa: E402

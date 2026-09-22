@@ -1,16 +1,10 @@
-"""Phase 3 Wave 2 (plan 03-03): lcov parser contract tests.
+"""lcov parser contract tests.
 
-Replaces Wave 0b scaffolding (the previous test bodies were authored
-against an evidence-schema shape with ``evidence.notes`` that does not
-match the current Phase-1 Evidence schema, and against a different
-public API ``parse_lcov_file``/``get_staleness_threshold_seconds``). The
-plan instructs the executor to ship ``parse_from_repo(repo_path)`` and
-``_refresh_failed_finding(refresh_result, runner_command)`` and to
-implement these contract tests.
+Pins the public API — ``parse_from_repo(repo_path)`` and
+``_refresh_failed_finding(refresh_result, runner_command)``.
 
-The opening ``pytest.importorskip`` line is retained so the module
-SKIPS cleanly when the parser is absent and flips ACTIVE once the
-symbols land (per plan 03-01b Warning-8 pattern).
+The opening ``pytest.importorskip`` guards the parser module, so this file skips
+cleanly in a build where that module is not present and runs in full where it is.
 """
 from __future__ import annotations
 
@@ -25,7 +19,7 @@ import pytest
 
 pytest.importorskip(
     "repo_audit.adapters.typescript.parsers.lcov",
-    reason="Wave 2 (plan 03-03) not yet landed — parsers.lcov missing",
+    reason="optional module repo_audit.adapters.typescript.parsers.lcov not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.adapters.typescript.parsers import lcov as lcov_parser  # noqa: E402

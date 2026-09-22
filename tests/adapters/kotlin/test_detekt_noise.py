@@ -15,11 +15,11 @@ import pytest
 
 detekt = pytest.importorskip(
     "repo_audit.adapters.kotlin.detekt",
-    reason="Wave 1 (plan 11-02) not yet landed — kotlin.detekt missing",
+    reason="optional module repo_audit.adapters.kotlin.detekt not importable — feature not present in this build, or the install is incomplete",
 )
 noise = pytest.importorskip(
     "repo_audit.adapters.kotlin.noise",
-    reason="Wave 1 (plan 11-02) not yet landed — kotlin.noise missing",
+    reason="optional module repo_audit.adapters.kotlin.noise not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.schema.finding import Evidence, Finding  # noqa: E402

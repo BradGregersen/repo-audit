@@ -19,7 +19,7 @@ import pytest
 
 anon = pytest.importorskip(
     "repo_audit.adapters.sast.anon",
-    reason="Wave 2 (plan 10-02) not yet landed — sast.anon missing",
+    reason="optional module repo_audit.adapters.sast.anon not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.adapters.sarif.parser import sarif_to_findings

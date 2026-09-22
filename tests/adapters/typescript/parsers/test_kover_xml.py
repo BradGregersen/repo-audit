@@ -33,7 +33,7 @@ import pytest
 
 kover = pytest.importorskip(
     "repo_audit.adapters.typescript.parsers.kover_xml",
-    reason="Wave 1 (plan 11-04) not yet landed — parsers.kover_xml missing",
+    reason="optional module repo_audit.adapters.typescript.parsers.kover_xml not importable — feature not present in this build, or the install is incomplete",
 )
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "kover-report.xml"
@@ -65,8 +65,18 @@ def _staged_repo(tmp_path: Path, src_xml: Path | None) -> Path:
 
 def test_kover_xml_line_pct_from_report_root(tmp_path):
     """Exactly one test_integrity Finding with line_pct from the REPORT-ROOT counter."""
+    # Parse the STAGED COPY, never the source fixture. ``parse_kover_xml``
+    # applies a 24h staleness gate to the artifact's mtime and returns an
+    # ``unavailable`` Finding — which carries no ``line_pct`` — for anything
+    # older. A checked-in fixture's mtime is its checkout time, so pointing the
+    # parser at it makes this test pass only on a clone less than a day old.
+    # ``_staged_repo`` copies with ``shutil.copyfile``, which does NOT preserve
+    # mtime, so the staged copy is always fresh: the staleness gate is exercised
+    # for real rather than bypassed, and the result no longer depends on how long
+    # ago the repo was cloned.
     repo = _staged_repo(tmp_path, _FIXTURE)
-    findings = _parse(_FIXTURE, repo)
+    staged_xml = repo / _KOVER_RELATIVE
+    findings = _parse(staged_xml, repo)
 
     assert len(findings) == 1
     f = findings[0]

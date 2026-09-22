@@ -1,4 +1,4 @@
-"""Phase 3 Wave 1 contract — SKIP via importorskip until plan 03-02 lands.
+"""Tool-resolution contract. Skipped via importorskip when the module is absent.
 
 D-45 tool resolution: project-local node_modules/.bin/ wins, then walk-up
 to git root, then PATH fallback via ``shutil.which``.
@@ -12,7 +12,7 @@ import pytest
 
 pytest.importorskip(
     "repo_audit.adapters.resolution",
-    reason="Wave 1 (plan 03-02) not yet landed — adapters.resolution missing",
+    reason="optional module repo_audit.adapters.resolution not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.adapters.resolution import resolve_tool  # noqa: E402

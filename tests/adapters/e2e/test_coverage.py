@@ -15,7 +15,7 @@ import pytest
 
 e2e = pytest.importorskip(
     "repo_audit.adapters.e2e",
-    reason="Wave 1/2 (plan 16-02) not yet landed — adapters.e2e missing",
+    reason="optional module repo_audit.adapters.e2e not importable — feature not present in this build, or the install is incomplete",
 )
 
 

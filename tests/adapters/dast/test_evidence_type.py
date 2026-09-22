@@ -19,7 +19,7 @@ import pytest
 
 dast = pytest.importorskip(
     "repo_audit.adapters.dast",
-    reason="Wave 1/2 (plan 16-05) not yet landed — adapters.dast missing",
+    reason="optional module repo_audit.adapters.dast not importable — feature not present in this build, or the install is incomplete",
 )
 
 _ZAP_JSON = Path(__file__).parent.parent / "fixtures" / "zap" / "baseline.json"

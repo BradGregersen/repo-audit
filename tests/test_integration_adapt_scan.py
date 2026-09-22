@@ -29,6 +29,28 @@ ADAPT_GARMIN_PATH = Path("/path/to/example-companion-app")
 pytestmark = pytest.mark.integration
 
 
+def _written_report_paths(stdout: bytes) -> tuple[Path, Path]:
+    """Return the (md, json) report paths THIS scan reported writing.
+
+    ``state_report_paths`` never overwrites a same-day report — it appends
+    ``-2``, ``-3``, … instead. Reconstructing ``…-state-report-{today}.json`` by
+    hand therefore reads whichever scan ran FIRST today, which in this file is a
+    sibling test's run, not this one. ``repo-audit scan`` echoes ``Wrote <path>`` for
+    both artifacts; those lines are the only authoritative answer.
+    """
+    written = [
+        Path(line.split("Wrote ", 1)[1].strip())
+        for line in stdout.decode(errors="replace").splitlines()
+        if line.startswith("Wrote ")
+    ]
+    md = next((q for q in written if q.suffix == ".md"), None)
+    js = next((q for q in written if q.suffix == ".json"), None)
+    assert md is not None and js is not None, (
+        f"repo-audit scan did not report both report paths; saw: {written}"
+    )
+    return md, js
+
+
 def _skip_if_no_adapt():
     if not ADAPT_PATH.exists():
         pytest.skip(f"{ADAPT_PATH} not available on this machine")
@@ -43,6 +65,8 @@ def _skip_if_no_adapt_garmin():
         pytest.skip(f"{ADAPT_GARMIN_PATH} is not a git repo")
 
 
+# timeout: its own subprocess budget is 1200 s; the global 120 s stall-cap would fire on a healthy run.
+@pytest.mark.timeout(1260)
 def test_adapt_scan_produces_narrative():
     """Live agent loop produces a report with non-empty dimension narratives."""
     _skip_if_no_adapt()
@@ -58,7 +82,7 @@ def test_adapt_scan_produces_narrative():
     # this canary is rebased to 1200s — still a tripwire for an unbounded
     # hang/walk, well above the measured deterministic+agent envelope.
     result = subprocess.run(
-        ["uv", "run", "arch", "scan", str(ADAPT_PATH)],
+        ["uv", "run", "repo-audit", "scan", str(ADAPT_PATH)],
         capture_output=True, timeout=1200,
     )
     if "unavailable_auth_missing" in result.stderr.decode():
@@ -68,8 +92,8 @@ def test_adapt_scan_produces_narrative():
     )
 
     today = date.today().isoformat()
-    md_path = ADAPT_PATH / "docs" / "state-reports" / f"adapt-state-report-{today}.md"
-    json_path = ADAPT_PATH / "docs" / "state-reports" / f"adapt-state-report-{today}.json"
+    md_path, json_path = _written_report_paths(result.stdout)
+    assert today in md_path.name, f"report is not today's: {md_path}"
     assert md_path.exists(), f"markdown report missing at {md_path}"
     assert json_path.exists(), f"json sidecar missing at {json_path}"
 
@@ -89,6 +113,8 @@ def test_adapt_scan_produces_narrative():
     assert sidecar["meta"]["agent_status"] in valid_statuses
 
 
+# timeout: its own subprocess budget is 900 s; the global 120 s stall-cap would fire on a healthy run.
+@pytest.mark.timeout(960)
 def test_no_agent_path_produces_report():
     """`--no-agent` path produces a deterministic-only report; exit 0.
 
@@ -128,20 +154,26 @@ def test_no_agent_path_produces_report():
     # expo-doctor + type-coverage deep tiers. 900s keeps ~44% headroom while staying
     # a regression tripwire for an unbounded tier.
     result = subprocess.run(
-        ["uv", "run", "arch", "scan", "--no-agent", str(ADAPT_PATH)],
+        ["uv", "run", "repo-audit", "scan", "--no-agent", str(ADAPT_PATH)],
         capture_output=True, timeout=900,
     )
     assert result.returncode == 0
     today = date.today().isoformat()
-    md_path = ADAPT_PATH / "docs" / "state-reports" / f"adapt-state-report-{today}.md"
+    # Read the sidecar THIS scan wrote. Reconstructing the unsuffixed
+    # `…-{today}.json` path reads the agent-path test's report when both run on
+    # the same day, and then asserts agent_status is None against a report whose
+    # agent DID run — a false failure that says nothing about --no-agent.
+    md_path, json_path = _written_report_paths(result.stdout)
+    assert today in md_path.name, f"report is not today's: {md_path}"
     assert md_path.exists()
     # No agent_status because the session was skipped entirely.
-    json_path = ADAPT_PATH / "docs" / "state-reports" / f"adapt-state-report-{today}.json"
     sidecar = json.loads(json_path.read_text())
     # agent_status was never set → None in JSON.
     assert sidecar["meta"].get("agent_status") is None
 
 
+# timeout: its own subprocess budget is 120 s; the global stall-cap needs headroom above it.
+@pytest.mark.timeout(180)
 def test_adapt_garmin_no_agent_exit0():
     """`--no-agent` on adapt-garmin exits 0 and logs entropy redactions.
 
@@ -162,7 +194,7 @@ def test_adapt_garmin_no_agent_exit0():
     """
     _skip_if_no_adapt_garmin()
     result = subprocess.run(
-        ["uv", "run", "arch", "scan", "--no-agent", str(ADAPT_GARMIN_PATH)],
+        ["uv", "run", "repo-audit", "scan", "--no-agent", str(ADAPT_GARMIN_PATH)],
         capture_output=True, timeout=120,
     )
     # 1. exit 0 (was exit 2 before Plan 02's redact-and-continue split).
@@ -173,14 +205,8 @@ def test_adapt_garmin_no_agent_exit0():
 
     # 2. md + json reports for today exist.
     today = date.today().isoformat()
-    md_path = (
-        ADAPT_GARMIN_PATH / "docs" / "state-reports"
-        / f"adapt-garmin-state-report-{today}.md"
-    )
-    json_path = (
-        ADAPT_GARMIN_PATH / "docs" / "state-reports"
-        / f"adapt-garmin-state-report-{today}.json"
-    )
+    md_path, json_path = _written_report_paths(result.stdout)
+    assert today in md_path.name, f"report is not today's: {md_path}"
     assert md_path.exists(), f"markdown report missing at {md_path}"
     assert json_path.exists(), f"json sidecar missing at {json_path}"
 

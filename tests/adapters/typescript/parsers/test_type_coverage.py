@@ -23,7 +23,7 @@ import pytest
 
 tc = pytest.importorskip(
     "repo_audit.adapters.typescript.parsers.type_coverage_json",
-    reason="Wave 1 (plan 11-04) not yet landed — parsers.type_coverage_json missing",
+    reason="optional module repo_audit.adapters.typescript.parsers.type_coverage_json not importable — feature not present in this build, or the install is incomplete",
 )
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "type-coverage.json"

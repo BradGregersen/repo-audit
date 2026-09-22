@@ -1,16 +1,7 @@
-"""Phase 3 Wave 2 (plan 03-04): eslint parser contract tests.
+"""eslint parser contract tests.
 
-Replaces Wave 0b scaffolding (the previous test bodies were authored
-against a Finding-schema shape that does not match the current Phase-1
-schema — fields like ``title``, ``evidence.snippet`` do not exist; the
-old ``apply_rule_override`` helper is not part of the plan-spec API).
-Plan 03-04 instructs the executor to implement these tests as the
-contract for the eslint parser.
-
-The opening ``pytest.importorskip`` line is retained so the module SKIPS
-cleanly when the parser is absent and flips ACTIVE once the symbol lands
-(per plan 03-01b Warning-8 pattern). Once the parser module ships, the
-importorskip is a no-op and these tests run.
+The opening ``pytest.importorskip`` guards the parser module, so this file skips
+cleanly in a build where that module is not present and runs in full where it is.
 """
 from __future__ import annotations
 
@@ -20,7 +11,7 @@ import pytest
 
 pytest.importorskip(
     "repo_audit.adapters.typescript.parsers.eslint",
-    reason="Wave 2 (plan 03-04) not yet landed — parsers.eslint missing",
+    reason="optional module repo_audit.adapters.typescript.parsers.eslint not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.adapters.base import InvocationResult  # noqa: E402

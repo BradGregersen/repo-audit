@@ -15,7 +15,7 @@ import pytest
 
 mobsf = pytest.importorskip(
     "repo_audit.adapters.mobile.mobsf",
-    reason="Wave 2 (plan 09-03) not yet landed — mobile.mobsf missing",
+    reason="optional module repo_audit.adapters.mobile.mobsf not importable — feature not present in this build, or the install is incomplete",
 )
 
 

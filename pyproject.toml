@@ -57,14 +57,24 @@ dev = [
     "pytest>=8",
     "pytest-cov>=5",
     "pytest-subprocess",
+    "pytest-timeout",
     "defusedxml",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+# A stalled test must fail loudly instead of hanging the whole suite. 120 s sits
+# far above the deterministic tier's slowest test, so it can only fire on a real
+# stall. The default signal-based method fails the single stalled test; the
+# thread method would abort the entire session instead. The handful of live
+# end-to-end tests that legitimately run for minutes carry an explicit per-test
+# `@pytest.mark.timeout(...)` matching the timeout they already hand to their own
+# subprocess.
+timeout = 120
 markers = [
     "integration: live-binary tests (TS toolchain in target_repo/node_modules/.bin/, or osv-scanner/grype SCA); excluded from the default unit tier",
+    "real_subprocess: opt out of the autouse external-tool subprocess stub; the test must observe genuine subprocess behaviour (tests/integration/ is exempt wholesale)",
 ]
 
 # D-10-01 — Semgrep SAST tool pin (ISOLATED install path; NOT a co-resolved dep).

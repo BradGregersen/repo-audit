@@ -20,7 +20,7 @@ import pytest
 
 sbom = pytest.importorskip(
     "repo_audit.adapters.supply_chain.sbom",
-    reason="Wave 1 not yet landed — supply_chain.sbom missing",
+    reason="optional module repo_audit.adapters.supply_chain.sbom not importable — feature not present in this build, or the install is incomplete",
 )
 
 

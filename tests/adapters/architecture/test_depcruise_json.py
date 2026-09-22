@@ -11,7 +11,7 @@ import pytest
 
 depcruise_json = pytest.importorskip(
     "repo_audit.adapters.architecture.depcruise_json",
-    reason="Wave 1 (Plan 02) not yet landed — architecture.depcruise_json missing",
+    reason="optional module repo_audit.adapters.architecture.depcruise_json not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.adapters.supabase.verify_phrasing import (  # noqa: E402

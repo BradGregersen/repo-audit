@@ -22,7 +22,7 @@ import pytest
 
 history = pytest.importorskip(
     "repo_audit.adapters.supply_chain.history",
-    reason="Wave 1 (plan 12-02) not yet landed — supply_chain.history missing",
+    reason="optional module repo_audit.adapters.supply_chain.history not importable — feature not present in this build, or the install is incomplete",
 )
 
 
@@ -35,6 +35,8 @@ def _collect(repo_path):
     pytest.fail("supply_chain.history exposes no history collector entry point")
 
 
+# real_subprocess: needs real gitleaks to detect the seeded history secret.
+@pytest.mark.real_subprocess
 def test_committed_then_deleted_flagged(secret_history_repo):
     """A secret committed then later deleted is still flagged from history."""
     repo = secret_history_repo()

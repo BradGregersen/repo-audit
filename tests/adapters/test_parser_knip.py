@@ -1,15 +1,7 @@
-"""Phase 3 Wave 2 (plan 03-04): knip parser contract tests.
+"""knip parser contract tests.
 
-Replaces Wave 0b scaffolding (the previous test bodies were authored
-against a Finding-schema shape that does not match the current Phase-1
-schema — fields like ``title`` and ``evidence.snippet`` do not exist).
-Plan 03-04 instructs the executor to implement these tests as the
-contract for the knip parser.
-
-The opening ``pytest.importorskip`` line is retained so the module SKIPS
-cleanly when the parser is absent and flips ACTIVE once the symbol lands
-(per plan 03-01b Warning-8 pattern). Once the parser module ships, the
-importorskip is a no-op and these tests run.
+The opening ``pytest.importorskip`` guards the parser module, so this file skips
+cleanly in a build where that module is not present and runs in full where it is.
 """
 from __future__ import annotations
 
@@ -17,7 +9,7 @@ import pytest
 
 pytest.importorskip(
     "repo_audit.adapters.typescript.parsers.knip",
-    reason="Wave 2 (plan 03-04) not yet landed — parsers.knip missing",
+    reason="optional module repo_audit.adapters.typescript.parsers.knip not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.adapters.base import InvocationResult  # noqa: E402

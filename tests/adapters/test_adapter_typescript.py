@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip(
     "repo_audit.adapters.typescript",
-    reason="Wave 1 (plan 03-02) not yet landed — adapters.typescript missing",
+    reason="optional module repo_audit.adapters.typescript not importable — feature not present in this build, or the install is incomplete",
 )
 
 # These imports come into scope once Wave 1+2 land.

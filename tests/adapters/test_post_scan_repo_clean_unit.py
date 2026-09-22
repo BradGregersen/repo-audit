@@ -18,11 +18,11 @@ import pytest
 
 pytest.importorskip(
     "repo_audit.adapters",
-    reason="Wave 1 (plan 03-02) not yet landed — adapters package missing",
+    reason="optional module repo_audit.adapters not importable — feature not present in this build, or the install is incomplete",
 )
 pytest.importorskip(
     "repo_audit.adapters.typescript",
-    reason="Wave 1 (plan 03-02) not yet landed — adapters.typescript missing",
+    reason="optional module repo_audit.adapters.typescript not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.adapters import run_adapters  # noqa: E402

@@ -20,7 +20,7 @@ import pytest
 
 duplication = pytest.importorskip(
     "repo_audit.adapters.architecture.duplication",
-    reason="Wave 2 (Plan 03) not yet landed — architecture.duplication missing",
+    reason="optional module repo_audit.adapters.architecture.duplication not importable — feature not present in this build, or the install is incomplete",
 )
 
 _FAKE_BIN = "/usr/bin/__jscpd__"

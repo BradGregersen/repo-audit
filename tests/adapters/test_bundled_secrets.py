@@ -21,7 +21,7 @@ import pytest
 
 bundled_secrets = pytest.importorskip(
     "repo_audit.adapters.mobile.bundled_secrets",
-    reason="Wave 1 (plan 09-02) not yet landed — mobile.bundled_secrets missing",
+    reason="optional module repo_audit.adapters.mobile.bundled_secrets not importable — feature not present in this build, or the install is incomplete",
 )
 
 # Import the synthetic-token constants from the Plan 09-00 factory so the

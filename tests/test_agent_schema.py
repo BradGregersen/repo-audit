@@ -19,7 +19,7 @@ from pydantic import ValidationError
 
 _mod = pytest.importorskip(
     "repo_audit.agent.schema",
-    reason="Wave 1+ plan 04-02 has not landed yet — Wave 0 stub.",
+    reason="optional module repo_audit.agent.schema not importable — feature not present in this build, or the install is incomplete",
 )
 
 AgentScanReport = _mod.AgentScanReport

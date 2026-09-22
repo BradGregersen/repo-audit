@@ -23,7 +23,7 @@ import pytest
 
 containers = pytest.importorskip(
     "repo_audit.adapters.cicd.containers",
-    reason="Wave 1 (Plan 03) not yet landed — cicd.containers missing",
+    reason="optional module repo_audit.adapters.cicd.containers not importable — feature not present in this build, or the install is incomplete",
 )
 
 # A fake resolved-binary path so the recorded-fixture parse tests are HERMETIC —

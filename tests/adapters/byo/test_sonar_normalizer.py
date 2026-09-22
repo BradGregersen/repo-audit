@@ -19,7 +19,7 @@ import pytest
 
 sonar_mod = pytest.importorskip(
     "repo_audit.adapters.byo.sonar_json",
-    reason="Wave 1/2 (plan 16-06) not yet landed — byo.sonar_json missing",
+    reason="optional module repo_audit.adapters.byo.sonar_json not importable — feature not present in this build, or the install is incomplete",
 )
 
 _SONAR_JSON = (

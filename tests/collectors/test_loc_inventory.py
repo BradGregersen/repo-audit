@@ -1,6 +1,10 @@
 """COLL-02 tests. Implementation lands in Plan 02-03."""
 
+import pytest
 
+
+# real_subprocess: exercises the real vendored scc binary.
+@pytest.mark.real_subprocess
 def test_loc_inventory_emits_per_language_findings(fake_repo):
     from repo_audit.collectors.loc_inventory import run
     repo = fake_repo({"a.py": "x=1\n", "b.ts": "const b = 2;\n"}, name="loc-mix")
@@ -73,6 +77,8 @@ def test_loc_inventory_platform_resolution_rejects_windows(monkeypatch):
         _platform_tag()
 
 
+# real_subprocess: installs its own subprocess.run fake.
+@pytest.mark.real_subprocess
 def test_scc_argv_includes_exclude_dir_with_default_skip_dirs(
     monkeypatch, tmp_path,
 ):

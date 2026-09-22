@@ -15,7 +15,7 @@ import pytest
 
 _mod = pytest.importorskip(
     "repo_audit.render.corroboration",
-    reason="Wave 1+ plan 04-07 has not landed yet — Wave 0 stub.",
+    reason="optional module repo_audit.render.corroboration not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.agent.schema import (  # noqa: E402

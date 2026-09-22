@@ -1,9 +1,9 @@
 """SYN-02 — "What matters most" renders right after the exec summary; the
 `--no-agent` degrade branch still renders the deterministic section.
 
-Targets the Wave-3 render surface (`synthesis.render.render_what_matters_most` +
-the `state_report.md.j2` section), landed in plan 18-03. `importorskip` guards
-the module so the suite stays green before the symbol exists.
+Covers the render surface: `synthesis.render.render_what_matters_most` and the
+`state_report.md.j2` section. `importorskip` guards the module so this file skips
+cleanly in a build where it is not present.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import pytest
 
 _render = pytest.importorskip(
     "repo_audit.synthesis.render",
-    reason="Wave 3 synthesis.render not yet implemented (plan 18-03)",
+    reason="optional module repo_audit.synthesis.render not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.agent.schema import TopFinding

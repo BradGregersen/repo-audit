@@ -19,7 +19,7 @@ import pytest
 
 fuzz = pytest.importorskip(
     "repo_audit.adapters.fuzz",
-    reason="Wave 1/2 (plan 16-03) not yet landed — adapters.fuzz missing",
+    reason="optional module repo_audit.adapters.fuzz not importable — feature not present in this build, or the install is incomplete",
 )
 
 _CRASH_STDERR = (

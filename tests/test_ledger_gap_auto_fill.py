@@ -1,8 +1,7 @@
-"""AGENT-07, D-60 — post-flight ledger-gap auto-fill (Plan 04-09).
+"""AGENT-07, D-60 — post-flight ledger-gap auto-fill.
 
-Each test in this file flips from SKIPPED to ACTIVE automatically once the
-module it importorskips on lands in Wave N. Plan 04-09 supplies the real
-bodies here (the Wave 0 stub used `pass` bodies to pin the contract names).
+The module under test is guarded by `importorskip`, so this file skips cleanly
+in a build where that optional module is not present.
 
 RESEARCH §"Validation Architecture (Nyquist)" maps these test names:
 - test_missing_required_collector_auto_filled (AGENT-07/D-60 — missing required collector auto-filled)
@@ -15,7 +14,7 @@ import pytest
 
 _mod = pytest.importorskip(
     "repo_audit.orchestration.scope_ledger_builder",
-    reason="Wave 1+ plan 04-08 has not landed yet — Wave 0 stub.",
+    reason="optional module repo_audit.orchestration.scope_ledger_builder not importable — feature not present in this build, or the install is incomplete",
 )
 
 from repo_audit.orchestration.scope_ledger_builder import (  # noqa: E402
