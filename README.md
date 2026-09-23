@@ -91,8 +91,19 @@ only.
 - **It never modifies the repository it audits** — no code edits, no config
   changes, no commits, and no shipping build artifacts. Diagnostic builds, when
   they are needed at all, run in throwaway copies.
-- **It writes to exactly one location:** `docs/state-reports/` inside the target
-  repo. Nothing else on your disk is touched.
+- **Inside the target repo it writes to exactly one location:**
+  `docs/state-reports/`. Outside the target it also writes:
+  - a vulnerability-database cache under `~/.cache/repo-audit/vuln-db/` (or
+    `$XDG_CACHE_HOME/repo-audit/vuln-db/`), downloaded over the network on the
+    first scan and advanced afterwards only by `--refresh-vuln-db`;
+  - an SBOM into repo-audit's own `reports/` directory, on every scan;
+  - per-scan temporary directories, which are cleaned up after the scan.
+- **It is not fully offline by default.** Besides the first-run vuln-DB
+  download, the default SAST pass fetches Semgrep rule packs over the network
+  (`--no-sast` turns it off), and `--typed-detekt` (on by default) runs the
+  target's own Gradle build (`./gradlew`) in a throwaway copy for any repo that
+  has a `gradlew` (`--no-typed-detekt` turns it off). Running a target's build
+  script executes that repo's code, so only scan repos you trust with it on.
 
 ## Install (detail)
 
@@ -130,19 +141,22 @@ Runs the full pipeline and writes the report pair into the target repo's
 `docs/state-reports/`. The Claude Agent loop narrates and classifies severity
 between the deterministic collection and render steps.
 
-Useful flags (all opt-in checks default **off**; everything outward-facing or
-expensive is gated):
+Useful flags (all opt-in checks default **off**; most outward-facing or
+expensive checks are gated — the exceptions are listed under
+[What it does not do](#what-it-does-not-do)):
 
 | Flag | Effect |
 |------|--------|
 | `--no-agent` | Skip the agent loop; deterministic-only report (offline / debugging). |
 | `--agent-budget N` | Override the per-scan token cap (default 150,000). |
+| `--uncapped` | Remove every agent and critic budget cap for this run; overrides `--agent-budget`; no effect with `--no-agent`. |
 | `--refresh-coverage` | Invoke the test runner to produce fresh coverage when stale/missing. |
-| `--refresh-vuln-db` / `--refresh-kev` | The only paths that advance the pinned OSV/grype or CISA KEV snapshots. Scans are otherwise pinned/offline. |
+| `--refresh-vuln-db` / `--refresh-kev` | The only paths that advance the OSV/grype or CISA KEV snapshots. The vuln-DB is otherwise pinned after its first-run download; the KEV snapshot ships with repo-audit. |
 | `--epss` | Fetch live EPSS scores (network egress). |
 | `--rls-runtime` / `--rls-pgrls` | Runtime two-account RLS enforcement test / additive pgrls linter (Supabase). Static `splinter` is the always-on floor. |
-| `--mobsf` / `--mobsf-build` / `--apk` | Static MobSF APK scan; `--mobsf-build` is the only path that triggers a Gradle diagnostic build (in a throwaway copy). |
-| `--no-sast` | Skip the Semgrep SAST pass (on by default). |
+| `--mobsf` / `--mobsf-build` / `--apk` | Static MobSF APK scan; `--mobsf-build` builds a debug APK with Gradle in a throwaway copy when none exists. |
+| `--typed-detekt` / `--no-typed-detekt` | On by default. Runs detekt with type resolution by building the target's Kotlin in a throwaway copy via its own `./gradlew`; falls back to standalone detekt if the build fails. |
+| `--no-sast` | Skip the Semgrep SAST pass (on by default; fetches Semgrep rule packs over the network). |
 | `--mutation` | Opt-in StrykerJS mutation testing (slow; 30-min cap; never fleet-wide). |
 | `--e2e` / `--fuzz` | Run existing E2E / fuzz suites if present (never auto-authored). |
 | `--qd-build` | Diagnostic Metro bundle for RN bundle-size measurement (throwaway copy). |
@@ -191,10 +205,6 @@ installed in its **own isolated environment**, not co-resolved with the app:
 uv tool install semgrep==1.163.0
 # OR:
 pipx install semgrep==1.163.0
-
-# For local dev/CI that runs the SAST integration tests, the pin also lives in
-# the isolated `sast` dependency-group (NOT [project].dependencies):
-uv sync --group sast
 ```
 
 The exact `semgrep==1.163.0` pin is preserved for reproducibility.
@@ -212,4 +222,3 @@ Tech stack: Python 3.11+, [Typer](https://typer.tiangolo.com/) CLI,
 [Jinja2](https://jinja.palletsprojects.com/) report templates,
 [pygit2](https://www.pygit2.org/) for git cadence, and the
 [Claude Agent SDK](https://pypi.org/project/claude-agent-sdk/) for orchestration.
-See `CLAUDE.md` for the full per-layer technology rationale.
