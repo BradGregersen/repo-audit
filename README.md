@@ -16,14 +16,22 @@ Not every dimension is equally exercised. Where a capability stands today:
 
 | Status | Capabilities |
 |---|---|
-| **Proven** — run against real repositories | SARIF adapter foundation · dependency/CVE scanning · SAST · stack-depth and test-integrity adapters · supply-chain and git-history secrets · CI/CD and IaC · architecture fitness and duplication · the verification layer · synthesis and prioritization · issue filing |
-| **Fixture-tested** — never run against a live target | Supabase/RLS runtime enforcement check · mobile pentest / APK scanning |
+| **Proven** — run against real repositories | SARIF adapter foundation · dependency/CVE scanning · SAST · stack-depth and test-integrity adapters · supply-chain and git-history secrets · CI/CD and IaC · architecture fitness and duplication · the verification layer · synthesis and prioritization · issue filing · Supabase/RLS runtime enforcement check (run once against a live production database — scope below) |
+| **Fixture-tested** — never run against a live target | mobile pentest / APK scanning |
 | **Incomplete** | The performance regression-finding pipeline |
 
-Fixture-tested means the code exists and is tested against recorded fixtures. It
-has never touched a real database or a real APK. Findings from those two paths
-are unproven against live targets; everything in the Proven row has produced
-real findings on real repositories.
+Fixture-tested means the code exists and is tested against recorded fixtures but
+has never been run against a real APK; findings from that path are unproven
+against live targets. Everything in the Proven row has produced real findings on
+real targets.
+
+The RLS runtime enforcement check (`--rls-runtime`) was run once, on 2026-09-23,
+against the live production Supabase project behind a real React Native app: 21
+two-account probes across 17 tables found zero cross-tenant reads or writes, and
+a forged cross-user insert was rejected by policy. That is a runtime assertion
+about the client (anon/authenticated) path on the tables probed, not proof of RLS
+correctness for unprobed tables, for the service-role path, or for policies added
+after that date.
 
 ## Install and run
 
@@ -50,9 +58,9 @@ repo-audit fleet ~/Code     # sweep every git repo under a directory
   agent didn't get from a collector.
 - **Aggregates many tools behind one entry point** — linters, type checkers,
   SAST/SCA security scanners, architecture and quality probes — and merges them
-  into one prioritized report instead of raw tool dumps. The RLS/data-privacy and
-  mobile-scanning paths run through the same pipeline but are fixture-tested only
-  (see [Maturity](#maturity)).
+  into one prioritized report instead of raw tool dumps. The mobile-scanning path
+  runs through the same pipeline but is fixture-tested only (see
+  [Maturity](#maturity)).
 - **Trend-aware.** Each scan diffs against the prior report (resolved / still
   present / vanished-with-file).
 
@@ -68,14 +76,15 @@ beside it), organized into:
 4. Architecture rot
 5. Test integrity
 6. Correctness & data/privacy — the static Supabase checks are proven; the
-   **runtime** RLS enforcement check is fixture-tested only
+   opt-in **runtime** RLS enforcement check has one live run behind it (see
+   [Maturity](#maturity) for what that does and does not cover)
 7. Quality / footprint / docs — the performance regression-finding pipeline is
    incomplete and reports nothing useful yet
 8. Process & backlog
 9. Observability & runtime
 
-Mobile/APK scanning is opt-in via `--mobsf` / `--apk` and is likewise
-fixture-tested only.
+Mobile/APK scanning is opt-in via `--mobsf` / `--apk` and is fixture-tested
+only.
 
 ## What it does not do
 
