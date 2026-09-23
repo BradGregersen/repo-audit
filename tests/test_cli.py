@@ -11,8 +11,8 @@ def test_help_lists_all_subcommands(runner):
     assert "fleet" in result.stdout
 
 
-def test_bare_arch_prints_help(runner):
-    """D-13 — bare `arch` (no subcommand) prints help, not an error."""
+def test_bare_invocation_prints_help(runner):
+    """Bare `repo-audit` (no subcommand) prints help, not an error."""
     from repo_audit.cli import app
     result = runner.invoke(app, [])
     # Typer's no_args_is_help=True exits with code 0 OR 2 depending on version;

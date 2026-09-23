@@ -1,23 +1,24 @@
 """Typer CLI app for repo-audit.
 
 Entry point for ``[project.scripts] repo-audit = "repo_audit.cli:app"``.
-After ``uv tool install --editable .``, the shell command ``arch`` invokes
-this module's ``app`` (CLI-01).
+After ``uv tool install --editable .``, the shell command ``repo-audit``
+invokes this module's ``app``.
 
 Subcommands:
-    repo-audit scan [PATH]     -- emit state report for a repo (CLI-02 / SC-3)
-    repo-audit detect [PATH]   -- show auto-detected stack(s) (CLI-04 / SC-2)
-    repo-audit fleet DIR       -- sweep child repos into a fleet dashboard (CLI-03 / FLEET-01..04)
+    repo-audit scan [PATH]     -- write a state report for one repo
+    repo-audit detect [PATH]   -- show the auto-detected stack(s)
+    repo-audit fleet DIR       -- sweep child repos into a fleet dashboard
+    repo-audit issues [PATH]   -- file confirmed findings as GitHub issues (gated)
 
 Root flags:
-    --doctor --self-test-secret-lint   -- runtime proof of REP-05 (D-08)
-    --doctor (alone)                   -- placeholder; full --doctor is Phase 7
+    --doctor --self-test-secret-lint   -- prove the renderer's secret-lint fires
+    --doctor (alone)                   -- not yet implemented; exits 2
 
-Read-only contract (REP-03):
-    ``scan`` writes ONLY to ``{path}/docs/state-reports/{slug}-state-report-{date}.{md,json}``.
-    All disk I/O is routed through ``render_and_write`` (single chokepoint,
-    Pitfall 2). The CLI contains zero ``write_text`` / ``mkdir`` calls of
-    its own and no ``subprocess`` calls.
+Report location:
+    Inside the scanned repo, ``scan`` writes only to
+    ``{path}/docs/state-reports/{slug}-state-report-{date}.{md,json}``. That
+    write is routed through ``render_and_write`` (a single chokepoint). The
+    CLI itself contains no ``write_text`` / ``mkdir`` / ``subprocess`` calls.
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ from repo_audit.doctor.self_test import run_secret_lint_self_test
 
 # Per-adapter side-effect imports: importing the adapter package triggers its
 # @register_adapter(...) so the detector's stack dispatch + the scope ledger see
-# it (the same one-line pattern Phase 3 set for typescript, closing DI-03-03-01).
+# it (the same one-line pattern the typescript adapter uses).
 import repo_audit.adapters.architecture  # noqa: F401, E402
 import repo_audit.adapters.mobile  # noqa: F401, E402
 import repo_audit.adapters.sast  # noqa: F401, E402
@@ -41,11 +42,11 @@ from repo_audit.issues import run_issues
 from repo_audit.meta.paths import fleet_report_paths
 from repo_audit.orchestration import run_scan
 
-# D-13: bare ``arch`` prints help (no_args_is_help=True is Typer's idiom).
+# Bare ``repo-audit`` prints help (no_args_is_help=True is Typer's idiom).
 # pretty_exceptions_show_locals=False hardens tracebacks against leaking
 # in-flight buffers if the agent ever exceptions out mid-render.
 app = typer.Typer(
-    name="arch",
+    name="repo-audit",
     no_args_is_help=True,
     add_completion=False,
     pretty_exceptions_show_locals=False,
@@ -59,7 +60,10 @@ def _root(
     doctor: bool = typer.Option(
         False,
         "--doctor",
-        help="Health-check mode: report tool availability and environment.",
+        help=(
+            "Health-check mode. Only --doctor --self-test-secret-lint is "
+            "implemented; --doctor on its own exits 2."
+        ),
     ),
     self_test_secret_lint: bool = typer.Option(
         False,
@@ -70,251 +74,204 @@ def _root(
     ),
 ) -> None:
     """Polyglot repo-health audit CLI."""
-    # D-08: narrow Phase 1 --doctor path.
+    # Only the secret-lint self-test is implemented under --doctor.
     if doctor and self_test_secret_lint:
         raise typer.Exit(code=run_secret_lint_self_test())
     if doctor:
         typer.echo(
-            "Full --doctor lands in Phase 7. Only --self-test-secret-lint "
-            "is wired in Phase 1.",
+            "--doctor on its own is not yet implemented; run "
+            "--doctor --self-test-secret-lint.",
             err=True,
         )
         raise typer.Exit(code=2)
-    # Otherwise fall through; Typer's no_args_is_help handles bare ``arch``.
+    # Otherwise fall through; Typer's no_args_is_help handles bare ``repo-audit``.
 
 
 @app.command()
 def scan(
     path: Path = typer.Argument(
         Path("."),
-        help="Path to the repo to scan (defaults to cwd, D-14).",
+        help="Path to the repo to scan. Default: the current directory.",
     ),
     refresh_coverage: bool = typer.Option(
         False,
         "--refresh-coverage",
         help=(
-            "Invoke the configured test runner to produce fresh coverage "
-            "when coverage/lcov.info is missing or stale "
-            "(default: off; see adapter.yaml coverage_refresh.mode)."
+            "Run the repo's configured test runner to produce fresh coverage "
+            "when coverage/lcov.info is missing or stale. Default: off "
+            "(existing coverage artifacts are only imported)."
         ),
     ),
     refresh_vuln_db: bool = typer.Option(
         False,
         "--refresh-vuln-db",
         help=(
-            "Advance the pinned vuln-DB snapshot (osv + grype) before scanning; "
-            "the ONLY path that updates feeds (FND-03 / CRIT-3). Default off: "
-            "scans are pinned/offline against the existing snapshot."
+            "Download a fresh vulnerability-database snapshot (osv + grype) "
+            "before scanning. Default: off. Without it the local snapshot is "
+            "only downloaded on the first scan and otherwise stays pinned."
         ),
     ),
     no_agent: bool = typer.Option(
         False,
         "--no-agent",
         help=(
-            "Skip the Claude Agent SDK loop entirely; produce a deterministic-"
-            "only report. Useful for debugging the deterministic pipeline "
-            "without paying agent cost or under offline conditions."
+            "Skip the Claude agent entirely and produce a deterministic-only "
+            "report. Useful for offline runs or to avoid agent cost."
         ),
     ),
     agent_budget: int | None = typer.Option(
         None,
         "--agent-budget",
         help=(
-            "Override agent.max_tokens_per_scan for this scan (default: "
-            "150,000). The ENFORCEABLE cap under Max OAuth; the loop "
-            "disconnects when running tokens cross this threshold."
+            "Override the per-scan agent token cap (default: 150,000). The "
+            "agent loop stops when its token usage crosses this cap."
         ),
     ),
     uncapped: bool = typer.Option(
         False,
         "--uncapped",
         help=(
-            "Remove ALL agent AND critic budget caps for this run: the agent "
-            "token cap / max_turns / max_budget_usd AND the critic token cap / "
-            "wall-clock cap / max_turns / max_budget_usd. Intended for a "
-            "comprehensive/final-sweep run on a large multi-stack repo under "
-            "Max-plan OAuth (actual cost ~$0), where the documentation-grade "
-            "defaults would otherwise disconnect the agent or critic loop early. "
-            "Default OFF — every default threshold is unchanged when absent. "
-            "When BOTH --uncapped and --agent-budget are passed, --uncapped "
-            "WINS and --agent-budget is ignored. With --no-agent it is a "
-            "harmless no-op (no agent runs)."
+            "Remove every agent and critic budget cap (tokens, turns, cost, "
+            "and the critic's wall-clock cap) for this run only, for a "
+            "thorough run on a large repo. Overrides --agent-budget; no "
+            "effect with --no-agent. Default: off."
         ),
     ),
     rls_runtime: bool = typer.Option(
         False,
         "--rls-runtime",
         help=(
-            "Run the two-account RUNTIME RLS enforcement test (the ONLY source "
-            "of runtime/enforced evidence). This TOUCHES THE LIVE Supabase "
-            "project and requires the six AUDIT_TEST_USER_* + EXPO_PUBLIC_"
-            "SUPABASE_* env names (D-08-01). Off by default — splinter (static) "
-            "is the always-on floor; credentials alone never trigger it."
+            "Run the two-account runtime RLS enforcement test against the LIVE "
+            "Supabase project. Requires the six AUDIT_TEST_USER_* and "
+            "EXPO_PUBLIC_SUPABASE_* environment variables. Default: off; "
+            "credentials alone never trigger it (static splinter checks always run)."
         ),
     ),
     rls_pgrls: bool = typer.Option(
         False,
         "--rls-pgrls",
         help=(
-            "Run the additive pgrls RLS linter (Beta, flag-gated; splinter is "
-            "the always-on floor). Off by default (D-08-06)."
+            "Also run the pgrls RLS linter (beta) on top of the always-on "
+            "splinter checks. Default: off."
         ),
     ),
     mobsf: bool = typer.Option(
         False,
         "--mobsf",
         help=(
-            "Run the existing-APK static MobSF Docker scan (Tier 3a). Off by "
-            "default. Gates the Docker scan only; with no APK present pass "
-            "--mobsf-build to produce one, or --apk to supply an explicit path. "
-            "Tiers 1+2 (mobsfscan + bundled-secrets) run by default without it."
+            "Run a static MobSF scan of an existing APK in Docker. Default: "
+            "off. With no APK present, add --mobsf-build to build one or --apk "
+            "to point at one. mobsfscan and the bundled-secrets check run by "
+            "default without this flag."
         ),
     ),
     mobsf_build: bool = typer.Option(
         False,
         "--mobsf-build",
         help=(
-            "The ONLY path that triggers a Gradle assembleDebug diagnostic "
-            "build (Tier 3b), built in a throwaway COPY so the target tree stays "
-            "read-only. Used with --mobsf to produce an APK when none exists. "
-            "Off by default."
+            "Build a debug APK with Gradle (assembleDebug) in a throwaway copy "
+            "of the repo, for --mobsf to scan when no APK exists. Default: off."
         ),
     ),
     apk: Path | None = typer.Option(
         None,
         "--apk",
-        help="Explicit path to a debug APK for --mobsf (Tier 3a).",
+        help="Explicit path to a debug APK for --mobsf to scan.",
     ),
     no_sast: bool = typer.Option(
         False,
         "--no-sast",
         help=(
-            "Skip the Semgrep SAST pass (default: on; degrades to unavailable "
-            "when semgrep/network absent)."
+            "Skip the Semgrep SAST pass. SAST is on by default, fetches Semgrep "
+            "rule packs over the network, and reports unavailable when semgrep "
+            "or the network is absent."
         ),
     ),
     mutation: bool = typer.Option(
         False,
         "--mutation",
         help=(
-            "Opt-in StrykerJS mutation testing (JS/TS). Never runs by default or "
-            "fleet-wide; slow — hard 30-min cap (D-11-03/D-11-05)."
+            "Run StrykerJS mutation testing (JS/TS). Slow; capped at 30 "
+            "minutes. Default: off, and never run by fleet."
         ),
     ),
     typed_detekt: bool = typer.Option(
         True,
         "--typed-detekt/--no-typed-detekt",
         help=(
-            "Attempt detekt with type resolution (throwaway-copy build); falls "
-            "back to standalone automatically (D-11-07)."
+            "Run detekt with type resolution by building the repo's Kotlin with "
+            "its own ./gradlew in a throwaway copy; falls back to standalone "
+            "detekt if the build fails. Default: on."
         ),
     ),
     qd_build: bool = typer.Option(
         False,
         "--qd-build",
         help=(
-            "Opt-in diagnostic Metro production bundle for RN bundle-size "
-            "measurement (PERF-01), built in a throwaway COPY so the target tree "
-            "stays read-only. Off by default; never runs fleet-wide. Without it, "
-            "RN bundle size is measured only from an existing build artifact."
+            "Build a React Native production bundle with Metro in a throwaway "
+            "copy to measure bundle size. Default: off, and never run by "
+            "fleet. Without it, bundle size is read only from an existing "
+            "build artifact."
         ),
     ),
     e2e: bool = typer.Option(
         False,
         "--e2e",
         help=(
-            "Opt-in: RUN existing E2E harness (Detox/Maestro/Playwright) if "
-            "present + infra available; never auto-authors; default OFF, never "
-            "fleet-wide (E2E-01/D-16-01)."
+            "Run the repo's existing E2E suite (Detox/Maestro/Playwright) if one "
+            "exists and its infrastructure is available. Never writes tests. "
+            "Default: off, and never run by fleet."
         ),
     ),
     fuzz: bool = typer.Option(
         False,
         "--fuzz",
         help=(
-            "Opt-in: RUN existing native fuzz suites (atheris/jazzer) under a "
-            "short wall-clock budget; never auto-authors a target; default OFF "
-            "(FUZZ-01/D-16-04)."
+            "Run the repo's existing fuzz suites (atheris/jazzer) under a short "
+            "time budget. Never writes fuzz targets. Default: off."
         ),
     ),
     epss: bool = typer.Option(
         False,
         "--epss",
         help=(
-            "Opt-in: fetch live EPSS scores from FIRST (network egress); "
-            "default OFF -> EPSS unavailable, factor neutral (D-18-06). "
-            "Never fleet-wide."
+            "Fetch live EPSS exploit-probability scores from FIRST over the "
+            "network. Default: off (EPSS is reported unavailable and does not "
+            "affect ranking). Never run by fleet."
         ),
     ),
     refresh_kev: bool = typer.Option(
         False,
         "--refresh-kev",
         help=(
-            "Advance the pinned CISA KEV snapshot (vendor/kev/) before scanning; "
-            "the ONLY path that re-fetches the KEV feed + restamps PROVENANCE "
-            "(mirrors --refresh-vuln-db). Default off: the KEV top-band runs "
-            "pinned/offline against the bundled snapshot (zero egress, D-18-06)."
+            "Download a fresh CISA Known Exploited Vulnerabilities snapshot "
+            "before scanning. Default: off; scans use the snapshot bundled "
+            "with repo-audit and make no network request for it."
         ),
     ),
 ) -> None:
-    """Scan a repo and emit a state report + JSON sidecar.
+    """Scan a repo and write a state report plus a JSON sidecar.
 
-    Phase 3 pipeline:
-        1. snapshot_git_status(repo) — BEFORE collectors (D-33 baseline)
-        2. build_repo_index(repo) — single shared walker (D-26)
-        3. run_collectors(repo, walker.index) — sequential per registry order (D-24)
-        3.5 run_adapters(repo, detection) — NEW Phase 3 stack-adapter dispatch
-            (currently TypeScript only; Phase 6 adds Python + Kotlin).
-        4. build_scope_ledger(walker, collectors, adapter_results=adapters) —
-           REP-04 / D-30 extended to fold AdapterResult rows.
-        5. render_and_write — secret-lint + completion-honesty + write (D-07, D-32)
-        6. snapshot_git_status + diff_git_status — post-flight integrity (D-33)
-           (does NOT fail the scan; emits stderr warning on offenders)
+    Detects the repo's stacks, runs the universal collectors and the matching
+    stack adapters, optionally lets a Claude agent write narrative prose over
+    the collected evidence, and writes the report pair to
+    ``PATH/docs/state-reports/``. Nothing else inside the scanned repo is
+    modified; a post-scan git-status check warns if anything else changed.
 
-    When ``--refresh-coverage`` is set, the TypeScript adapter invokes the
-    test runner declared in adapter.yaml (default: ``npm test``) to produce
-    ``coverage/lcov.info`` when the artifact is missing or stale; default is
-    off (import-only). On success, the previous unavailable coverage Finding
-    is REPLACED by the fresh aggregate Finding (Decision C sub-step C). On
-    runner failure, a separate ``evidence_type='failed'`` Finding is APPENDED
-    alongside the unavailable Finding (Decision C sub-step D). See plan
-    03-06's refresh.py for the runner-invocation contract
-    (T-03-refresh-injection, T-03-refresh-dos, T-03-refresh-env-leak).
-
-    Phase 4 extensions (additive — every Phase 3 invariant above is preserved):
-        4.5 run_agent_session(...) — the single ClaudeSDKClient loop (D-53),
-            invoked BETWEEN build_scope_ledger and render_and_write. Skipped
-            entirely under ``--no-agent`` (deterministic-only report).
-        4.6 auto_fill_ledger_gaps(...) — D-60 post-flight ledger-completeness
-            backstop (AGENT-07), run AFTER the agent session and BEFORE render.
-        ``--agent-budget N`` overrides agent.max_tokens_per_scan for this scan
-        (AGENT-05 / D-65). ``meta.wall_clock_seconds`` is overwritten with the
-        overall arch-scan duration after render_and_write returns (RESEARCH
-        Open Question 2).
-
-    ``--uncapped`` (UNCAPPED-01) removes EVERY agent and critic budget cap at
-    RUNTIME ONLY (token cap, turn cap, USD cap, and the critic wall-clock cap)
-    so a comprehensive/final-sweep run completes without the agent or critic
-    loop disconnecting early under Max-plan OAuth. It edits no default value —
-    the caps are resolved through helpers to a "no cap" sentinel only for this
-    run. Precedence: ``--uncapped`` WINS over ``--agent-budget`` (the budget is
-    ignored and AGENT_DEFAULTS stays pristine). Under ``--no-agent`` it is a
-    harmless no-op. Default OFF — absent it, every existing cap is unchanged.
-
-    D-67 honesty contract: every agent fallback mode (auth missing, network,
-    cost-capped, SDK exception) still ships a deterministic report and exits 0;
-    the agent_status is surfaced on stderr.
+    Every agent failure (missing auth, network, budget exhausted, SDK error)
+    still produces a deterministic report and exits 0; the agent status is
+    printed on stderr.
 
     Exit codes:
-        0 — success (incl. every D-67 agent fallback mode)
-        2 — secret-lint refused (REP-05 / D-06)
-        3 — completion-honesty refused (SAFE-08 / D-32)
+        0 — success (including every agent fallback)
+        2 — secret-lint refused to write the report
+        3 — completion-honesty check refused to write the report
+        4 — --refresh-kev download failed
     """
-    # Plan 18-02: --refresh-kev is the SOLE path that advances the pinned CISA KEV
-    # snapshot (mirrors --refresh-vuln-db). It is an EXPLICIT, user-invoked step run
-    # BEFORE the scan; the default scan path never re-fetches (zero egress,
-    # D-18-06). A fetch failure surfaces on stderr and aborts (rc=4) rather than
-    # silently scanning against a stale pin.
+    # --refresh-kev is the only path that advances the bundled CISA KEV
+    # snapshot. It runs before the scan; the default scan path never re-fetches.
+    # A fetch failure surfaces on stderr and aborts (rc=4) rather than silently
+    # scanning against a stale snapshot.
     if refresh_kev:
         from repo_audit.synthesis.kev import refresh_kev_snapshot
 
@@ -325,14 +282,12 @@ def scan(
             typer.echo(f"--refresh-kev failed: {exc}", err=True)
             raise typer.Exit(code=4) from exc
 
-    # Plan 05-01: the entire pipeline body now lives in
-    # orchestration.scan_runner.run_scan (single source of truth; repo-audit fleet
-    # reuses the identical pipeline). This command is a thin wrapper that
-    # parses Typer options, delegates, and reproduces the EXACT observable CLI
-    # surface (exit codes, the INTEGRITY ALERT block, the agent-status line,
-    # and the "Wrote ..." messages) from the returned ScanResult. Every
-    # pipeline invariant (D-33, D-65, D-67, Pitfall 5/7) is preserved verbatim
-    # inside run_scan.
+    # The entire pipeline body lives in orchestration.scan_runner.run_scan
+    # (single source of truth; repo-audit fleet reuses the identical pipeline).
+    # This command is a thin wrapper that parses Typer options, delegates, and
+    # reproduces the observable CLI surface (exit codes, the INTEGRITY ALERT
+    # block, the agent-status line, and the "Wrote ..." messages) from the
+    # returned ScanResult.
     result = run_scan(
         Path(path).resolve(),
         no_agent=no_agent,
@@ -360,7 +315,7 @@ def scan(
     if result.rc != 0:
         raise typer.Exit(code=result.rc)
 
-    # D-33 post-flight integrity alert (does NOT fail the scan). run_scan
+    # Post-flight integrity alert (does NOT fail the scan). run_scan
     # already appended the integrity note to scope_ledger.notes; the CLI owns
     # the user-facing stderr block.
     if result.offenders:
@@ -375,11 +330,11 @@ def scan(
             err=True,
         )
 
-    # Phase 4 D-67: surface a non-ok agent fallback on stderr (the report is
-    # still a clean deterministic-only report; the scan still exits 0).
+    # Surface a non-ok agent fallback on stderr (the report is still a clean
+    # deterministic-only report; the scan still exits 0).
     if result.agent_status is not None and result.agent_status != "ok":
         typer.echo(
-            f"agent: {result.agent_status} (deterministic-only report shipped per D-67)",
+            f"agent: {result.agent_status} (deterministic-only report written)",
             err=True,
         )
 
@@ -403,7 +358,7 @@ def detect(
         return
     if not result.stacks:
         typer.echo(
-            "No stacks detected -- universal collectors will still run in Phase 2+."
+            "No stacks detected -- the universal collectors will still run on a scan."
         )
         return
     # Plain-text human table.
@@ -421,35 +376,31 @@ def fleet(
         False,
         "--with-agent",
         help=(
-            "Run the per-repo Claude Agent SDK loop during the sweep (AI "
-            "narration per repo). Default is deterministic-only (D-05-12): "
-            "fast, ~free, and offline — the recommended mode for a 20-repo "
-            "fleet, avoiding surprise cost×N and large-repo agent timeouts."
+            "Run the Claude agent on every repo in the sweep (AI narration per "
+            "repo). Default: off — deterministic-only, which is fast, costs "
+            "nothing, and avoids multiplying agent cost across many repos."
         ),
     ),
 ) -> None:
     """Sweep a directory of repos into a triage dashboard.
 
-    Discovers every immediate ``.git`` child of ``DIRECTORY``, re-scans each one
-    FRESH and SEQUENTIALLY (D-05-13 / FLEET-01), and aggregates the per-repo JSON
-    sidecars into a :class:`FleetSnapshot`. Writes a gitignored pair into the
-    repo-audit repo's own ``reports/`` dir:
+    Finds every immediate child of ``DIRECTORY`` that has a ``.git``, scans each
+    one fresh and one at a time, and aggregates the per-repo JSON sidecars into
+    a fleet snapshot. Writes a gitignored pair into repo-audit's own
+    ``reports/`` directory:
 
-        reports/fleet-{YYYY-MM-DD}.json            (the versioned contract, D-05-02)
-        reports/fleet-dashboard-{YYYY-MM-DD}.md    (the triage view, D-05-03)
+        reports/fleet-{YYYY-MM-DD}.json            (machine-readable snapshot)
+        reports/fleet-dashboard-{YYYY-MM-DD}.md    (the triage view)
 
-    Failed per-repo scans become dashboard rows with their error reason and never
-    abort the sweep (FLEET-04 / SC-5). Failed rows pin to the top of the
-    dashboard; the rest rank worst-health-first (D-05-08/10).
-
-    Deterministic by default (D-05-12); ``--with-agent`` opts into per-repo AI
-    narration. The dashboard markdown + JSON route through the locked secret-lint
-    + completion-honesty chokepoint before either is written (T-05-08).
+    A repo whose scan fails becomes a dashboard row with its error reason and
+    never aborts the sweep. Failed rows are pinned to the top; the rest are
+    ranked worst-health-first. Both files pass the same secret-lint and
+    completion-honesty checks as a single-repo report before they are written.
 
     Exit codes:
         0 — sweep completed (including when some repos failed — they are rows)
-        2 — secret-lint refused the dashboard write (T-05-08 / D-06)
-        3 — completion-honesty refused the dashboard write (D-32)
+        2 — secret-lint refused the dashboard write
+        3 — completion-honesty check refused the dashboard write
     """
     sweep_root = Path(directory).resolve()
 
@@ -474,7 +425,7 @@ def fleet(
 
     typer.echo(f"Wrote {json_path}")
     typer.echo(f"Wrote {md_path}")
-    # One-line summary mirroring the dashboard's rollup header (D-05-11).
+    # One-line summary mirroring the dashboard's rollup header.
     cost = (
         "n/a"
         if snapshot.total_cost_usd is None
@@ -502,28 +453,24 @@ def issues(
         False,
         "--yes",
         help=(
-            "Skip the interactive y/N gate and file immediately (CI). Default "
-            "OFF — `repo-audit issues` is interactive propose-then-approve (D-11)."
+            "Skip the interactive y/N confirmation and file immediately (for "
+            "CI). Default: off — the command shows what it would file and "
+            "asks first."
         ),
     ),
 ) -> None:
-    """File confirmed findings as GitHub issues — the gated outward action.
+    """File confirmed findings as GitHub issues, after you approve them.
 
-    Reads the most-recent (today-inclusive) state-report sidecar, drafts
-    confirmed-only solo (critical/blocker) + per-dimension rollup issues, dedups
-    against already-open issues, shows a DRY-RUN of exactly what would be filed,
-    and files NOTHING until you answer ``y`` (all-or-nothing — D-11/D-12). Filing
-    is the ONLY outward write the tool performs: ``gh issue create`` with an
-    idempotent ``repo-audit`` label, strictly after approval.
-
-    This command is THIN: every gh shell-out + tempfile lives in
-    ``repo_audit.issues.*``; the CLI parses options, prints the dry-run +
-    the D-13 result report, and surfaces the exit code.
+    Reads the most recent state-report sidecar, drafts one issue per confirmed
+    critical/blocker finding plus one rollup issue per dimension, skips any that
+    are already open, shows exactly what would be filed, and files nothing until
+    you answer ``y`` (all or nothing). Filing uses ``gh issue create`` with a
+    ``repo-audit`` label.
 
     Exit codes:
-        0 — success (issues filed, nothing-to-file, or you declined the gate)
-        4 — gh unavailable / unauthenticated / wrong-repo identity guard (D-10)
-        5 — no usable sidecar found (run `repo-audit scan` first — D-02)
+        0 — success (issues filed, nothing to file, or you declined)
+        4 — gh unavailable, unauthenticated, or pointing at a different repo
+        5 — no usable sidecar found (run `repo-audit scan` first)
     """
     repo_path = Path(path).resolve()
 
@@ -534,7 +481,7 @@ def issues(
     ) -> None:
         """Print the pre-gate dry-run to stdout (what a ``y`` would file).
 
-        D-09/D-11: lead with the resolved ``Owner/Repo`` target so the user sees
+        Lead with the resolved ``Owner/Repo`` target so the user sees
         EXACTLY which repo a ``y`` would write to before the y/N gate — the
         outward write goes to this repo and no other.
         """
@@ -554,12 +501,12 @@ def issues(
     )
 
     # Diagnostic notes (staleness warning, no-sidecar reason, gh failures, abort)
-    # go to stderr; the D-13 result report goes to stdout.
+    # go to stderr; the result report goes to stdout.
     for note in result.notes:
         typer.echo(note, err=True)
 
-    # WR-06: on a hard error (rc=4 wrong-repo/gh-unavailable, rc=5 no-sidecar) the
-    # result envelope is empty, so the D-13 summary would print a misleading
+    # On a hard error (rc=4 wrong-repo/gh-unavailable, rc=5 no-sidecar) the
+    # result envelope is empty, so the summary would print a misleading
     # "0 filed / 0 skipped / 0 blocked" to stdout — a script reading stdout would
     # see a "successful empty run" shape. Suppress the summary on a non-zero rc:
     # the real error is already on stderr.

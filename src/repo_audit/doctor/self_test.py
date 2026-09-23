@@ -1,6 +1,6 @@
-"""Runtime self-test for the secret-lint safeguard (D-08).
+"""Runtime self-test for the secret-lint safeguard.
 
-Wired to the CLI as ``repo-audit --doctor --self-test-secret-lint`` in Plan 06.
+Wired to the CLI as ``repo-audit --doctor --self-test-secret-lint``.
 Exercises the SAME ``lint_buffer`` code path that the renderer's
 ``render_and_write`` calls, so a passing self-test proves the on-box
 safeguard is healthy.
@@ -9,8 +9,8 @@ Return codes:
     2 -- EXPECTED: the synthetic secret was caught and refused (safeguard works).
     1 -- UNEXPECTED: the synthetic secret was NOT caught (safeguard broken).
 
-The narrow ``repo-audit --doctor`` in Phase 1 ships only this self-test; full
-``--doctor`` (tool-presence probe) lands in Phase 7.
+Only this self-test is implemented under ``--doctor``; a tool-presence probe
+is not yet implemented.
 """
 from __future__ import annotations
 

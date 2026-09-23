@@ -1,7 +1,7 @@
-{# Phase 1 state-report skeleton.
-   Section ordering matches /path/to/example-app/docs/state-reports/adapt-state-report-2026-05-23.md.
-   Pending markers (D-09/D-10/D-11) make completion-honesty visible from day one.
-   Phase 4+ replaces pending markers with curated narratives; section ordering stays. #}
+{# State-report skeleton.
+   Section ordering is fixed; every dimension always renders.
+   Pending markers make completion-honesty visible: a dimension with no
+   collector evidence says so instead of being silently omitted. #}
 {# Phase 4 (Plan 04-08): per-dimension narrative slot. Resolves the agent's
    narrative for `dim_name` (D-54). Falls back to the D-09 / D-67 pending
    marker naming report.meta.agent_status when the agent did not run. #}
@@ -204,7 +204,7 @@ _(no unavailable dimensions — full scan)_
 | {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
-_(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (universal collectors) and Phase 7 (gitleaks/trivy) where this dimension becomes populated)_
+_(no collectors invoked for this dimension yet)_
 {%- endif %}
 
 ## 4. Architecture rot
@@ -219,7 +219,7 @@ _(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (universa
 | {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
-_(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (universal) and Phase 7 (dead-code) where this dimension becomes populated)_
+_(no collectors invoked for this dimension yet)_
 {%- endif %}
 
 ## 5. Test integrity
@@ -234,7 +234,7 @@ _(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (universa
 | {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
-_(no collectors invoked for this dimension yet — see ROADMAP Phase 3 (TypeScript adapter) where this dimension first becomes populated)_
+_(no collectors invoked for this dimension yet)_
 {%- endif %}
 
 ## 6. Correctness & data/privacy
@@ -249,7 +249,7 @@ _(no collectors invoked for this dimension yet — see ROADMAP Phase 3 (TypeScri
 | {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
-_(no collectors invoked for this dimension yet — see ROADMAP Phase 3+ where this dimension becomes populated)_
+_(no collectors invoked for this dimension yet)_
 {%- endif %}
 
 {# Phase 8 (Plan 08-05): data-privacy / RLS subsection. Lists the verify-phrased
@@ -300,7 +300,7 @@ _Runtime RLS enforcement test not run (not opted in / no creds) — no enforceme
 | {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
-_(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (LOC + doc-presence) where this dimension becomes populated)_
+_(no collectors invoked for this dimension yet)_
 {%- endif %}
 
 ## 8. Process & backlog
@@ -315,7 +315,7 @@ _(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (LOC + do
 | {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
-_(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (git cadence + TODO counts) where this dimension becomes populated)_
+_(no collectors invoked for this dimension yet)_
 {%- endif %}
 
 ## 9. Observability & runtime
@@ -330,7 +330,7 @@ _(no collectors invoked for this dimension yet — see ROADMAP Phase 2 (git cade
 | {{ f.severity | severity_emoji }} {{ f.severity }} | {% if f.file %}`{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}`{% else %}_root_{% endif %} | {{ f.source_tool }} _(source: {{ f.source_tool }})_ | `{{ f.rule_id or '-' }}` | {{ f.evidence.output_snippet[:80] if f.evidence.output_snippet else (f.evidence.parsed_value | string)[:80] }}{% if rc %}  [{{ rc }}]{% endif %} |
 {% endfor %}
 {%- else -%}
-_(no collectors invoked for this dimension yet — see ROADMAP Phase 3+ where this dimension becomes populated)_
+_(no collectors invoked for this dimension yet)_
 {%- endif %}
 
 {# SAFE-02 (D-18): when observability findings exist in Phase 2+, this section's
