@@ -84,7 +84,7 @@ def fake_repo(tmp_path):
 
 @pytest.fixture
 def polyglot_repo(tmp_path) -> Path:
-    """A repo mirroring ~/Code/adapt's shape: TypeScript + Supabase.
+    """A repo mirroring a typical app monorepo shape: TypeScript + Supabase.
 
     Used by tests/test_detect.py::test_detect_polyglot_repo and
     tests/test_cli.py::test_detect_command_lists_stacks.

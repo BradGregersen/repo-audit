@@ -35,9 +35,9 @@ def test_report_meta_sbom_path_defaults_none() -> None:
 
 def test_report_meta_sbom_path_carries_reference_path() -> None:
     """sbom_path holds the REFERENCE path (D-12-07: never the inlined document)."""
-    ref = "/home/u/Code/repo-audit/reports/adapt-sbom-2026-06-03.json"
+    ref = "/opt/repo-audit/reports/example-app-sbom-2026-06-03.json"
     meta = ReportMeta(
-        repo_slug="adapt",
+        repo_slug="example-app",
         commit_sha="deadbee",
         scan_date=date(2026, 6, 3),
         tool_version="0.1.0",

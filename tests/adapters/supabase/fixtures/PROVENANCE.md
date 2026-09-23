@@ -36,7 +36,7 @@ real output. Rules present: `ban-drop-column`,
 `require-concurrent-index-creation`, `prefer-robust-stmts`,
 `require-timeout-settings`, `prefer-bigint-over-int`.
 
-adapt's own SQL (`packages/api-client/sql/*.sql`) is purely additive (no
+the example app's own SQL (`packages/api-client/sql/*.sql`) is purely additive (no
 destructive ops), so a destructive migration was authored specifically to
 exercise squawk's RLS-02 lints — the same rationale a real `repo-audit scan` applies
 when it lints a repo's actual migrations.
@@ -61,7 +61,7 @@ level->Severity + categories->Dimension branch Plan 02's row-mapper needs:
 | `auth_rls_initplan` | WARN | PERFORMANCE |
 
 **Re-record action (Plan 02):** once the ephemeral-PG lifecycle lands, re-capture
-these rows live by applying adapt's real SQL to the supabase/postgres image and
+these rows live by applying the example app's real SQL to the supabase/postgres image and
 executing the vendored `splinter.sql`; replace this doc-authored set and update
 this note.
 

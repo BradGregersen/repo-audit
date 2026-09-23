@@ -14,9 +14,9 @@ def repo_slug(repo_path: Path) -> str:
     """D-16: basename, lowercased, non-alphanumeric collapsed to '-'.
 
     Examples:
-        ~/Code/adapt -> 'adapt'
-        ~/Code/Repo Command center -> 'repo-command-center'
-        ~/Code/repo-asg-client-fork -> 'repo-asg-client-fork'
+        ~/src/example-app -> 'example-app'
+        ~/src/My Dashboard -> 'my-dashboard'
+        ~/src/my-client-fork -> 'my-client-fork'
     """
     name = Path(repo_path).resolve().name.lower()
     slug = _SLUG_RX.sub("-", name).strip("-")

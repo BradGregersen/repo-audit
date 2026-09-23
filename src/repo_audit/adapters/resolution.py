@@ -41,8 +41,7 @@ grype, semgrep, detekt, java, node, squawk, pgrls, …) it is a vulnerability:
 when our vendored binary is ABSENT (any non-``linux_amd64`` platform — only
 that arch is vendored — or a removed/corrupt binary), resolution falls through
 to steps 1-2 and EXECUTES a binary a hostile target repo planted, with
-``cwd=scan_target`` → arbitrary code execution. That is CR-01 (see
-``.planning/phases/12-supply-chain-git-history-secrets/SECURITY.md``).
+``cwd=scan_target`` → arbitrary code execution.
 
 Pass ``trusted_only=True`` for every security-scanner call site. In that mode
 resolution is restricted to step 0 (our vendored binary) and step 3 (system

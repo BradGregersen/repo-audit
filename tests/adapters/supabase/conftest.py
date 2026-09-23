@@ -15,7 +15,7 @@ Provided fixtures:
   * ``fake_supabase_repo``     — factory writing BOTH discovery layouts on
     demand (``supabase/migrations/`` AND ``packages/api-client/sql/``) plus a
     minimal ``supabase/config.toml`` — for Plan 02's dual-layout discovery.
-  * ``adapt_sql_dir``          — host-independent path to adapt's real SQL dir,
+  * ``example_app_sql_dir``          — host-independent path to the example app's real SQL dir,
     ``pytest.skip`` when absent (Phase 3 host-independence lesson).
 
 See ``fixtures/PROVENANCE.md`` for how each fixture was captured (live vs
@@ -31,10 +31,10 @@ import pytest
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 
-# adapt has NO supabase/migrations/ — its SQL lives here (RESEARCH Pitfall 1,
+# The example app has NO supabase/migrations/ — its SQL lives here (RESEARCH Pitfall 1,
 # D-08-13). The two-account runtime script and the real lint corpus reference
 # this path; it MUST stay host-independent via the skip below.
-_ADAPT_SQL_DIR = Path("/path/to/example-app/packages/api-client/sql")
+_EXAMPLE_APP_SQL_DIR = Path("/path/to/example-app/packages/api-client/sql")
 
 
 def _load_json(name: str) -> Any:
@@ -101,7 +101,7 @@ def fake_supabase_repo() -> Callable[..., Path]:
     """Factory writing BOTH migration-discovery layouts into a tmp dir.
 
     Plan 02 must discover migrations under EITHER ``supabase/migrations/`` OR
-    ``packages/api-client/sql/`` (adapt uses the latter, D-08-13). This factory
+    ``packages/api-client/sql/`` (older repos use the latter). This factory
     writes both on demand plus a minimal ``supabase/config.toml`` carrying
     ``[db] major_version = 15`` so the dual-layout discovery + PG-major
     selection paths can be exercised offline.
@@ -150,13 +150,13 @@ def fake_supabase_repo() -> Callable[..., Path]:
 # --- Host-independent real-SQL path ---------------------------------------
 
 @pytest.fixture
-def adapt_sql_dir() -> Path:
-    """Path to adapt's real SQL dir, or ``pytest.skip`` when absent.
+def example_app_sql_dir() -> Path:
+    """Path to the example app's real SQL dir, or ``pytest.skip`` when absent.
 
     The Phase 3 host-independence lesson: any fixture that points at a real
     checkout under ``/path/to/repos`` must skip cleanly when that path is not
     present (CI / another machine), never fail.
     """
-    if not _ADAPT_SQL_DIR.is_dir():
-        pytest.skip(f"adapt SQL dir not present at {_ADAPT_SQL_DIR}")
-    return _ADAPT_SQL_DIR
+    if not _EXAMPLE_APP_SQL_DIR.is_dir():
+        pytest.skip(f"example-app SQL dir not present at {_EXAMPLE_APP_SQL_DIR}")
+    return _EXAMPLE_APP_SQL_DIR

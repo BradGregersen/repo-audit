@@ -1,7 +1,7 @@
-"""05.1-gap Blocker B (999.2 follow-up) — end-to-end regression guard.
+"""End-to-end regression guard for completion-honesty on partial scans.
 
-Blocker B as seen at the human-verify checkpoint: `repo-audit scan --no-agent
-adapt-garmin` exited 3 (completion-honesty) on a PARTIAL scan because a benign
+The bug: `repo-audit scan --no-agent
+companion-app` exited 3 (completion-honesty) on a PARTIAL scan because a benign
 totality substring ("all") appeared in untrusted collector-derived DATA (a
 secret finding's rule_id / file path, the security dimension finding table)
 rather than in a totality CLAIM in the report's own narrative.
@@ -59,7 +59,7 @@ def _secret_finding(rule_id: str, file: str) -> Finding:
 
 def _partial_report(findings: list[Finding]) -> ScanReport:
     meta = ReportMeta(
-        repo_slug="garmin-like",
+        repo_slug="companion-app",
         commit_sha="0" * 40,
         scan_date=date(2026, 5, 30),
         tool_version="0.1.0",

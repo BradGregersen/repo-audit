@@ -41,7 +41,7 @@ from repo_audit.walker.skip_dirs import DEFAULT_SKIP_DIRS, SkipReason
 FILE_CAP: int = 200_000
 
 # SCAN-BOUND-01 (D-051-06) / SCAN-COVER-01 — defence-in-depth walker bounds.
-# The walker is NOT the measured bottleneck (RESEARCH: 0.96s on adapt); the
+# The walker is NOT the measured bottleneck (about a second on a very large monorepo); the
 # load-bearing fix is the per-file byte ceiling in collectors/file_size_cap.py.
 # These caps are insurance so the index can never carry a pathological payload
 # regardless of the target's directory layout. The bounds are now a hybrid that
@@ -55,7 +55,7 @@ FILE_CAP: int = 200_000
 #                                  CONTINUES with sibling top-level dirs. Keyed
 #                                  on the first path component so the kept/pruned
 #                                  decision does not depend on os.walk order.
-#   * MAX_DEPTH = 25            -> adapt is depth 14; 25 is generous insurance.
+#   * MAX_DEPTH = 25            -> real monorepos measured well under this; 25 is generous insurance.
 # AGGREGATE on-disk bytes are INTENTIONALLY UNBOUNDED (W1): N subtrees each just
 # under SUBTREE_BYTE_CAP can sum large, but that does NOT determine index memory
 # — index memory is bounded by FILE_CAP (count), not by bytes. The earlier
@@ -68,7 +68,7 @@ FILE_CAP: int = 200_000
 # Pitfall-4 tradeoff (W3): the per-subtree byte cap is the real order-independent
 # fix; the builds/releases name-based skips in DEFAULT_SKIP_DIRS are a
 # belt-and-suspenders optimization, disclosed as build-artifact skipped_dirs
-# rows so the user SEES them, and accepted because in the adapt case they are
+# rows so the user SEES them, and accepted because in practice they are
 # gitignored build output.
 SUBTREE_BYTE_CAP: int = 524_288_000   # 500 MB per top-level subtree
 MAX_FILE_INDEX_BYTES: int = 52_428_800  # 50 MB per file

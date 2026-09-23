@@ -5,7 +5,7 @@ This module owns the heaviest infra in Phase 08: standing up a throwaway,
 linting the live catalog with splinter. It refuses to ship lints from a
 wrong/stock server (D-08-10) — faithfulness over convenience.
 
-Why the ``supabase/postgres`` image (D-08-08/10, RESEARCH Pitfall 2). adapt's
+Why the ``supabase/postgres`` image. Typical Supabase
 SQL references ``auth.users``, ``auth.uid()``, the ``service_role`` role, etc.
 A stock ``postgres:N`` image makes BOTH the migration-apply AND splinter FAIL
 (``schema "auth" does not exist``). The ``supabase/postgres`` image ships the
@@ -68,9 +68,9 @@ from repo_audit.adapters.toolops import EXEC_FAILED, TIMED_OUT, run_tool
 # Pinned supabase/postgres images BY DIGEST (D-08-09 / FND-03). Selected by PG
 # major from supabase/config.toml. Digests resolved from Docker Hub via
 # `docker manifest inspect --verbose supabase/postgres:<tag>` on 2026-06-02
-# (the manifest-list / multi-repo-audit index digest, so the correct per-arch image is
-# selected at pull time). Tags verified present in 08-RESEARCH (Docker Hub API,
-# 2026-05-30): 15.14.1.132 / 17.6.1.132.
+# (the manifest-list / multi-arch image index digest, so the correct per-arch
+# image is selected at pull time). Tags verified present via the Docker Hub API
+# (2026-05-30): 15.14.1.132 / 17.6.1.132.
 #
 #   supabase/postgres:15.14.1.132 → sha256:e32852813b7b740c187f45fd0a482eb0700b22b248e49e2adc3fe54e9785581f
 #   supabase/postgres:17.6.1.132  → sha256:9d50688a826cf1455a0e91013160171de73b4d31df1509014e73463fb276a84d
@@ -229,7 +229,7 @@ def _apply_migration(
 # schema/roles/functions but NOT the `storage` SERVICE tables
 # (`storage.buckets`, `storage.objects`) or `storage.foldername()` — those are
 # created by the storage-api service migrations in a full Supabase stack, not by
-# the bare DB image (verified 2026-06-02). Fleet repos (e.g. adapt) reference
+# the bare DB image (verified 2026-06-02). Real-world Supabase repos reference
 # them in their migrations + RLS policies, so without this prelude the apply
 # fails on `relation "storage.buckets" does not exist`. We seed ONLY objects the
 # image lacks, idempotently (CREATE … IF NOT EXISTS), faithful to Supabase's

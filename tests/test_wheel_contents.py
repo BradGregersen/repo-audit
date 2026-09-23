@@ -151,7 +151,7 @@ def test_wheel_ships_osv_and_grype_binaries(wheel_namelist: list[str]):
     Apache-2.0 (license text ships alongside each), so — unlike CodeQL / Semgrep —
     they are fine to redistribute in the standard wheel. This positive assertion
     guards against a packaging change silently dropping them: without the binaries
-    in the wheel, an installed ``arch`` falls back to PATH/unavailable for SCA.
+    in the wheel, an installed ``repo-audit`` falls back to PATH/unavailable for SCA.
     """
     assert any(
         n.endswith("vendor/osv-scanner/osv-scanner") for n in wheel_namelist
@@ -169,7 +169,7 @@ def test_wheel_ships_syft_binary(wheel_namelist: list[str]):
     osv-scanner / grype precedent). It is Apache-2.0 (the release LICENSE ships
     alongside), so — unlike CodeQL / Semgrep — it is fine to redistribute in the
     standard wheel. This positive assertion guards against a packaging change
-    silently dropping it: without the binary in the wheel, an installed ``arch``
+    silently dropping it: without the binary in the wheel, an installed ``repo-audit``
     falls back to PATH/unavailable for SBOM generation.
     """
     assert any(

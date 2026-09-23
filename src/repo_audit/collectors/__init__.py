@@ -71,8 +71,8 @@ def run_collectors(
     section and flips the scan to partial. ``deadline=None`` (the default)
     preserves the exact prior behaviour for every existing caller/test.
 
-    05.1-gap (per-collector self-bounding): the between-collector check above
-    cannot interrupt a single collector once it is running. On a 40 GB repo the
+    Per-collector self-bounding: the between-collector check above cannot
+    interrupt a single collector once it is running. On a very large monorepo the
     content-read / subprocess collectors (todo_markers, secret_detection,
     loc_inventory) each ran 110-145 s unbounded. So ``deadline`` is now ALSO
     threaded INTO each collector that declares a ``deadline`` keyword parameter;

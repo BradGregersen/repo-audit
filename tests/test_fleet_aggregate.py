@@ -58,7 +58,7 @@ def _finding(dimension: str, severity: str) -> Finding:
 
 def _scan_report(*, findings: list[Finding], **meta_overrides) -> ScanReport:
     base = dict(
-        repo_slug="adapt",
+        repo_slug="example-app",
         commit_sha="a" * 40,
         scan_date=date(2026, 5, 20),
         tool_version="0.1.0",
@@ -71,7 +71,7 @@ def _write_sidecar(repo_path: Path, report: ScanReport) -> Path:
     """Write the JSON sidecar AND a sibling .md (with garbage numbers)."""
     out_dir = repo_path / "docs" / "state-reports"
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"adapt-state-report-{report.meta.scan_date.isoformat()}"
+    stem = f"example-app-state-report-{report.meta.scan_date.isoformat()}"
     json_path = out_dir / f"{stem}.json"
     md_path = out_dir / f"{stem}.md"
     json_path.write_text(report.model_dump_json(), encoding="utf-8")
@@ -90,7 +90,7 @@ def test_reads_json_not_md(tmp_path):
     The .md carries garbage counts; the snapshot must match the JSON. Mutating
     the .md afterward must not change a re-aggregated snapshot.
     """
-    repo = tmp_path / "adapt"
+    repo = tmp_path / "example-app"
     repo.mkdir()
     report = _scan_report(
         findings=[

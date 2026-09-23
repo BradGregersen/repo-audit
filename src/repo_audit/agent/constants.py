@@ -24,13 +24,11 @@ from typing import Any
 AGENT_DEFAULTS: dict[str, Any] = {
     "agent.max_tokens_per_scan": 150_000,
     "agent.max_turns": 20,
-    # Documentation-grade under Max OAuth per D-65; the SDK signals
+    # An estimate only under subscription (OAuth) auth; the SDK signals
     # overage via ResultMessage.subtype == 'error_max_budget_usd' for
-    # API-key auth users (RESEARCH §"Budget signal detection").
+    # API-key auth users.
     # Raised 0.50 -> 3.00: the prior $0.50 default cost-capped the agent
-    # before per-dimension narration completed on large repos (adapt full
-    # narration ~$0.63 documentation-grade under Max OAuth; ~$0 actual
-    # under a Max subscription).
+    # before per-dimension narration completed on large repos.
     "agent.max_budget_usd": 3.00,
     # --- Phase 17 critic budget knobs (A1 — RESEARCH §"Separate budget knobs") ---
     # The adversarial critic (Plan 17-02) runs as a SECOND, isolated

@@ -1,17 +1,18 @@
-"""Shared per-collector wall-clock bounding (SCAN-BOUND-01 follow-up / 05.1-gap).
+"""Shared per-collector wall-clock bounding.
 
-The between-collector deadline in ``run_collectors`` (D-051-06) cannot interrupt
-a single collector once it has started. On a very large repo (e.g. the 40 GB
-``adapt`` monorepo) the content-read / subprocess collectors each traverse the
-whole index with their own generous individual bounds and so run unbounded
-*inside* their own body:
+The between-collector deadline in ``run_collectors`` cannot interrupt a single
+collector once it has started. On a very large monorepo the content-read /
+subprocess collectors each traverse the whole index with their own generous
+individual bounds and so run unbounded *inside* their own body:
 
     * secret_detection -> calls ``scan_with_gitleaks(text)`` ONCE PER FILE when
-      gitleaks is on PATH (a subprocess spawn per text file). On adapt's ~13.7 k
-      indexed files this never finishes inside the 120 s canary (measured: SIGKILL
-      past 200 s). This is THE Blocker-A bottleneck.
-    * todo_markers   -> reads CONTENT of every indexed text file (~9 s on adapt).
-    * file_size_cap  -> streams every in-cap file to count lines (~4 s on adapt).
+      gitleaks is on PATH (a subprocess spawn per text file). On a repo with
+      thousands of text files this never finishes inside the 120 s canary
+      (measured: SIGKILL past 200 s). This was the main bottleneck.
+    * todo_markers   -> reads CONTENT of every indexed text file (seconds on a
+      large monorepo).
+    * file_size_cap  -> streams every in-cap file to count lines (seconds on a
+      large monorepo).
     * loc_inventory  -> scc subprocess walking the tree itself.
 
 This module gives those collectors the tools to bound themselves by the SHARED

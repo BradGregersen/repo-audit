@@ -4,11 +4,11 @@ splinter.sql — vendored third-party asset PROVENANCE & LICENSE
 Asset:    splinter.sql
 Upstream: https://github.com/supabase/splinter
 Pinned:   commit a7f71080ed059de8a7f00addd71ade19b82a4108
-Fetched:  2026-06-02 (Phase 08, Plan 01, Task 1)
+Fetched:  2026-06-02
 
-LICENSE STATE (read this — it differs from the original plan assumption)
+LICENSE STATE (read this — it differs from the obvious assumption)
 ------------------------------------------------------------------------
-Phase 08-01-PLAN.md and CLAUDE.md both assumed splinter ships an MIT license.
+It is easy to assume splinter ships an MIT license.
 That assumption is INCORRECT as of the pinned commit:
 
   * supabase/splinter ships NO LICENSE file at commit

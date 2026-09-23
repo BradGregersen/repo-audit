@@ -69,7 +69,7 @@ def fetch_open_fingerprints(repo_path: Path, *, owner_repo: str) -> set[str]:
     """Recover the set of fingerprint markers embedded in OPEN issue bodies.
 
     Lists OPEN issues (:func:`list_open_issue_bodies`) and substring-extracts
-    every embedded ``arch-fingerprint`` marker from each body (D-14 client-side
+    every embedded ``repo-audit-fingerprint`` marker from each body (D-14 client-side
     grep — the marker is invisible to GitHub search). Returns an empty set on
     any failure; never raises.
     """

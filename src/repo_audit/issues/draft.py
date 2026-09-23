@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Literal
 
 from repo_audit.issues.fingerprint import (
+    MARKER,
     build_fingerprint,
     build_rollup_fingerprint,
     embed_marker,
@@ -172,7 +173,7 @@ def _rollup_body(
         rec = (f.recommendation or "").strip() or "(no recommendation)"
         # The hidden per-member marker rides inline so a dedup re-run can match
         # an individual member even inside a rollup.
-        marker = "<!-- arch-fingerprint: {} -->".format(member_fp)
+        marker = MARKER.format(member_fp)
         lines.append(f"- [ ] **[{f.severity}]** `{ref}` — {rec} {marker}")
     return embed_marker("\n".join(lines), dim_fp), rule_ids
 
@@ -233,10 +234,10 @@ def build_drafts(
         fp = build_fingerprint(finding, repo_root=repo_root)
         body = _solo_body(finding, report, fp)
         # WR-03: guard against a trailing-empty rule_id (it defaults to "") so the
-        # title never renders as "[arch][critical] security: " with a dangling
+        # title never renders as "[repo-audit][critical] security: " with a dangling
         # colon-space.
         rule = finding.rule_id or "(unlabeled)"
-        title = f"[arch][{finding.severity}] {finding.dimension}: {rule}"
+        title = f"[repo-audit][{finding.severity}] {finding.dimension}: {rule}"
         draft = IssueDraft(
             kind="solo",
             title=title,
@@ -274,7 +275,7 @@ def build_drafts(
         body, rule_ids = _rollup_body(
             dimension, members, report, dim_fp, member_fps
         )
-        title = f"[arch][rollup] {dimension}: {len(members)} confirmed finding(s)"
+        title = f"[repo-audit][rollup] {dimension}: {len(members)} confirmed finding(s)"
         draft = IssueDraft(
             kind="rollup",
             title=title,

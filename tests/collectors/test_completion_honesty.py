@@ -132,7 +132,7 @@ def test_template_static_prose_spans_lint_clean(synthetic_partial_scan_report):
 # complete tokens in finding-table DATA (and therefore in the serialized json
 # sidecar) write the report (exit 0), while a genuine completeness CLAIM in the
 # claim-bearing narrative prose on a partial scan still hard-refuses (exit 3, no
-# write). The first closes the adapt (json) + adapt-garmin (markdown data rows)
+# write). The first closes the example-app (json) + companion-app (markdown data rows)
 # regressions; the second preserves the D-32 / SAFE-08 guarantee.
 
 from datetime import date as _date

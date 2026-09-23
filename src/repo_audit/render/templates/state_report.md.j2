@@ -346,7 +346,7 @@ _(no collectors invoked for this dimension yet)_
 - **Token usage:** {{ "{:,}".format(report.meta.token_usage) }}
 {% endif %}
 {% if report.meta.total_cost_usd is not none %}
-- **Estimated cost:** ~${{ "%.4f"|format(report.meta.total_cost_usd) }} _(estimated equivalent under Max OAuth; actual under API-key auth)_
+- **Estimated cost:** ~${{ "%.4f"|format(report.meta.total_cost_usd) }} _(an estimated equivalent under subscription OAuth auth; the actual charge under API-key auth)_
 {% else %}
 - **Estimated cost:** _n/a_
 {% endif %}

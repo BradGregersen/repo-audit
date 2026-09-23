@@ -62,9 +62,10 @@ def run(
     *,
     deadline: float | None = None,
 ) -> CollectorResult:
-    """05.1-gap: ``deadline`` is the shared ``time.perf_counter`` scan deadline.
+    """``deadline`` is the shared ``time.perf_counter`` scan deadline.
 
-    The per-file content read previously ran unbounded (~9 s on the 40 GB adapt;
+    The per-file content read previously ran unbounded (seconds on a very large
+    monorepo;
     pathological on a larger tree). The loop now polls the deadline once per N
     files and stops early when it is reached, self-reporting ``status='timeout'``
     so the scope ledger discloses that not every file was scanned (SAFE-08).

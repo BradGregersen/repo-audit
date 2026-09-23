@@ -1,8 +1,8 @@
-"""Bounded-aggregate tests for `_summarize` (quick task 260530-pjq).
+"""Bounded-aggregate tests for `_summarize`.
 
 The finding-list getter tools previously json.dumps'd the ENTIRE finding list
-as one tool-result blob; large collectors (knip arch-rot ~2,836 findings on
-adapt) overflowed the SDK tool-result / context budget so the agent narrated
+as one tool-result blob; large collectors (knip dead-code output runs to
+thousands of findings on a large monorepo) overflowed the SDK tool-result / context budget so the agent narrated
 from counts alone. `_summarize` is the single deterministic aggregation path
 that hard-bounds every finding-list getter's payload.
 

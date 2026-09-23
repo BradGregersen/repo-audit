@@ -4,8 +4,8 @@ This module defines the JSON shape written to
 ``repo-audit/reports/fleet-{YYYY-MM-DD}.json`` by ``repo-audit fleet`` (Plan
 05-05). Unlike the per-repo ``ScanReport`` sidecar (which is an internal
 serialization of one scan), ``FleetSnapshot`` is a **deliberately-designed,
-independently-versioned public contract**: a future Command Center tab is
-intended to consume it as a drop-in reader (open question resolution D-05-02).
+independently-versioned public contract**: a future dashboard consumer is
+intended to read it as a drop-in reader.
 For that reason every field is documented here, the model is
 ``extra='forbid'`` (a reader can rely on the exact key set), and the snapshot
 carries its OWN ``schema_version`` that is independent of ``ScanReport``'s — a

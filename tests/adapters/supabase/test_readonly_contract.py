@@ -1,7 +1,7 @@
 """SC-5 read-only contract + CRIT-4 integration test (Plan 08-05, Task 3).
 
 A LIVE ``--rls-pgrls`` scan (deliberately WITHOUT ``--rls-runtime``, so the live
-Supabase project is never touched — T-08-22) against a repo built from adapt's
+Supabase project is never touched — T-08-22) against a repo built from the example app's
 real SQL. Proves the phase's two hardest structural guarantees:
 
   * **SC-5 (read-only):** post-flight ``git status --porcelain -uall`` on the
@@ -12,7 +12,7 @@ real SQL. Proves the phase's two hardest structural guarantees:
     report shows the honest "runtime test not run" line and NO static finding
     carries an enforcement word (T-08-19).
 
-Docker-gated + adapt-gated: skips cleanly when the daemon or adapt are absent.
+Docker-gated + example-app-gated: skips cleanly when the daemon or the example app are absent.
 """
 from __future__ import annotations
 
@@ -54,14 +54,14 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
-def _build_committed_repo(tmp_path: Path, adapt_sql_dir: Path) -> Path:
-    """Build a committed git repo holding adapt's real SQL (legacy layout)."""
+def _build_committed_repo(tmp_path: Path, example_app_sql_dir: Path) -> Path:
+    """Build a committed git repo holding the example app's real SQL (legacy layout)."""
     repo = tmp_path / "fake_supabase_repo"
     sql_dst = repo / "packages" / "api-client" / "sql"
     sql_dst.mkdir(parents=True)
-    for src in sorted(adapt_sql_dir.glob("[0-9][0-9][0-9]_*.sql")):
+    for src in sorted(example_app_sql_dir.glob("[0-9][0-9][0-9]_*.sql")):
         shutil.copy(src, sql_dst / src.name)
-    # A config.toml pinning the PG major (adapt is 17).
+    # A config.toml pinning the PG major (the example app uses 17).
     (repo / "supabase").mkdir(parents=True, exist_ok=True)
     (repo / "supabase" / "config.toml").write_text(
         "[db]\nmajor_version = 17\n", encoding="utf-8"
@@ -85,7 +85,7 @@ _ENFORCEMENT_RE = re.compile(r"\b(enforced|secure|protected)\b", re.IGNORECASE)
 
 
 def test_rls_pgrls_scan_is_read_only_and_makes_no_enforcement_claim(
-    tmp_path, adapt_sql_dir
+    tmp_path, example_app_sql_dir
 ):
     """Full ``repo-audit scan --rls-pgrls`` proves SC-5 + CRIT-4 (no --rls-runtime)."""
     if not _docker_available():
@@ -99,7 +99,7 @@ def test_rls_pgrls_scan_is_read_only_and_makes_no_enforcement_claim(
         snapshot_git_status,
     )
 
-    repo = _build_committed_repo(tmp_path, adapt_sql_dir)
+    repo = _build_committed_repo(tmp_path, example_app_sql_dir)
 
     before_containers = _supabase_pg_container_ids()
     pre_status = snapshot_git_status(repo)

@@ -14,7 +14,7 @@ against examples/tools_option.py).
 
 NEVER include Write/Bash/Read/Edit/WebSearch/WebFetch/NotebookEdit/
 TodoWrite in allowed_tools. The agent must reach the codebase ONLY
-through the explicit `mcp__arch__*` tools registered by Plan 04-05.
+through the explicit `mcp__repo-audit__*` tools registered in agent/tools.py.
 """
 from __future__ import annotations
 
@@ -33,30 +33,29 @@ if TYPE_CHECKING:
     from repo_audit.schema.detection import DetectionResult
 
 
-# Universal collector tool names (D-57) — one MCP getter per Phase 2
-# collector, plus 3 ledger/meta convenience getters. The `mcp__arch__`
-# prefix matches the SDK naming convention from
-# RESEARCH section "Tool definition and registration":
-# `allowed_tools=['mcp__<server>__<tool>']`. Server name is 'arch'
-# (Plan 04-05's create_sdk_mcp_server(name='arch', ...)).
+# Universal collector tool names — one MCP getter per universal collector,
+# plus 3 ledger/meta convenience getters. The `mcp__repo-audit__` prefix
+# matches the SDK naming convention `allowed_tools=['mcp__<server>__<tool>']`.
+# Server name is 'repo-audit' (agent/tools.py's
+# create_sdk_mcp_server(name='repo-audit', ...)).
 UNIVERSAL_TOOL_NAMES: tuple[str, ...] = (
-    "mcp__arch__get_git_cadence_findings",
-    "mcp__arch__get_loc_inventory_findings",
-    "mcp__arch__get_secret_detection_findings",
-    "mcp__arch__get_doc_presence_findings",
-    "mcp__arch__get_todo_markers_findings",
-    "mcp__arch__get_file_size_cap_findings",
-    "mcp__arch__get_scope_ledger",
-    "mcp__arch__get_meta",
-    "mcp__arch__get_findings_by_dimension",
+    "mcp__repo-audit__get_git_cadence_findings",
+    "mcp__repo-audit__get_loc_inventory_findings",
+    "mcp__repo-audit__get_secret_detection_findings",
+    "mcp__repo-audit__get_doc_presence_findings",
+    "mcp__repo-audit__get_todo_markers_findings",
+    "mcp__repo-audit__get_file_size_cap_findings",
+    "mcp__repo-audit__get_scope_ledger",
+    "mcp__repo-audit__get_meta",
+    "mcp__repo-audit__get_findings_by_dimension",
     # Plan 05-03 / TREND-02: the read-only trend-delta getter. Registered in
     # tools.py AND allow-listed here — REGISTERED-but-not-ALLOWED is the bug
     # class this tuple guards against (see options.py reconciliation note).
-    "mcp__arch__trend_baseline",
+    "mcp__repo-audit__trend_baseline",
 )
 
 # The agent -> renderer boundary tool (D-54). ALWAYS in allowed_tools.
-EMIT_REPORT_TOOL_NAME: str = "mcp__arch__emit_report"
+EMIT_REPORT_TOOL_NAME: str = "mcp__repo-audit__emit_report"
 
 # Plan 04-05 / 04-06 reconciliation (CRITICAL — logged in 04-05-SUMMARY).
 # adapter_tool_names() derives tool names from adapter.yaml's
@@ -97,7 +96,7 @@ _FORBIDDEN_BUILTINS: tuple[str, ...] = (
 
 
 def adapter_tool_names(stack: str) -> list[str]:
-    """Return the mcp__arch__* tool names for a detected stack's parsers.
+    """Return the mcp__repo-audit__* tool names for a detected stack's parsers.
 
     Derived from adapter.yaml's `required_collectors` via the
     @register_adapter registry (Phase 3 D-37 + D-40 carry-forward).
@@ -129,7 +128,7 @@ def adapter_tool_names(stack: str) -> list[str]:
         # @tool getter names (Plan 04-05 / 04-06 coordination item). Falls
         # through to `get_{name}` when no remap is needed.
         registered = _REGISTERED_TOOL_NAME_BY_COLLECTOR.get(name, f"get_{name}")
-        names.append(f"mcp__arch__{registered}")
+        names.append(f"mcp__repo-audit__{registered}")
     return names
 
 
@@ -184,10 +183,10 @@ def build_options(
       - tools=[]  (strips built-in Write/Bash/Read/etc. per Pitfall 2)
       - allowed_tools=UNIVERSAL + adapter_per_stack + ['emit_report']
       - max_turns=20  (D-66 via uncap_sdk_budget; None when uncapped)
-      - max_budget_usd=3.00  (documentation-grade under Max OAuth; D-65;
+      - max_budget_usd=3.00  (an estimate only under subscription OAuth auth;
         None when uncapped)
       - system_prompt=<rendered D-56 template>
-      - mcp_servers={'arch': mcp_server}
+      - mcp_servers={'repo-audit': mcp_server}
       - permission_mode='bypassPermissions'  (RESEARCH Assumption A2)
     """
     from claude_agent_sdk import ClaudeAgentOptions
@@ -214,7 +213,7 @@ def build_options(
     return ClaudeAgentOptions(
         tools=[],  # RESEARCH Pitfall 2 — strip ALL built-ins
         allowed_tools=allowed,
-        mcp_servers={"arch": mcp_server},
+        mcp_servers={"repo-audit": mcp_server},
         max_turns=uncap_sdk_budget("agent.max_turns", uncapped),
         max_budget_usd=uncap_sdk_budget("agent.max_budget_usd", uncapped),
         system_prompt=system_prompt,

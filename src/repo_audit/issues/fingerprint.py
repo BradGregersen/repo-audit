@@ -35,11 +35,11 @@ from repo_audit.schema.finding import Finding
 # D-14 — the hidden marker embedded at an issue body's tail. ``{}`` is the
 # hex sha256 digest. A later run greps an open issue's body for this shape to
 # recover the fingerprints it already represents (dedup, Plan 03).
-MARKER = "<!-- arch-fingerprint: {} -->"
+MARKER = "<!-- repo-audit-fingerprint: {} -->"
 
 # Recovers every embedded fingerprint digest from a body. Matches the MARKER
 # shape tolerantly (any surrounding whitespace inside the comment).
-_MARKER_RE = re.compile(r"<!--\s*arch-fingerprint:\s*([0-9a-f]+)\s*-->")
+_MARKER_RE = re.compile(r"<!--\s*repo-audit-fingerprint:\s*([0-9a-f]+)\s*-->")
 
 # Field separator for the hashed identity join. A non-printable unit-separator
 # byte cannot appear inside any of the normalized parts, so it cannot be used to

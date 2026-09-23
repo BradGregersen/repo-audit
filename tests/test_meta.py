@@ -16,17 +16,17 @@ import pytest
 
 def test_slug_simple_lowercase():
     from repo_audit.meta.slug import repo_slug
-    assert repo_slug(Path("/tmp/adapt")) == "adapt"
+    assert repo_slug(Path("/tmp/exampleapp")) == "exampleapp"
 
 
 def test_slug_collapses_spaces_and_case():
     from repo_audit.meta.slug import repo_slug
-    assert repo_slug(Path("/tmp/Repo Command center")) == "repo-command-center"
+    assert repo_slug(Path("/tmp/My Dashboard repo")) == "my-dashboard-repo"
 
 
 def test_slug_preserves_existing_hyphens():
     from repo_audit.meta.slug import repo_slug
-    assert repo_slug(Path("/tmp/repo-asg-client-fork")) == "repo-asg-client-fork"
+    assert repo_slug(Path("/tmp/my-client-fork")) == "my-client-fork"
 
 
 # ---- head_sha (D-12, Pitfall 3) ----

@@ -7,8 +7,8 @@ Public surface:
   — build a ``FleetSnapshot`` from per-repo JSON sidecars ONLY, never the
   markdown (FLEET-02 / SC-6). See ``fleet.aggregate``.
 
-The CLI sweep loop, dashboard rendering, and any Command Center wiring are NOT
-here — they land in Plan 05-05 (and beyond).
+The sweep loop and dashboard rendering live in ``fleet.sweep`` and
+``fleet.dashboard``; wiring for a future dashboard consumer is not here.
 """
 from __future__ import annotations
 

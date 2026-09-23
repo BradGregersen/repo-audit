@@ -90,7 +90,7 @@ class ReportMeta(BaseModel):
     agent_status: AgentStatus | None = None
 
     # D-65 — populated from ResultMessage.total_cost_usd at loop completion
-    # (or 0.0 / None when disconnected pre-result-message). Under Max OAuth
+    # (or 0.0 / None when disconnected pre-result-message). Under subscription (OAuth)
     # auth this is an ESTIMATED EQUIVALENT, not an enforced billing cap;
     # under API-key auth it is an actual figure. Footer text in Plan 04-08
     # disambiguates.
@@ -99,7 +99,7 @@ class ReportMeta(BaseModel):
     # D-65 — running tally of AssistantMessage.usage['input_tokens'] +
     # AssistantMessage.usage['output_tokens'], summed across all turns.
     # ALWAYS populated when agent_status != None (including 'cost_capped').
-    # This is the ENFORCEABLE cap under Max OAuth.
+    # This is the cap that is enforceable under subscription (OAuth) auth.
     token_usage: int | None = None
 
     # D-65 / SC-5 — overall repo-audit scan duration (collector + adapter + agent

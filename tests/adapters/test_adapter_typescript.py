@@ -29,7 +29,7 @@ def test_adapter_yaml_loaded_at_import():
 
 
 def test_required_collectors_declared():
-    """ADAPT-05 / D-39: ``required_collectors`` MUST be a non-empty list."""
+    """``required_collectors`` MUST be a non-empty list."""
     assert "required_collectors" in ADAPTER_CONFIG
     assert isinstance(ADAPTER_CONFIG["required_collectors"], list)
     assert len(ADAPTER_CONFIG["required_collectors"]) > 0

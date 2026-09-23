@@ -1,9 +1,9 @@
-"""05.1-gap — per-collector wall-clock self-bounding regression tests.
+"""Per-collector wall-clock self-bounding regression tests.
 
-Blocker A root cause: the between-collector deadline in ``run_collectors``
+Root cause: the between-collector deadline in ``run_collectors``
 (D-051-06) could not interrupt a single collector once it had started. The
 secret_detection collector spawns a gitleaks subprocess PER text file, so on the
-40 GB adapt monorepo it ran far past the scan budget. The fix threads the SHARED
+very large monorepo it ran far past the scan budget. The fix threads the SHARED
 scan deadline (a ``time.perf_counter`` value) INTO the read-heavy / subprocess
 collectors; each polls it from inside its own loop and self-reports
 ``status='timeout'`` (-> partial banner + scope-ledger disclosure, SAFE-08)

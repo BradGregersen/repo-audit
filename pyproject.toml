@@ -15,10 +15,9 @@ dependencies = [
     "ruamel.yaml>=0.18",
     "claude-agent-sdk>=0.2.87",
     "defusedxml>=0.7",
-    # Phase 08 (Supabase RLS / data-privacy) — runtime deps, NOT dev-only:
-    # they execute during a real `repo-audit scan --rls-*` (ephemeral-PG lifecycle,
-    # splinter row-fetch, pgrls SARIF, squawk migration-safety). Exact pins
-    # per 08-RESEARCH §"Standard Stack".
+    # Supabase RLS / data-privacy — runtime deps, NOT dev-only: they execute
+    # during a real `repo-audit scan` (ephemeral-PG lifecycle, splinter
+    # row-fetch, pgrls SARIF, squawk migration-safety).
     "testcontainers[postgres]>=4.14.2",
     "psycopg>=3.3.4",
     "pgrls>=0.14.0",
@@ -34,23 +33,17 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/repo_audit"]
-# Templates ship as package data inside the packaged tree (no force-include
-# needed once render/templates/state_report.md.j2 exists — Plan 01-01's
-# .gitkeep placeholder is gone). force-include is reserved for assets
-# OUTSIDE the package tree, which we have none of.
+# Templates ship as package data inside the packaged tree, so no
+# force-include is needed. force-include is reserved for assets OUTSIDE the
+# package tree, which we have none of.
 #
-# Vendored scc binaries (D-34) also live INSIDE the package tree at
-# src/repo_audit/vendor/scc/ and are picked up automatically by the
-# packages = ["src/repo_audit"] rule above. We do NOT add a
-# force-include entry for vendor/scc because (a) the binaries are already
-# included via the package data rule, and (b) Plan 02-03 verified that
-# adding the force-include produces the same Duplicate-name UserWarning
-# that Plan 01-04 retired the templates force-include to avoid. The
-# binaries ARE in the wheel — verify with `unzip -l dist/*.whl | grep scc`.
-# The plan's must_have language about "assets outside the package tree
-# pattern" was based on the assumption that vendor binaries would live
-# outside src/repo_audit/; they don't, so force-include is not the
-# pattern that applies here. See SUMMARY for the full deviation rationale.
+# Vendored binaries also live INSIDE the package tree under
+# src/repo_audit/vendor/ and are picked up automatically by the
+# packages = ["src/repo_audit"] rule above. We do NOT add force-include
+# entries for them because (a) they are already included via the package
+# data rule, and (b) adding a force-include for a path already in the
+# package produces a Duplicate-name UserWarning. The binaries ARE in the
+# wheel — verify with `unzip -l dist/*.whl | grep vendor`.
 
 [dependency-groups]
 dev = [
@@ -77,14 +70,14 @@ markers = [
     "real_subprocess: opt out of the autouse external-tool subprocess stub; the test must observe genuine subprocess behaviour (tests/integration/ is exempt wholesale)",
 ]
 
-# D-10-01 — Semgrep SAST tool pin (ISOLATED install path; NOT a co-resolved dep).
+# Semgrep SAST tool pin (ISOLATED install path; NOT a co-resolved dep).
 #
-# Semgrep CE is a Python tool (not a clean Go binary like scc/osv), so D-10-01
-# ships it as a PINNED pip install resolved on PATH via resolve_tool/run_tool.
+# Semgrep CE is a Python tool (not a clean Go binary like scc/osv), so it
+# ships as a PINNED pip install resolved on PATH via resolve_tool/run_tool.
 # It is invoked ONLY as a subprocess — never imported — so it must NOT share the
 # app's click/rich resolution. Co-resolving semgrep==1.163.0 with the runtime
 # `[project].dependencies` is UNSATISFIABLE: semgrep==1.163.0 pins
-# `click<8.2` (collides with Phase 8 pgrls's `click>=8.2`), and the newest
+# `click<8.2` (collides with pgrls's `click>=8.2`), and the newest
 # click>=8.2-compatible semgrep (1.121.0) pins `rich<13.6` (collides with this
 # project's `rich>=14.0` for Typer). uv co-resolves ALL dependency-groups AND
 # extras together with the runtime tree (a group-level `[tool.uv].conflicts`
@@ -93,13 +86,12 @@ markers = [
 # `[dependency-groups]` without breaking `uv lock` / `uv run` for the whole repo.
 #
 # It therefore lives HERE, in a tool-owned table uv does not resolve, recording
-# the exact pin for reproducibility (D-10-01) while keeping the runtime tree
+# the exact pin for reproducibility while keeping the runtime tree
 # clean. Install it into its OWN isolated environment, on PATH:
 #
 #     uv tool install semgrep==1.163.0      # preferred (isolated tool venv)
 #     pipx install semgrep==1.163.0         # alternative
 #
-# See README.md "SAST (Semgrep) install" and 10-00-SUMMARY.md for the full
-# deviation rationale (resolved decision, Option A — isolated install path).
+# See README.md "SAST (Semgrep) install".
 [tool.repo_audit.sast]
 semgrep = "semgrep==1.163.0"

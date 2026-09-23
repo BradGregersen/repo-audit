@@ -59,8 +59,8 @@ from repo_audit.schema.finding import Evidence, Finding
 GITLEAKS_AVAILABLE: bool = shutil.which("gitleaks") is not None
 
 # Opt-in config key (default OFF). The Shannon-entropy backstop produced a
-# VERIFIED 100% false-positive rate on the user's own repos (9,661 noise / 0
-# real on adapt), all rendered severity=major -- faking the security dimension
+# VERIFIED 100% false-positive rate on real-world repos (thousands of noise
+# hits, zero real secrets), all rendered severity=major -- faking the security dimension
 # and overflowing the agent's finding-inspection budget. Known-pattern +
 # gitleaks stay always-on (they cover real accidentally-committed keys);
 # the entropy half is re-enabled per target repo via .repo-audit.yaml.
@@ -148,10 +148,10 @@ def run(
         repo_path: Path to the target repo root.
         repo_index: dict[Path, FileMeta] from build_repo_index().
         deadline: optional ``time.perf_counter`` value — the shared scan
-            deadline (05.1-gap). This collector calls gitleaks once PER text
-            file (Pitfall-8 per-file subprocess), which on a 40 GB repo with
-            ~13.7 k text files cannot finish inside the scan budget — it is THE
-            Blocker-A bottleneck. The per-file loop now polls this deadline and
+            deadline. This collector calls gitleaks once PER text file (a
+            per-file subprocess), which on a very large monorepo with thousands
+            of text files cannot finish inside the scan budget — it was the
+            main bottleneck. The per-file loop now polls this deadline and
             stops early when it is reached, self-reporting ``status='timeout'``
             so the scope ledger discloses the bounded coverage (SAFE-08). The
             redaction / value-blind contract (T-02-04-01, SCH-08) is unchanged.
@@ -209,8 +209,8 @@ def run(
         ))
 
     # ONE gitleaks invocation for the WHOLE working tree (folded todo: the old
-    # per-file `gitleaks stdin` loop spawned 5,771 subprocesses / ~50 min on
-    # adapt). `scan_working_tree` runs `gitleaks dir <repo>` once and reports a
+    # per-file `gitleaks stdin` loop spawned thousands of subprocesses and ran
+    # for tens of minutes on a large monorepo). `scan_working_tree` runs `gitleaks dir <repo>` once and reports a
     # File field per hit, which we use directly for attribution. Stamped
     # source="gitleaks" inside scan_working_tree. remaining<=0 -> the sibling
     # skips the call; the per-file in-process backstop below still runs.

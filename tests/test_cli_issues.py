@@ -197,8 +197,8 @@ def _write_sidecar(repo: Path, scan_date: date | None = None) -> Path:
 # Canned ``gh issue list --json`` payload: one OPEN issue whose body carries a
 # known fingerprint marker, to drive the dedup-skip test (ISS-04).
 _GH_ISSUE_LIST_JSON = (
-    '[{"number": 7, "state": "OPEN", "title": "[arch] existing finding", '
-    '"body": "Some description.\\n\\n<!-- arch-fingerprint: '
+    '[{"number": 7, "state": "OPEN", "title": "[repo-audit] existing finding", '
+    '"body": "Some description.\\n\\n<!-- repo-audit-fingerprint: '
     + _OPEN_ISSUE_FINGERPRINT
     + ' -->\\n"}]'
 )
@@ -802,7 +802,7 @@ def test_find_duplicate_match_without_url_is_still_skip(tmp_path):
     dedup = pytest.importorskip("repo_audit.issues.dedup")
 
     open_issues = [
-        {"number": 9, "body": f"x <!-- arch-fingerprint: {_OPEN_ISSUE_FINGERPRINT} -->"}
+        {"number": 9, "body": f"x <!-- repo-audit-fingerprint: {_OPEN_ISSUE_FINGERPRINT} -->"}
     ]  # NOTE: no "url" key.
     result = dedup.find_duplicate(_OPEN_ISSUE_FINGERPRINT, open_issues)
     assert result is not None

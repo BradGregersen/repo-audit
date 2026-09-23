@@ -7,9 +7,9 @@ Two tiers:
     absent, image unpullable, apply failure) by monkeypatching the lifecycle.
     Also pin the image-pin discipline (sha256 digests, no stock-postgres).
   * **Integration (``-m integration``, docker-gated)** — stand up the real
-    pinned image, apply adapt's REAL ``001-008_*.sql``, run splinter, assert
+    pinned image, apply the example app's REAL ``numbered_*.sql``, run splinter, assert
     >=1 row and that the migrations apply cleanly (A1/A3). Skips cleanly when
-    docker or adapt are absent. Asserts no orphan container after the block.
+    docker or the example app are absent. Asserts no orphan container after the block.
 """
 from __future__ import annotations
 
@@ -163,10 +163,10 @@ def _docker_available() -> bool:
 
 
 @pytest.mark.integration
-def test_live_applies_adapt_sql_and_runs_splinter(tmp_path, adapt_sql_dir):
-    """Apply adapt's REAL 001-008_*.sql against the pinned image, run splinter.
+def test_live_applies_example_app_sql_and_runs_splinter(tmp_path, example_app_sql_dir):
+    """Apply the example app's REAL numbered_*.sql against the pinned image, run splinter.
 
-    Requires docker + adapt present. ``adapt_sql_dir`` skips when adapt is
+    Requires docker + the example app present. ``example_app_sql_dir`` skips when the example app is
     absent; the docker check below skips when the daemon is down.
     """
     if not _docker_available():
@@ -190,16 +190,16 @@ def test_live_applies_adapt_sql_and_runs_splinter(tmp_path, adapt_sql_dir):
         )
         return set(ps.stdout.split())
 
-    # Build a repo that points discovery at adapt's real SQL by copying the
+    # Build a repo that points discovery at the example app's real SQL by copying the
     # numbered files into a legacy-layout dir under tmp_path.
     sql_dst = tmp_path / "packages" / "api-client" / "sql"
     sql_dst.mkdir(parents=True)
-    for src in sorted(adapt_sql_dir.glob("[0-9][0-9][0-9]_*.sql")):
+    for src in sorted(example_app_sql_dir.glob("[0-9][0-9][0-9]_*.sql")):
         shutil.copy(src, sql_dst / src.name)
     migrations = sorted(sql_dst.glob("[0-9][0-9][0-9]_*.sql"), key=lambda p: p.name)
-    assert migrations, "expected adapt 001-008 SQL files"
+    assert migrations, "expected example-app numbered SQL files"
 
-    # adapt's config.toml says major 17; ensure the image is one we ship.
+    # the example app's config.toml says major 17; ensure the image is one we ship.
     pg_major = 17 if 17 in SUPABASE_PG_IMAGES else next(iter(SUPABASE_PG_IMAGES))
 
     before_ids = _supabase_pg_container_ids()
@@ -216,7 +216,7 @@ def test_live_applies_adapt_sql_and_runs_splinter(tmp_path, adapt_sql_dir):
             rows = run_splinter(dsn, timeout_seconds=120.0)
             findings = map_splinter_rows(rows)
 
-    # A1/A3: adapt's real SQL applied cleanly and splinter returned rows.
+    # A1/A3: the example app's real SQL applied cleanly and splinter returned rows.
     assert len(rows) >= 1
     assert len(findings) == len(rows)
     assert all(f.source_tool == "splinter" for f in findings)

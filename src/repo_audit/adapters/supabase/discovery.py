@@ -6,9 +6,9 @@ Pitfall 1 / D-08-13):
 
   * **canonical** — ``supabase/migrations/*.sql`` (the standard ``supabase db``
     layout; ``repo`` uses this).
-  * **legacy-numbered-sql** — ``packages/api-client/sql/00N_*.sql`` (``adapt``
-    predates ``supabase db`` migration management and keeps numbered SQL under
-    an ``**/sql/`` dir).
+  * **legacy-numbered-sql** — a numbered ``sql/00N_*.sql`` directory elsewhere
+    in the tree (repos that predate ``supabase db`` migration management keep
+    numbered SQL under an ``**/sql/`` dir).
 
 :func:`find_migrations` searches the canonical layout FIRST; only if it is empty
 does it fall back to the numbered ``**/sql/`` glob (``node_modules`` excluded).

@@ -9,6 +9,7 @@ sc3_invented_73 fixture.
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import date
 
 import pytest
@@ -58,8 +59,14 @@ def test_sc1_no_write_bash_in_options(tmp_path):
     leaked = forbidden & set(options.allowed_tools)
     assert not leaked, f"SC-1: forbidden tools leaked into allowed_tools: {leaked}"
     # And the stack-applicable mcp tools ARE there.
-    assert "mcp__arch__emit_report" in options.allowed_tools
+    assert "mcp__repo-audit__emit_report" in options.allowed_tools
     assert any("get_tsc_diagnostics" in t for t in options.allowed_tools)
+    # Every allowed tool is namespaced under the registered server name and
+    # fits the 64-character tool-name limit.
+    assert set(options.mcp_servers) == {"repo-audit"}
+    for name in options.allowed_tools:
+        assert re.fullmatch(r"mcp__repo-audit__[a-z_]+", name), name
+        assert len(name) <= 64, name
 
 
 # --- SC-2 ----------------------------------------------------------------

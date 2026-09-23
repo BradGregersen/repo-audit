@@ -406,7 +406,7 @@ def scan_working_tree(repo_path: Path, *, timeout: float) -> list[SecretHit]:
 
     The working-tree equivalent of ``scan_git_history`` and the replacement for
     the old per-file ``gitleaks stdin`` loop (the folded
-    "invoke-gitleaks-once-per-repo" todo: ~5,771 spawns / ~50 min on adapt
+    "invoke-gitleaks-once-per-repo" todo: thousands of spawns and tens of minutes on a large monorepo
     collapse to ONE invocation). Stamps ``source="gitleaks"`` so working-tree
     hits keep their faithful attribution. Returns ``[]`` when gitleaks is absent
     or on timeout.

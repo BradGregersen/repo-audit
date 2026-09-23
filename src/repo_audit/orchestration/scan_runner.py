@@ -80,8 +80,8 @@ from repo_audit.walker import build_repo_index
 #
 # 05.1-gap: lowered from 300 s and now ENFORCED INSIDE the read-heavy /
 # subprocess collectors, not only between them. The Blocker-A bottleneck was
-# secret_detection spawning a gitleaks subprocess PER text file: on the 40 GB
-# adapt (~13.7 k text files) that never finished inside the 120 s acceptance
+# secret_detection spawning a gitleaks subprocess PER text file: on a very large
+# monorepo (thousands of text files) that never finished inside the 120 s acceptance
 # canary. The between-collector check (the prior mechanism) could not interrupt
 # it once running. Each read-heavy collector now polls THIS deadline from inside
 # its own loop (and caps any subprocess timeout at the remaining budget), so the
@@ -89,7 +89,7 @@ from repo_audit.walker import build_repo_index
 # truncated collector self-reports status!='ok' (-> partial banner + scope
 # ledger disclosure, SAFE-08). 95 s is the COLLECTOR-phase budget: with the
 # walker (~1 s), the stack adapters, and the render/secret-lint/write tail
-# (~10-15 s on adapt) layered on top, the whole `repo-audit scan --no-agent` finishes
+# (seconds on a large monorepo) layered on top, the whole `repo-audit scan --no-agent` finishes
 # comfortably under the 120 s acceptance canary while staying a tight tripwire
 # (well below the documented 300 s ceiling). The per-file gitleaks subprocess is
 # additionally capped at the budget remaining (see secret_detection.run), so the
@@ -362,7 +362,7 @@ def run_scan(
     # (after run_verification, before build_scope_ledger).
 
     repo_path = Path(repo_path).resolve()
-    overall_start = time.perf_counter()  # Phase 4 — overall arch-scan wall-clock
+    overall_start = time.perf_counter()  # overall scan wall-clock
 
     # D-33 pre-flight snapshot (must happen BEFORE any collector reads).
     pre_status = snapshot_git_status(repo_path)
@@ -1348,7 +1348,7 @@ def run_scan(
         scan_report, md_path, json_path, agent_output=agent_output, trend=trend,
         top_findings=top_findings, top_scores=top_scores,
     )
-    # Phase 4: overwrite wall_clock_seconds with the overall arch-scan duration
+    # Overwrite wall_clock_seconds with the overall scan duration
     # (RESEARCH Open Question 2 — caller-overrides-session). This is the
     # user-facing total; session.py's agent-only measurement is superseded.
     # MUST happen AFTER render_and_write returns (RESEARCH Pitfall 5).

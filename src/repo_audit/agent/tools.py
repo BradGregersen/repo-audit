@@ -87,12 +87,12 @@ def _module_description(dotted_path: str) -> str:
 
 
 def _summarize(findings: "list[Finding]") -> dict[str, Any]:
-    """Deterministic, HARD-bounded aggregate of a finding list (260530-pjq).
+    """Deterministic, HARD-bounded aggregate of a finding list.
 
     Replaces the prior "json.dumps the entire list" getter payload — which
     overflowed the SDK tool-result / context budget on large collectors (knip
-    arch-rot ~2,836 findings on adapt) and left the agent narrating from counts
-    only. The returned dict is bounded in serialized size REGARDLESS of input
+    dead-code output runs to thousands of findings on a large monorepo) and
+    left the agent narrating from counts only. The returned dict is bounded in serialized size REGARDLESS of input
     cardinality:
 
       - "total": len(findings).
@@ -488,7 +488,7 @@ def available_tools_for_prompt() -> list[dict[str, str]]:
         # under a future SDK version (Pitfall 1 — re-verify at runtime).
         name = getattr(t, "name", None) or getattr(t, "__name__", "")
         desc = getattr(t, "description", None) or (inspect.getdoc(t) or "").strip()
-        out.append({"name": f"mcp__arch__{name}", "description": desc})
+        out.append({"name": f"mcp__repo-audit__{name}", "description": desc})
     return out
 
 
@@ -502,9 +502,9 @@ def build_mcp_server(
 ):
     """Populate _RESULTS + return the in-process MCP server.
 
-    Called by Plan 04-06's run_agent_session() BEFORE
-    ClaudeSDKClient.connect(). The returned server config is passed to
-    ClaudeAgentOptions.mcp_servers={'arch': server} via Plan 04-04's
+    Called by run_agent_session() BEFORE ClaudeSDKClient.connect(). The
+    returned server config is passed to
+    ClaudeAgentOptions.mcp_servers={'repo-audit': server} via agent/options.py's
     build_options(mcp_server=...).
 
     ``trend`` (Plan 05-03) is the deterministic ``TrendDelta`` for this scan
@@ -527,7 +527,7 @@ def build_mcp_server(
         top_findings=top_findings,
     )
     _EMITTED_REPORT = None  # reset for this scan
-    return create_sdk_mcp_server(name="arch", version="1", tools=ALL_TOOLS)
+    return create_sdk_mcp_server(name="repo-audit", version="1", tools=ALL_TOOLS)
 
 
 def get_emitted_report() -> AgentScanReport | None:

@@ -5,7 +5,7 @@ OFFLINE against the ``fake_supabase_repo`` factory (conftest) — no docker, no 
 
 The two fleet layouts (RESEARCH Pitfall 1 / D-08-13):
   * canonical ``supabase/migrations/*.sql``  (repo uses this)
-  * adapt-style ``packages/api-client/sql/00N_*.sql`` (adapt uses this)
+  * legacy-layout ``packages/api-client/sql/00N_*.sql`` (common in older Supabase repos)
 
 Discovery MUST: prefer the canonical layout when both exist, exclude
 ``node_modules``, sort numerically, record the matched layout, and emit an
@@ -35,7 +35,7 @@ def test_canonical_layout_numeric_order(tmp_path, fake_supabase_repo):
 
 
 def test_legacy_numbered_sql_layout(tmp_path, fake_supabase_repo):
-    """adapt-style packages/api-client/sql/001..002 found when no canonical dir."""
+    """legacy-layout packages/api-client/sql/001..002 found when no canonical dir."""
     repo = fake_supabase_repo(tmp_path, supabase_layout=False)
     result = find_migrations(repo)
     assert result.layout == "legacy-numbered-sql"
@@ -88,7 +88,7 @@ def test_detect_pg_major_default_when_config_absent(tmp_path, fake_supabase_repo
 
 
 def test_detect_pg_major_reads_real_value(tmp_path):
-    """A config with major_version = 17 → 17 (adapt's real value)."""
+    """A config with major_version = 17 → 17 (the example app's real value)."""
     sup = tmp_path / "supabase"
     sup.mkdir()
     (sup / "config.toml").write_text("[db]\nmajor_version = 17\n", encoding="utf-8")

@@ -54,7 +54,7 @@ _NO_URL_NOTE = "gh issue create returned rc=0 but no URL on stdout"
 # stays accurate (the issue exists) while the missing URL is disclosed in a note.
 _URL_UNKNOWN_PLACEHOLDER = "(filed, URL unknown)"
 
-# D-18 the single umbrella label every arch-filed issue carries. We ensure ONLY
+# D-18 the single umbrella label every repo-audit-filed issue carries. We ensure ONLY
 # this one label via ``gh label create`` (idempotently, once per run); the
 # severity:* / dimension labels ride on ``gh issue create --label`` (gh creates a
 # referenced label on demand and the umbrella label is the stable provenance

@@ -14,10 +14,10 @@ decoder that discriminates the public ``anon`` key (allowlist) from a shipped
 ``service_role`` key (flag).
 
 Why this matters: a shipped ``service_role`` key reaches every user and BYPASSES
-RLS entirely — the catastrophic high-density ``adapt`` win. The public anon /
-``sb_publishable_*`` key belongs in the client and must NEVER be flagged, even
-behind an ``EXPO_PUBLIC_`` prefix (Expo inlines ``EXPO_PUBLIC_*`` into the JS
-bundle at build time — that prefix is PUBLIC by design; 09-RESEARCH A1).
+RLS entirely — the highest-density class of finding this pass exists for. The
+public anon / ``sb_publishable_*`` key belongs in the client and must NEVER be
+flagged, even behind an ``EXPO_PUBLIC_`` prefix (Expo inlines ``EXPO_PUBLIC_*``
+into the JS bundle at build time — that prefix is PUBLIC by design).
 
 Evidence discipline (mirrors footguns):
   * Every finding is ``evidence_type="heuristic"``, ``confidence="candidate"``,
