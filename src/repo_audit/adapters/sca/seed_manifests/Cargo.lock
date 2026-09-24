@@ -1,0 +1,7 @@
+# Placeholder lockfile. It exists only so the first-run vulnerability-database
+# download knows to fetch the crates.io database. The crate does not exist.
+version = 3
+
+[[package]]
+name = "repo-audit-seed-placeholder"
+version = "0.0.0"

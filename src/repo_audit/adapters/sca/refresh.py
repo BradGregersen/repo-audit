@@ -10,11 +10,15 @@ one audited path.
 ``refresh_vuln_db`` advances BOTH sources in ONE pass (D-07-03):
 
     * osv-scanner: ``scan source --offline-vulnerabilities
-      --download-offline-databases --format json <throwaway-dir>`` — the
+      --download-offline-databases --format json <seed_manifests>`` — the
       ``--download-offline-databases`` flag is what advances the osv snapshot.
-      osv requires a scan target to download against, so a throwaway empty
-      tempdir is used (NOT a repo-derived path — T-07-17 argv-injection
-      avoidance: the only path passed is a tool-controlled tempdir).
+      osv only downloads the database for an ecosystem it sees a manifest for,
+      so the scan target is the packaged ``seed_manifests/`` directory: one
+      placeholder manifest per ecosystem repo-audit detects (npm, PyPI, Maven,
+      Go, crates.io, NuGet). It is a tool-controlled packaged path, never a
+      repo-derived one, so no scanned repo's path ever reaches osv's argv here.
+      Exit 0 and exit 1 (vulnerabilities found) both count as a successful
+      download.
     * grype: ``db update`` — the explicit grype snapshot advance.
 
 This is the SOLE code path in the codebase that passes
@@ -60,6 +64,10 @@ _SECRET_KEY_SUFFIXES: tuple[str, ...] = (
 
 # M2 / bound-output: the redacted stderr tail cap (mirrors refresh.py _TAIL_CAP).
 _TAIL_CAP: int = 2048
+
+# The packaged osv download target: one placeholder manifest per ecosystem
+# repo-audit detects, so the first-run seed fetches every ecosystem's database.
+SEED_MANIFESTS_DIR: Path = Path(__file__).parent / "seed_manifests"
 
 
 class ScaRefreshResult(BaseModel):
@@ -130,6 +138,16 @@ def _classify(returncode: int) -> RefreshStatus:
     return "failed"
 
 
+def _classify_osv(returncode: int) -> RefreshStatus:
+    """osv's download pass: exit 0 (clean) and 1 (vulns found) are both ok.
+
+    Sentinels map exactly as :func:`_classify`; any other exit is failed.
+    """
+    if returncode == 1:
+        return "ok"
+    return _classify(returncode)
+
+
 def _overall(osv: RefreshStatus, grype: RefreshStatus) -> RefreshStatus:
     """Combine per-source statuses into the overall verdict.
 
@@ -164,9 +182,11 @@ def refresh_vuln_db(env: dict[str, str]) -> ScaRefreshResult:
     stdout_parts: list[str] = []
     stderr_parts: list[str] = []
 
-    # A throwaway scan target for osv's download pass — never a repo-derived path
-    # (T-07-17). resolve_tool's scan_target only drives vendor/PATH lookup; the
-    # vendored binary wins regardless, so the tempdir is a safe lookup root too.
+    # osv downloads against the packaged seed_manifests/ directory — a
+    # tool-controlled path, never a repo-derived one. A throwaway tempdir is the
+    # working directory for both tools and the resolve_tool lookup root
+    # (resolve_tool's scan_target only drives vendor/PATH lookup; the vendored
+    # binary wins regardless).
     with tempfile.TemporaryDirectory(prefix="repo-vulndb-refresh-") as td:
         target = Path(td)
 
@@ -183,7 +203,7 @@ def refresh_vuln_db(env: dict[str, str]) -> ScaRefreshResult:
                 "--download-offline-databases",
                 "--format",
                 "json",
-                str(target),
+                str(SEED_MANIFESTS_DIR),
             ]
             osv_inv = run_tool(
                 osv_argv,
@@ -191,7 +211,7 @@ def refresh_vuln_db(env: dict[str, str]) -> ScaRefreshResult:
                 cwd=target,
                 timeout_seconds=_REFRESH_TIMEOUT_SECONDS,
             )
-            osv_status = _classify(osv_inv.returncode)
+            osv_status = _classify_osv(osv_inv.returncode)
             stdout_parts.append(osv_inv.stdout or "")
             stderr_parts.append(osv_inv.stderr or "")
 

@@ -18,9 +18,14 @@ finding source, JSON is enrichment ONLY):
     6. build_osv_enrichment(json) + apply_enrichment(findings, ...) — fold
        direct/transitive + fix version onto the SARIF findings by key.
 
-osv exits NON-ZERO (e.g. 1) when it FINDS vulnerabilities — that is osv's normal
-"vulns detected" signal, NOT a failure (PROVENANCE.md). Only the run_tool
-sentinels (-1 exec-failed, -2 timed-out) and an unparseable stdout map to
+Exit-code contract: osv exits 0 on a clean scan and 1 when it FINDS
+vulnerabilities — both are successful scans. Any other exit is an error (e.g.
+127: no local vulnerability database; 128: no packages found) and is reported
+``unavailable`` with a bounded stderr tail, never as a clean scan — osv still
+prints a valid, empty SARIF on those paths, so parsing stdout alone would turn
+a dead database into a false "no vulnerabilities". A "could not load db"
+warning on stderr is treated the same way even on exit 0. The run_tool
+sentinels (-1 exec-failed, -2 timed-out) and an unparseable stdout also map to
 unavailable/timeout. ``collect_osv`` NEVER raises across its boundary (mirrors
 the AdapterResult never-raise contract): every failure becomes an OsvResult.
 
@@ -43,6 +48,7 @@ from repo_audit.adapters.sca.enrich import (
     apply_enrichment,
     build_osv_enrichment,
 )
+from repo_audit.adapters.sca.refresh import _redact_tail
 from repo_audit.adapters.toolops import EXEC_FAILED, TIMED_OUT, run_tool
 from repo_audit.schema.finding import Finding
 
@@ -50,6 +56,16 @@ OsvStatus = Literal["ok", "unavailable", "timeout"]
 
 # osv-scanner timeout: 120 s (matches adapter.yaml osv-scanner.timeout_ms).
 _OSV_TIMEOUT_SECONDS: float = 120.0
+
+# Bound on the stderr tail carried into OsvResult.notes (after whitespace is
+# collapsed to one line).
+_STDERR_TAIL_CHARS: int = 300
+
+
+def _stderr_tail(text: str) -> str:
+    """A bounded, single-line, secret-linted tail of a tool's stderr."""
+    one_line = " ".join((text or "").split())
+    return _redact_tail(one_line[-_STDERR_TAIL_CHARS:]) or "(no stderr)"
 
 
 @dataclass
@@ -107,10 +123,13 @@ def collect_osv(repo_path: Path, env: dict[str, str]) -> OsvResult:
             Plan 05). Passed verbatim to ``run_tool``.
 
     Returns:
-        An :class:`OsvResult`. ``status='unavailable'`` when osv is not resolved
-        or its SARIF cannot be parsed (osv is the floor — the caller maps this
-        to the whole SCA dimension unavailable, D-07-10); ``status='timeout'``
-        when the run exceeds the timeout. Never raises.
+        An :class:`OsvResult`. ``status='ok'`` only when osv exits 0 (clean) or
+        1 (vulnerabilities found) and its SARIF parses. ``status='unavailable'``
+        when osv is not resolved, exits with any other code (e.g. 127 no local
+        DB, 128 no packages), reports "could not load db", or its SARIF cannot
+        be parsed (osv is the floor — the caller maps this to the whole SCA
+        dimension unavailable); ``status='timeout'`` when the run exceeds the
+        timeout. Never raises.
     """
     binary = resolve_tool("osv-scanner", repo_path, trusted_only=True)
     if binary is None:
@@ -140,6 +159,18 @@ def collect_osv(repo_path: Path, env: dict[str, str]) -> OsvResult:
             notes=f"osv-scanner could not be executed: {sarif_invocation.stderr}",
         )
 
+    # Exit-code gate: 0 (clean) and 1 (vulns found) are successful scans;
+    # anything else — e.g. 127 no local DB, 128 no packages — is an error and is
+    # reported unavailable, never a clean scan. A "could not load db" warning is
+    # treated the same way even on exit 0.
+    rc = sarif_invocation.returncode
+    if rc not in (0, 1) or "could not load db" in (sarif_invocation.stderr or "").lower():
+        return OsvResult(
+            status="unavailable",
+            findings=[],
+            notes=f"osv-scanner exited {rc}: {_stderr_tail(sarif_invocation.stderr)}",
+        )
+
     # 2. JSON invocation — the enrichment source (direct/transitive + fix).
     json_invocation = run_tool(
         _osv_argv(binary, repo_path, "json"),
@@ -148,9 +179,9 @@ def collect_osv(repo_path: Path, env: dict[str, str]) -> OsvResult:
         timeout_seconds=_OSV_TIMEOUT_SECONDS,
     )
 
-    # 3. Parse SARIF -> findings via the SINGLE parse path (FND-01). osv exits
-    #    non-zero when it finds vulns, so we do NOT gate on returncode here — we
-    #    gate on whether stdout parses. An unparseable SARIF -> unavailable.
+    # 3. Parse SARIF -> findings via the SINGLE parse path (FND-01). The exit
+    #    code was already gated above (only 0 and 1 reach here); an unparseable
+    #    SARIF -> unavailable.
     try:
         osv_sarif = json.loads(sarif_invocation.stdout)
     except (json.JSONDecodeError, ValueError) as exc:

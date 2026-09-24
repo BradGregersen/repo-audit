@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net8.0": {
+      "repo-audit-seed-placeholder": {
+        "type": "Direct",
+        "requested": "[0.0.0, )",
+        "resolved": "0.0.0"
+      }
+    }
+  }
+}

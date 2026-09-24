@@ -1,0 +1,4 @@
+# Placeholder lockfile. It exists only so the first-run vulnerability-database
+# download knows to fetch the Maven database. The package does not exist.
+org.example.invalid:repo-audit-seed-placeholder:0.0.0=compileClasspath
+empty=

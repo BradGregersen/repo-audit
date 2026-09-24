@@ -52,6 +52,7 @@ def _patch_osv(
     json_stdout: str,
     sarif_returncode: int = 1,  # osv exits 1 when it FINDS vulns (not a failure)
     json_returncode: int = 1,
+    sarif_stderr: str = "",
     resolve_to: Path | None = Path("/vendor/osv-scanner/osv-scanner"),
 ) -> None:
     """Monkeypatch resolve_tool + run_tool in the osv module.
@@ -65,7 +66,7 @@ def _patch_osv(
         is_sarif = "sarif" in argv
         return InvocationResult(
             stdout=sarif_stdout if is_sarif else json_stdout,
-            stderr="",
+            stderr=sarif_stderr if is_sarif else "",
             returncode=sarif_returncode if is_sarif else json_returncode,
             command=list(argv),
         )
@@ -197,6 +198,89 @@ def test_collect_osv_bad_json_enrichment_is_non_fatal(
     assert len(result.findings) == 1
     # Enrichment unavailable -> direct/fixed default to UNKNOWN (None), not a crash.
     assert result.findings[0].evidence.parsed_value["fixed_version"] is None
+
+
+# ---- Exit-code contract: 0 clean, 1 vulns found, anything else is an error. ----
+
+_EMPTY_SARIF = json.dumps(
+    {
+        "version": "2.1.0",
+        "runs": [{"tool": {"driver": {"name": "osv-scanner", "version": "2.3.8"}},
+                  "results": []}],
+    }
+)
+
+
+def test_collect_osv_no_local_db_is_unavailable_not_clean(monkeypatch, osv_json_text):
+    """Exit 127 with a valid empty SARIF is a dead DB, never a clean scan."""
+    _patch_osv(
+        monkeypatch,
+        sarif_stdout=_EMPTY_SARIF,
+        json_stdout=osv_json_text,
+        sarif_returncode=127,
+        sarif_stderr="no offline version of the OSV database is available",
+    )
+    result = collect_osv(Path("/repo"), env={})
+    assert result.status == "unavailable"
+    assert result.findings == []
+    assert "127" in result.notes
+    assert "no offline version of the OSV database" in result.notes
+
+
+def test_collect_osv_no_packages_is_unavailable(monkeypatch, osv_json_text):
+    """Exit 128 (no packages found) is reported unavailable."""
+    _patch_osv(
+        monkeypatch,
+        sarif_stdout=_EMPTY_SARIF,
+        json_stdout=osv_json_text,
+        sarif_returncode=128,
+        sarif_stderr="No package sources found",
+    )
+    result = collect_osv(Path("/repo"), env={})
+    assert result.status == "unavailable"
+    assert result.findings == []
+    assert "128" in result.notes
+
+
+def test_collect_osv_could_not_load_db_is_unavailable(monkeypatch, osv_json_text):
+    """Exit 0 but 'could not load db' on stderr (any case) is unavailable."""
+    _patch_osv(
+        monkeypatch,
+        sarif_stdout=_EMPTY_SARIF,
+        json_stdout=osv_json_text,
+        sarif_returncode=0,
+        sarif_stderr="Warning: Could Not Load DB for ecosystem npm",
+    )
+    result = collect_osv(Path("/repo"), env={})
+    assert result.status == "unavailable"
+    assert result.findings == []
+
+
+def test_collect_osv_clean_exit_zero_is_ok(monkeypatch, osv_json_text):
+    """Exit 0 with an empty SARIF and quiet stderr is a genuine clean scan."""
+    _patch_osv(
+        monkeypatch,
+        sarif_stdout=_EMPTY_SARIF,
+        json_stdout=osv_json_text,
+        sarif_returncode=0,
+    )
+    result = collect_osv(Path("/repo"), env={})
+    assert result.status == "ok"
+    assert result.findings == []
+
+
+def test_collect_osv_stderr_tail_is_bounded_and_single_line(monkeypatch, osv_json_text):
+    _patch_osv(
+        monkeypatch,
+        sarif_stdout=_EMPTY_SARIF,
+        json_stdout=osv_json_text,
+        sarif_returncode=127,
+        sarif_stderr=("line one\n" * 2000) + "no offline version of the OSV database",
+    )
+    result = collect_osv(Path("/repo"), env={})
+    assert result.status == "unavailable"
+    assert "\n" not in result.notes
+    assert len(result.notes) < 1000
 
 
 def test_adapter_config_loaded_safe_and_osv_security():

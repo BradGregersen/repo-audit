@@ -143,6 +143,8 @@ def run_sca(
     elif not _db_seeded():
         # First-run SEED (D-07-01): seed ONCE when no snapshot exists, then pin.
         # Seeding != updating — an existing snapshot is never advanced here.
+        # osv downloads against the packaged seed_manifests/ (one manifest per
+        # detected ecosystem), so every ecosystem's DB lands under <db>/osv.
         seed_result = refresh_vuln_db(env)
         notes_parts.append(f"first-run vuln-db seed: {seed_result.notes}")
 

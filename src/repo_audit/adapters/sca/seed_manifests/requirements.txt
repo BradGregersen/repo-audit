@@ -1,0 +1,3 @@
+# Placeholder manifest. It exists only so the first-run vulnerability-database
+# download knows to fetch the PyPI database. The package does not exist.
+repo-audit-seed-placeholder==0.0.0

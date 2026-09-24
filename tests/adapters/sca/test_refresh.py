@@ -7,6 +7,8 @@ posture, but invokes through the shared ``run_tool`` seam (not subprocess.run).
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import repo_audit.adapters.sca.refresh as refreshmod
 from repo_audit.adapters.base import InvocationResult
 from repo_audit.adapters.sca.refresh import ScaRefreshResult, refresh_vuln_db
@@ -118,3 +120,81 @@ def test_db_env_layered_before_invocation(monkeypatch, tmp_path):
     for env in seen_envs:
         assert "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY" in env
         assert "GRYPE_DB_CACHE_DIR" in env
+
+
+# ---- The osv seed target: a packaged, tool-controlled manifest directory. ----
+
+_SEED_MANIFESTS = (
+    "requirements.txt",
+    "package-lock.json",
+    "gradle.lockfile",
+    "go.mod",
+    "Cargo.lock",
+    "packages.lock.json",
+)
+
+
+def test_osv_download_targets_packaged_seed_manifests(monkeypatch, tmp_path):
+    """osv downloads against the packaged seed dir holding one manifest per ecosystem."""
+    osv_calls: list[tuple[list[str], object]] = []
+
+    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target, **_kw: tmp_path / tool)
+
+    def fake_run_tool(argv, *, env, cwd, timeout_seconds):
+        if "--download-offline-databases" in argv:
+            osv_calls.append((argv, cwd))
+        return _ok(argv)
+
+    monkeypatch.setattr(refreshmod, "run_tool", fake_run_tool)
+    refresh_vuln_db({"PATH": "/usr/bin"})
+
+    assert len(osv_calls) == 1
+    argv, cwd = osv_calls[0]
+    target = Path(argv[-1])
+    assert target.name == "seed_manifests"
+    assert target.parent == Path(refreshmod.__file__).parent
+    assert target.is_dir()
+    present = {p.name for p in target.iterdir()}
+    for name in _SEED_MANIFESTS:
+        assert name in present, f"missing seed manifest {name}"
+    # The scan target is never the working directory the tool runs in.
+    assert Path(cwd) != target
+
+
+def test_seed_manifests_name_only_placeholder_packages():
+    """Every seed manifest names a placeholder package at 0.0.0 (no advisory can match)."""
+    seed = Path(refreshmod.__file__).parent / "seed_manifests"
+    for name in _SEED_MANIFESTS:
+        text = (seed / name).read_text(encoding="utf-8")
+        assert "repo-audit-seed-placeholder" in text, name
+        assert "0.0.0" in text, name
+
+
+def test_osv_download_exit_one_is_ok(monkeypatch, tmp_path):
+    """osv exits 1 when the download pass also finds vulnerabilities: still ok."""
+    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target, **_kw: tmp_path / tool)
+
+    def fake_run_tool(argv, *, env, cwd, timeout_seconds):
+        rc = 1 if "--download-offline-databases" in argv else 0
+        return InvocationResult(stdout="{}", stderr="", returncode=rc, command=argv)
+
+    monkeypatch.setattr(refreshmod, "run_tool", fake_run_tool)
+    result = refresh_vuln_db({"PATH": "/usr/bin"})
+    assert result.osv_status == "ok"
+    assert result.grype_status == "ok"
+    assert result.status == "ok"
+
+
+def test_osv_download_other_nonzero_is_failed(monkeypatch, tmp_path):
+    """Any osv exit other than 0/1 during the download is failed; grype unchanged."""
+    monkeypatch.setattr(refreshmod, "resolve_tool", lambda tool, target, **_kw: tmp_path / tool)
+
+    def fake_run_tool(argv, *, env, cwd, timeout_seconds):
+        rc = 127 if "--download-offline-databases" in argv else 1
+        return InvocationResult(stdout="{}", stderr="", returncode=rc, command=argv)
+
+    monkeypatch.setattr(refreshmod, "run_tool", fake_run_tool)
+    result = refresh_vuln_db({"PATH": "/usr/bin"})
+    assert result.osv_status == "failed"
+    # grype keeps its strict classification: exit 1 is a failure for `db update`.
+    assert result.grype_status == "failed"
