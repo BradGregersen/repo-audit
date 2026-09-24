@@ -10,7 +10,7 @@ PYTHON IS AUTHORITATIVE for every field EXCEPT ``why_it_matters`` (D-69):
 ``file``/``line`` (off the Finding), ``severity``/``confidence`` (off the
 Finding's post-verification rung), ``composite``/``band``/``dominant_driver``
 (off the paired PriorityScore). ``why_it_matters`` is left "" for the agent to
-fill — and even then it rides the D-64 faithfulness gate at render time.
+fill — and even then it passes the faithfulness gate at render time.
 
 THREAT T-18-08: this function NEVER reads an agent-supplied rank/score/id — the
 Top-N numbers are computed by the deterministic stage and are authoritative. An

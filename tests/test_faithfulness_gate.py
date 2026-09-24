@@ -187,3 +187,47 @@ def test_violation_original_sentence_is_secret_linted(regexes, small_cardinals):
     assert len(violations) == 1
     assert aws_key not in violations[0].original_sentence
     assert "[REDACTED:" in violations[0].original_sentence
+
+
+# ---- Regex loopholes: tokens the gate used to skip must now be inspected. ----
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "Coverage is 45.7%.",          # decimal percentage (was masked as semver)
+        "It grew by 12k lines.",       # unit suffix (was not tokenised at all)
+        "It is 9000x faster.",         # multiplier suffix
+        "The count is 12.",            # sentence-final period
+        "The id is 1234567.",          # bare 7-digit integer (was masked as a SHA)
+    ],
+)
+def test_loophole_tokens_are_stripped(regexes, small_cardinals, prose):
+    trigger, allowlist = regexes
+    clean, violations = check_faithfulness(prose, small_cardinals, trigger, allowlist)
+    assert len(violations) == 1, (prose, violations)
+    assert prose not in clean
+
+
+def test_traceable_decimal_percentage_is_kept(regexes, small_cardinals):
+    trigger, allowlist = regexes
+    prose = "Coverage is 45.7%."
+    allowed = small_cardinals | {45.7}
+    clean, violations = check_faithfulness(prose, allowed, trigger, allowlist)
+    assert violations == []
+    assert clean.strip() == prose
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "Commit abc1234 fixed it.",       # hex SHA with a letter is still masked
+        "Upgrade to v1.2 or 1.2.3.",      # prefixed / three-part semver still masked
+        "Scanned on 2026-09-23 again.",   # ISO date still masked
+    ],
+)
+def test_structural_tokens_still_masked(regexes, small_cardinals, prose):
+    trigger, allowlist = regexes
+    clean, violations = check_faithfulness(prose, small_cardinals, trigger, allowlist)
+    assert violations == [], (prose, violations)
+    assert clean.strip() == prose

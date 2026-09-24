@@ -72,8 +72,8 @@ class TopFinding(BaseModel):
     SYN-02 / D-18-09 / D-18-10: the deterministic synthesis stage authors EVERY
     field here EXCEPT ``why_it_matters``. ``rank``/``composite``/``band``/the ids
     come from ``build_top_findings`` (Python, D-69) — the agent supplies ONLY the
-    ``why_it_matters`` prose, and even that rides the D-64 faithfulness gate at
-    render time (a number not folded into AllowedNumbers is stripped).
+    ``why_it_matters`` prose, and even that passes the faithfulness gate at
+    render time (a sentence citing a number not in AllowedNumbers is stripped).
 
     THREAT T-18-08: an agent that tries to smuggle an invented rank/score/id is
     ignored — the renderer reads the Python-authored list, never the agent's
@@ -123,7 +123,8 @@ class AgentScanReport(BaseModel):
     structurally-counted Finding store. The agent NEVER authors raw
     markdown — only typed prose paragraphs in narrative fields.
 
-    SAFE-07 contract: executive_summary is subject to the D-70
+    executive_summary first passes the faithfulness number gate (a
+    sentence citing an untraceable number is stripped), then the
     deterministic-header pre-pend + dilution-strip pass at render
     time. The agent may put context in this string ("the critical
     findings cluster in the auth module") but the authoritative
@@ -154,7 +155,7 @@ class AgentScanReport(BaseModel):
     D-05-07). Null on a baseline run (no prior sidecar to diff against).
 
     Like every other narrative field, the numeric tokens in this string are
-    subject to the D-64 faithfulness gate at render time. Plan 05-03 Task 2
+    subject to the faithfulness gate at render time. build_allowed_numbers
     folds the TrendDelta magnitudes + prior/current baseline totals into the
     AllowedNumbers set so genuine trend numbers survive the gate; any number
     NOT traceable to the tool's deltas is still stripped sentence-by-sentence.

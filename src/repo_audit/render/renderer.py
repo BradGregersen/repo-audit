@@ -174,8 +174,10 @@ def render_and_write(
 
       1. secret_lint          (D-07)  <- FIRST  on agent narrative buffer
       2. completion_honesty_lint (D-32) <- SECOND on agent narrative buffer
-      3. check_faithfulness   (D-64)  <- THIRD  on each dim narrative
-      4. dilution_strip       (D-70)  <- FOURTH on executive_summary
+      3. check_faithfulness   (D-64)  <- THIRD  on each dim narrative, the
+                                         executive summary, the trend narrative,
+                                         and every Top-N why_it_matters
+      4. dilution_strip       (D-70)  <- FOURTH on the gated executive_summary
       5. corroboration_classify (D-69) <- FIFTH  per blocker/critical finding
       6. _write_outputs       (D-15)  <- LAST after second-pass full-buffer
                                          secret_lint + completion_honesty_lint
@@ -212,6 +214,10 @@ def render_and_write(
 
     cleaned_agent_output = agent_output
     critical_render_classes: dict[str, str] = {}
+    # Every faithfulness violation from every agent prose surface (dimension
+    # narratives, executive summary, trend narrative, Top-N why_it_matters)
+    # folds into this one list, recorded once into meta below.
+    all_violations = []
 
     # ----- D-64 LOCKED CHOKEPOINT PIPELINE on agent narrative buffer. -----
     # Order is contractual: secret_lint -> completion_honesty -> check_faithfulness
@@ -248,8 +254,8 @@ def render_and_write(
             )
             return 3
 
-        # Step 4c (D-64 -- THIRD): check_faithfulness on each dim narrative.
-        all_violations = []
+        # Step 4c (D-64 -- THIRD): check_faithfulness on each dim narrative,
+        # then on the executive summary and the trend narrative.
         cleaned_dimensions = []
         for dim in agent_output.dimensions:
             clean_prose, violations = check_faithfulness(
@@ -263,10 +269,29 @@ def render_and_write(
             cleaned_dimensions.append(dim.model_copy(update={"narrative": clean_prose}))
             all_violations.extend(violations)
 
-        # Step 4d (D-70 -- FOURTH): dilution_strip on executive_summary.
-        clean_exec, dilution_strips = dilution_strip_exec_summary(
+        faithful_exec, exec_violations = check_faithfulness(
             agent_output.executive_summary,
+            allowed_numbers,
+            trigger_regex,
+            allowlist_regex,
+            tolerance=0.05,
         )
+        all_violations.extend(exec_violations)
+
+        clean_trend = agent_output.trend_narrative
+        if clean_trend:
+            clean_trend, trend_violations = check_faithfulness(
+                clean_trend,
+                allowed_numbers,
+                trigger_regex,
+                allowlist_regex,
+                tolerance=0.05,
+            )
+            all_violations.extend(trend_violations)
+
+        # Step 4d (D-70 -- FOURTH): dilution_strip on the number-gated
+        # executive_summary (faithfulness first, dilution second).
+        clean_exec, dilution_strips = dilution_strip_exec_summary(faithful_exec)
 
         # Step 4e (D-69 -- FIFTH): corroboration_classify per critical/blocker.
         disputes = detect_corroboration_disputes(agent_output, scan_report.findings)
@@ -276,8 +301,7 @@ def render_and_write(
                     classify_critical_finding(f, scan_report.findings)
                 )
 
-        # Step 4f: mutate meta IN PLACE (Plan 04-03 fields).
-        scan_report.meta.faithfulness_violations = all_violations
+        # Step 4f: mutate meta IN PLACE.
         scan_report.meta.exec_summary_dilution_strips = dilution_strips
         scan_report.meta.agent_corroboration_disputes = disputes
 
@@ -286,21 +310,55 @@ def render_and_write(
             update={
                 "dimensions": cleaned_dimensions,
                 "executive_summary": clean_exec,
+                "trend_narrative": clean_trend,
             }
         )
-
-        # D-64 stderr per-violation line (value-blind preview).
-        for v in all_violations:
-            preview = v.original_sentence[:80].replace("\n", " ")
-            tokens = ", ".join(v.offending_tokens[:5])
-            print(
-                f'faithfulness: stripped "{preview}..." (offending: {tokens})',
-                file=sys.stderr,
-            )
     else:
         # No agent_output -> still compute critical_render_classes from
         # deterministic findings so the fallback render badges critical rows.
         critical_render_classes = _compute_critical_render_classes(scan_report)
+
+    # Top-N why_it_matters is agent prose too. Gate it whether or not an agent
+    # report was passed (a caller may thread top_findings on its own). The
+    # allowed set was built FROM the uncleaned list above; its Python-authored
+    # rank/composite/band are authoritative, so that is correct.
+    if effective_top_findings:
+        cleaned_top_findings = []
+        for tf in effective_top_findings:
+            why = getattr(tf, "why_it_matters", "") or ""
+            if not why:
+                cleaned_top_findings.append(tf)
+                continue
+            clean_why, why_violations = check_faithfulness(
+                why,
+                allowed_numbers,
+                trigger_regex,
+                allowlist_regex,
+                tolerance=0.05,
+            )
+            all_violations.extend(why_violations)
+            if hasattr(tf, "model_copy"):
+                cleaned_top_findings.append(
+                    tf.model_copy(update={"why_it_matters": clean_why})
+                )
+            else:
+                try:
+                    tf.why_it_matters = clean_why
+                except (AttributeError, TypeError):
+                    pass
+                cleaned_top_findings.append(tf)
+        effective_top_findings = cleaned_top_findings
+
+    # Record every violation once, in both paths, then print one value-blind
+    # stderr line per violation.
+    scan_report.meta.faithfulness_violations = all_violations
+    for v in all_violations:
+        preview = v.original_sentence[:80].replace("\n", " ")
+        tokens = ", ".join(v.offending_tokens[:5])
+        print(
+            f'faithfulness: stripped "{preview}..." (offending: {tokens})',
+            file=sys.stderr,
+        )
 
     # ----- Build buffers. -----
     # No-agent path routes through render_markdown() so it stays the single

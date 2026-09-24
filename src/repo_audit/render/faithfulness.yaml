@@ -1,15 +1,19 @@
-# D-61 faithfulness-gate regex configuration.
+# Faithfulness-gate regex configuration.
 # Loaded by render/faithfulness.py::load_faithfulness_allowlist() via
-# ruamel.yaml YAML(typ='safe') — same pattern Phase 3 used for adapter.yaml
-# so Phase 7's user-overlay can extend this file without code changes.
+# ruamel.yaml YAML(typ='safe'), so a user overlay can extend this file without
+# code changes.
 #
-# trigger_regex catches numeric tokens the gate inspects: integers,
-# decimals, percentages, AND comma-grouped numbers like 18,432
-# (RESEARCH Pitfall 4: the original regex missed comma-grouped LOC
-# counts; the alternation here handles both shapes).
-trigger_regex: '\b\d{1,3}(?:,\d{3})*(?:\.\d+)?%?\b|\b\d+(?:\.\d+)?%?\b'
+# trigger_regex finds every numeric token the gate inspects: integers,
+# decimals, percentages, and comma-grouped numbers like 18,432. A number is a
+# token even when a letter follows it (12k, 9000x): the only thing that ends a
+# token early is another digit or a decimal point followed by a digit. A plain
+# sentence-ending period does not hide a number ("grew to 12." is inspected).
+trigger_regex: '\b\d{1,3}(?:,\d{3})*(?:\.\d+)?%?(?!\d|\.\d)|\b\d+(?:\.\d+)?%?(?!\d|\.\d)'
 
-# allowlist_regex matches tokens that LOOK numeric but are structurally
-# unambiguous: dates, semver, git SHAs, TS error codes, well-known
-# ESLint rule IDs. The gate skips authenticity checks on these.
-allowlist_regex: '\b(?:\d{4}-\d{2}-\d{2}|v?\d+\.\d+(?:\.\d+)?|[0-9a-f]{7,40}|TS\d+|@typescript-eslint/no-explicit-any)\b'
+# allowlist_regex matches tokens that look numeric but are structural rather
+# than claims, so the gate skips them: ISO dates, versions that are either
+# v-prefixed (v1.2) or have three parts (1.2.3), git SHAs of 7-40 hex characters
+# that contain at least one letter, TypeScript error codes, and one well-known
+# ESLint rule ID. A bare decimal (45.7), a percentage, or an all-digit number
+# is never masked; it must trace to collected evidence.
+allowlist_regex: '\b(?:\d{4}-\d{2}-\d{2}|v\d+\.\d+(?:\.\d+)?|\d+\.\d+\.\d+|(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}|TS\d+|@typescript-eslint/no-explicit-any)\b'
