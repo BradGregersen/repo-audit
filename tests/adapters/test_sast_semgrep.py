@@ -41,6 +41,9 @@ def test_collect_semgrep_sarif_to_findings(fp, sast_vuln_repo, monkeypatch):
     """
     owasp_bytes = json.dumps(_load_owasp())
     fp.register([fp.any()], stdout=owasp_bytes, returncode=0, occurrences=10)
+    # ``fp`` fakes the spawn, but discovery runs first: make semgrep resolve
+    # so the test does not depend on the host PATH.
+    monkeypatch.setattr(semgrep, "resolve_tool", lambda *a, **k: Path("semgrep"))
 
     result = semgrep.collect_semgrep(
         sast_vuln_repo, env={}, packs=["p/owasp-top-ten"]

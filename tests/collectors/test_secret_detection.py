@@ -323,7 +323,7 @@ _GITLEAKS_HISTORY_JSON = (
 )
 
 
-def test_scan_git_history_redacts_and_uses_column_span(fp, tmp_path):
+def test_scan_git_history_redacts_and_uses_column_span(fp, tmp_path, monkeypatch):
     """scan_git_history points gitleaks at a repo, parses JSON, derives
     redacted_len from EndColumn-StartColumn, stamps source='gitleaks-history',
     and stores NO raw value."""
@@ -333,6 +333,17 @@ def test_scan_git_history_redacts_and_uses_column_span(fp, tmp_path):
 
     repo = tmp_path / "histrepo"
     repo.mkdir()
+
+    # ``fp`` fakes the spawn, but discovery runs first: make gitleaks look
+    # installed so the test does not depend on the host PATH.
+    real_which = secret_lint.shutil.which
+
+    def _which(name, *args, **kwargs):
+        if name == "gitleaks":
+            return "/usr/local/bin/gitleaks"
+        return real_which(name, *args, **kwargs)
+
+    monkeypatch.setattr(secret_lint.shutil, "which", _which)
 
     # The implementation writes the JSON report to a tempfile and reads it back
     # (A3). Mock gitleaks to write that report to whichever --report-path it is

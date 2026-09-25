@@ -287,9 +287,12 @@ def _stub_external_tool_subprocess(request, monkeypatch):
     processes on every test that reached the scan pipeline — ~132 s per test on
     a cold machine, which is what made the full suite unfinishable. This rebinds
     each spawning module's own ``subprocess`` attribute to a canned stand-in
-    (see ``tests/_subprocess_stub.py`` for the contract; notably, an absent
-    binary still raises ``FileNotFoundError`` so the 'tool unavailable' path is
-    unchanged).
+    (see ``tests/_subprocess_stub.py`` for the contract). Known tools count as
+    installed by bare name, and ``secret_detection.GITLEAKS_AVAILABLE`` is
+    pinned True, so results do not depend on what the host has on PATH. The
+    'tool unavailable' path is tested at the discovery seam; a test that sets
+    ``GITLEAKS_AVAILABLE`` in its own body still wins, because this fixture
+    runs first.
 
     Opt out with ``@pytest.mark.real_subprocess`` for a test that must observe
     genuine subprocess behaviour; ``tests/integration/`` is exempt wholesale.
@@ -313,6 +316,14 @@ def _stub_external_tool_subprocess(request, monkeypatch):
         if not hasattr(module, "subprocess"):  # pragma: no cover — renamed seam
             continue
         monkeypatch.setattr(module, "subprocess", fake)
+
+    # ``GITLEAKS_AVAILABLE`` is computed from ``shutil.which`` at import time,
+    # so a host without gitleaks would stamp every scan ``partial``. Pin it to
+    # match the stub, which answers for gitleaks by bare name.
+    secret_detection = _importlib.import_module(
+        "repo_audit.collectors.secret_detection"
+    )
+    monkeypatch.setattr(secret_detection, "GITLEAKS_AVAILABLE", True)
 
 
 # ---- Phase 4 Wave 0 fixtures (added by plan 04-01-PLAN.md) ----

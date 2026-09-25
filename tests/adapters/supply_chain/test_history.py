@@ -18,6 +18,8 @@ pygit2 factory (commit a secret, then a later commit deleting it).
 """
 from __future__ import annotations
 
+import shutil
+
 import pytest
 
 history = pytest.importorskip(
@@ -37,6 +39,10 @@ def _collect(repo_path):
 
 # real_subprocess: needs real gitleaks to detect the seeded history secret.
 @pytest.mark.real_subprocess
+@pytest.mark.skipif(
+    shutil.which("gitleaks") is None,
+    reason="needs the real gitleaks binary on PATH",
+)
 def test_committed_then_deleted_flagged(secret_history_repo):
     """A secret committed then later deleted is still flagged from history."""
     repo = secret_history_repo()

@@ -24,10 +24,19 @@ Design contract
   radius to the handful of tools that actually cost wall time and leaves every
   other tool alone — including the fake executables some tests build for
   themselves and every ``pytest-subprocess`` (``fp``) registration.
-* **An absent binary still looks absent.** If a *known* ``argv[0]`` does not
-  resolve on disk or PATH, the stub raises ``FileNotFoundError`` exactly like
-  the real module. ``run_tool`` maps that to ``EXEC_FAILED`` and collectors map
-  it to ``unavailable`` — the honest "tool not installed" path is preserved.
+* **Known binaries count as present by bare name.** When ``argv[0]`` is a bare
+  name (no path separator) for one of the tools in ``DEFAULT_RESPONDERS``, the
+  stub treats it as installed and answers with the canned response. The
+  deterministic tier therefore gives the same result whether or not the host
+  has gitleaks, semgrep, grype and the rest on PATH.
+* **"Tool not installed" is tested at the discovery seam.** The honest
+  ``unavailable`` path is exercised where the code decides whether a tool
+  exists — ``resolve_tool``, ``shutil.which``, ``GITLEAKS_AVAILABLE`` — which
+  is where the existing unavailable-path tests already patch it.
+* **A path-qualified binary that does not exist still raises.** A vendored
+  binary named by path must exist on disk; otherwise the stub raises
+  ``FileNotFoundError`` exactly like the real module, and ``run_tool`` maps it
+  to ``EXEC_FAILED``. An unknown bare name is still looked up on PATH.
 * **A present binary returns a parseable empty result**, never garbage. A
   parse failure would flip findings from ``unavailable`` to ``failed`` and
   silently change what tests assert, so each known binary gets a canned
@@ -246,14 +255,19 @@ def _binary_key(argv0: str) -> str:
 
 
 def _binary_is_present(argv0: str) -> bool:
-    """True when the real binary would have been exec-able.
+    """True when the stub should treat ``argv0`` as an exec-able binary.
 
-    Keeps the "tool not installed → unavailable" path honest: a binary that is
-    genuinely absent must still raise ``FileNotFoundError`` under the stub.
+    * A bare name for a tool in ``DEFAULT_RESPONDERS`` is always present, so
+      the result does not depend on what the host has installed. The "tool not
+      installed" path is tested at the discovery seam instead.
+    * A path-qualified ``argv0`` (a vendored binary) must exist on disk.
+    * Any other bare name is looked up on PATH.
     """
     text = str(argv0)
     if os.sep in text or (os.altsep and os.altsep in text):
         return Path(text).exists()
+    if _binary_key(text) in DEFAULT_RESPONDERS:
+        return True
     return shutil.which(text) is not None
 
 
