@@ -33,6 +33,35 @@ about the client (anon/authenticated) path on the tables probed, not proof of RL
 correctness for unprobed tables, for the service-role path, or for policies added
 after that date.
 
+### Known limitations
+
+These are known, unfixed, and worth knowing before you trust a report or point
+the tool at a repository.
+
+- **It runs the target's own code, with your environment.** Project tools (tsc,
+  eslint, knip and the other npm project tools) resolve from the target's own
+  `node_modules/.bin` first, and `--typed-detekt` (on by default) runs the
+  target's `./gradlew`. Both run as you, with your full environment, including
+  any tokens or credentials in it (for example `GH_TOKEN` or the
+  `--rls-runtime` variables). Security scanners resolve only vendored or PATH
+  binaries. The target's own `.repo-audit.yaml` can switch on DAST (a ZAP
+  container spidering the URL it names), `live_url` web checks, CodeQL
+  autobuild, and bring-your-own commercial scanner wrappers. That file is
+  treated as consent, so scanning a repository executes its configuration. Only
+  scan repositories you would run `npm install` in.
+- **Trend diffing can mislabel fixes.** Findings match across scans on tool +
+  rule + file + line. grype and osv-scanner report absolute paths
+  (`/requirements.txt`, `file:///…`), so the CVEs fixed by a dependency upgrade
+  can read as "vanished with file" rather than "resolved". Inserting a line
+  above a finding reads as one resolved finding plus one new identical finding.
+- **"What matters most" can show the wrong things.** Only corroborated or
+  confirmed findings qualify. Low-severity inventory rows that carry no file can
+  corroborate each other and fill the list. Single-tool candidates are left
+  out, which includes every dependency CVE and committed-secret hit under
+  `--no-agent` and in `fleet`. Candidates cap at major, so the header's
+  blocker/critical count reads zero in those modes. Read the Security section,
+  not only the headline list.
+
 ## Install and run
 
 Requires Python 3.11–3.12.
@@ -70,7 +99,8 @@ A state report is written to the target repo at
 `docs/state-reports/{repo}-state-report-{YYYY-MM-DD}.md` (with a JSON sidecar
 beside it), organized into:
 
-1. Executive summary + "what matters most" (prioritized, confirmed findings)
+1. Executive summary + "what matters most" (prioritized findings — see
+   [Known limitations](#known-limitations))
 2. Scope ledger — what was scanned, skipped, or unavailable
 3. Security & SAST
 4. Architecture rot
