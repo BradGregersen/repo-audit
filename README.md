@@ -259,3 +259,4 @@ Tech stack: Python 3.11+, [Typer](https://typer.tiangolo.com/) CLI,
 [Jinja2](https://jinja.palletsprojects.com/) report templates,
 [pygit2](https://www.pygit2.org/) for git cadence, and the
 [Claude Agent SDK](https://pypi.org/project/claude-agent-sdk/) for orchestration.
+Third-party licenses and notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
