@@ -1,7 +1,7 @@
 """splinter row→Finding mapper + ``run_splinter`` (Plan 08-02).
 
 splinter is the authoritative, always-on Supabase RLS/security lint floor
-(D-08-06). It is NOT a SARIF tool (D-08-14): executing the vendored
+(D-08-06). It is NOT a SARIF tool (D-08-14): executing the pinned
 ``splinter.sql`` against a live (ephemeral) database returns a uniform
 **10-column** row set —
 ``name, title, level, facing, categories, description, detail, remediation,
@@ -14,9 +14,10 @@ This module owns two thin, separable pieces:
     ``evidence_type="static"`` + ``confidence="candidate"`` (D-08-17), verify-
     phrased (CRIT-4), and routed through :func:`assert_verify_phrasing` before
     return.
-  * :func:`run_splinter` — reads the vendored SQL and executes it through
-    psycopg3 against a DSN, returning raw rows. Kept thin so the mapper stays
-    DB-free and unit-testable.
+  * :func:`run_splinter` — loads splinter.sql (fetched on first use at a pinned
+    commit, checked against a pinned sha256, then cached) and executes it
+    through psycopg3 against a DSN, returning raw rows. Kept thin so the
+    mapper stays DB-free and unit-testable.
 
 **Severity discipline (SCH-04 cap).** splinter's ``level`` is INFO/WARN/ERROR.
 A faithful ERROR would be ``critical``, but splinter findings are
@@ -39,9 +40,9 @@ is phrased as "… present; verify enforcement at runtime." The raw splinter
 """
 from __future__ import annotations
 
-import importlib.resources
 from typing import Any
 
+from repo_audit.adapters.supabase.splinter_fetch import load_splinter_sql
 from repo_audit.adapters.supabase.verify_phrasing import (
     assert_verify_phrasing,
 )
@@ -72,10 +73,6 @@ _CATEGORY_TO_DIMENSION: dict[str, Dimension] = {
     "SECURITY": "security",
     "PERFORMANCE": "quality",
 }
-
-# Vendored splinter SQL location (Plan 01 shipped it inside the wheel tree).
-_SPLINTER_PACKAGE = "repo_audit.vendor.splinter"
-_SPLINTER_RESOURCE = "splinter.sql"
 
 
 def _dimension_for(categories: Any) -> Dimension:
@@ -171,12 +168,14 @@ def map_splinter_rows(rows: list[dict[str, Any]]) -> list[Finding]:
 
 
 def run_splinter(dsn: str, *, timeout_seconds: float = 120.0) -> list[dict[str, Any]]:
-    """Execute the vendored ``splinter.sql`` against ``dsn`` and return rows.
+    """Execute ``splinter.sql`` against ``dsn`` and return rows.
 
     Thin psycopg3 wrapper so :func:`map_splinter_rows` stays DB-free and
-    unit-testable on the fixture. Reads the vendored SQL via
-    ``importlib.resources`` (wheel-packaged), runs it with a ``dict_row``
-    factory, and returns ``fetchall()`` — the uniform 10-column rows.
+    unit-testable on the fixture. The SQL is not shipped with repo-audit:
+    :func:`load_splinter_sql` fetches it on first use from a pinned upstream
+    commit, checks it against a pinned sha256, and caches it. It is loaded
+    before any connection is opened, then run with a ``dict_row`` factory;
+    ``fetchall()`` returns the uniform 10-column rows.
 
     Args:
         dsn: a ``postgresql://…`` connection string for the (ephemeral) DB.
@@ -184,13 +183,16 @@ def run_splinter(dsn: str, *, timeout_seconds: float = 120.0) -> list[dict[str, 
 
     Returns:
         The raw splinter rows as a list of dicts.
+
+    Raises:
+        SplinterSqlUnavailable: the lint set could not be loaded from the cache
+            or fetched and verified. Propagates to the caller, which reports
+            the floor as unavailable.
     """
     import psycopg
     import psycopg.rows
 
-    sql = (
-        importlib.resources.files(_SPLINTER_PACKAGE) / _SPLINTER_RESOURCE
-    ).read_text(encoding="utf-8")
+    sql = load_splinter_sql(timeout_seconds=min(timeout_seconds, 30.0))
 
     # splinter.sql is a `set local search_path = '';` prefix followed by ONE
     # big `( with … select … )` result query. psycopg3 returns only the LAST

@@ -12,7 +12,7 @@ recorded-fixture discipline (`tests/adapters/sca/fixtures/PROVENANCE.md`).
 |------|---------|-------|
 | squawk-cli | 2.55.0 | pip dep declared Plan 01 Task 1 |
 | pgrls | 0.14.0 | pip dep declared Plan 01 Task 1 (Beta) |
-| splinter.sql | supabase/splinter @ a7f71080ed059de8a7f00addd71ade19b82a4108 | vendored Plan 01 Task 1 |
+| splinter.sql | supabase/splinter @ a7f71080ed059de8a7f00addd71ade19b82a4108 | fetched at runtime, sha256-pinned; not redistributed (upstream has no license) |
 
 ## Fixtures
 
@@ -41,15 +41,15 @@ destructive ops), so a destructive migration was authored specifically to
 exercise squawk's RLS-02 lints — the same rationale a real `repo-audit scan` applies
 when it lints a repo's actual migrations.
 
-### `splinter_rows.json` — DOC-AUTHORED (faithful to the vendored SQL shape)
+### `splinter_rows.json` — DOC-AUTHORED (faithful to the pinned SQL shape)
 
 splinter returns lint rows ONLY when its `splinter.sql` is executed against a
 LIVE supabase/postgres database (the ephemeral-PG lifecycle is Plan 02's
 deliverable — not available at Plan 01 time). These rows are therefore
 hand-authored to match the **exact 10-column shape and field values** emitted
-by the vendored `splinter.sql` @ a7f71080 — the `name`/`title`/`level`/`facing`/
+by `splinter.sql` at the pinned commit a7f71080 — the `name`/`title`/`level`/`facing`/
 `categories`/`remediation` values for each rule were read directly out of the
-vendored SQL's `select ... as <col>` blocks (mirrors the Phase 6
+pinned SQL's `select ... as <col>` blocks (mirrors the Phase 6
 dependency-cruiser docs-sourced precedent). The four rows cover every
 level->Severity + categories->Dimension branch Plan 02's row-mapper needs:
 
@@ -62,7 +62,7 @@ level->Severity + categories->Dimension branch Plan 02's row-mapper needs:
 
 **Re-record action (Plan 02):** once the ephemeral-PG lifecycle lands, re-capture
 these rows live by applying the example app's real SQL to the supabase/postgres image and
-executing the vendored `splinter.sql`; replace this doc-authored set and update
+executing `splinter.sql` at the pinned commit; replace this doc-authored set and update
 this note.
 
 ### `pgrls.sarif.json` — DOC-AUTHORED (faithful SARIF 2.1.0)

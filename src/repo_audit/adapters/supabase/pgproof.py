@@ -63,6 +63,7 @@ from repo_audit.adapters.supabase.splinter_collect import (
     map_splinter_rows,
     run_splinter,
 )
+from repo_audit.adapters.supabase.splinter_fetch import SplinterSqlUnavailable
 from repo_audit.adapters.toolops import EXEC_FAILED, TIMED_OUT, run_tool
 
 # Pinned supabase/postgres images BY DIGEST (D-08-09 / FND-03). Selected by PG
@@ -471,6 +472,8 @@ def collect_rls_static(
             ),
             **base_kwargs,
         )
+    except SplinterSqlUnavailable as exc:
+        return AdapterResult(status="unavailable", notes=str(exc), **base_kwargs)
     except Exception as exc:  # noqa: BLE001 — absolute never-raise backstop
         return AdapterResult(
             status="unavailable",

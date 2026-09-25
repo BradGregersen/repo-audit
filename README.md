@@ -126,10 +126,17 @@ only.
   - a vulnerability-database cache under `~/.cache/repo-audit/vuln-db/` (or
     `$XDG_CACHE_HOME/repo-audit/vuln-db/`), downloaded over the network on the
     first scan and advanced afterwards only by `--refresh-vuln-db`;
+  - the Supabase lint set `splinter.sql`, cached under
+    `~/.cache/repo-audit/splinter/` (or `$XDG_CACHE_HOME/repo-audit/splinter/`).
+    It is downloaded from GitHub at a pinned commit and checked against a
+    pinned SHA-256 on the first scan of a Supabase repository that has
+    migrations and a running Docker. If it cannot be fetched, the static RLS
+    floor reports `unavailable`;
   - an SBOM into repo-audit's own `reports/` directory, on every scan;
   - per-scan temporary directories, which are cleaned up after the scan.
 - **It is not fully offline by default.** Besides the first-run vuln-DB
-  download, the default SAST pass fetches Semgrep rule packs over the network
+  download (and, for Supabase repositories, the first-run splinter.sql
+  download), the default SAST pass fetches Semgrep rule packs over the network
   (`--no-sast` turns it off), and `--typed-detekt` (on by default) runs the
   target's own Gradle build (`./gradlew`) in a throwaway copy for any repo that
   has a `gradlew` (`--no-typed-detekt` turns it off). Running a target's build

@@ -62,6 +62,7 @@ from repo_audit.adapters.supabase.splinter_collect import (
     map_splinter_rows,
     run_splinter,
 )
+from repo_audit.adapters.supabase.splinter_fetch import SplinterSqlUnavailable
 from repo_audit.adapters.supabase.squawk_collect import collect_squawk
 from repo_audit.adapters.supabase.verify_phrasing import (
     assert_verify_phrasing,
@@ -237,11 +238,18 @@ def run_supabase(
                     timeout_seconds=_SPLINTER_TIMEOUT,
                 ) as dsn:
                     # Splinter floor — always.
-                    rows = run_splinter(dsn, timeout_seconds=_SPLINTER_TIMEOUT)
-                    splinter_findings = map_splinter_rows(rows)
-                    findings.extend(splinter_findings)
-                    notes_parts.append(f"splinter: {len(splinter_findings)} finding(s)")
-                    statuses.append("ok")
+                    try:
+                        rows = run_splinter(dsn, timeout_seconds=_SPLINTER_TIMEOUT)
+                        splinter_findings = map_splinter_rows(rows)
+                        findings.extend(splinter_findings)
+                        notes_parts.append(f"splinter: {len(splinter_findings)} finding(s)")
+                        statuses.append("ok")
+                    except SplinterSqlUnavailable as exc:
+                        # The lint set could not be fetched or verified. The
+                        # floor is unavailable; pgrls still runs below.
+                        ledger_notes.append(f"splinter floor unavailable: {exc}")
+                        statuses.append("unavailable")
+                        notes_parts.append("splinter: lint set unavailable")
                     # pgrls additive layer — ONLY when flagged, SAME dsn.
                     if rls_pgrls:
                         pgrls_result = collect_pgrls(

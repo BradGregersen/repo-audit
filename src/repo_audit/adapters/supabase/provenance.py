@@ -6,9 +6,8 @@ vuln-feed-shaped — feed/scanner/db_snapshot_date — and does not fit a tool/i
 SHA stamp). :func:`build_rls_provenance` assembles the dict the scope ledger
 records so any RLS finding can be attributed to a reproducible toolchain:
 
-    * ``splinter_sha``     — the vendored splinter.sql commit SHA (the lint set's
-      exact version), parsed from the vendored file's header line by
-      :func:`read_splinter_sha`.
+    * ``splinter_sha``     — the upstream commit splinter.sql is fetched from
+      (the lint set's exact version), returned by :func:`read_splinter_sha`.
     * ``pgrls_version`` / ``squawk_version`` — the additive-layer tool versions.
     * ``image_ref``        — the pinned ``supabase/postgres`` ``tag@sha256:digest``
       the ephemeral DB stood up from (D-08-09 / FND-03 reproducibility).
@@ -18,14 +17,14 @@ records so any RLS finding can be attributed to a reproducible toolchain:
       not run (not opted in / no creds), or ran (pass / leak / error). This is the
       D-08-05 honest not-run disclosure made machine-readable.
 
-Pure + never-raising: :func:`read_splinter_sha` degrades to a sentinel string
-when the vendored file / header line is missing rather than crashing the scan.
+Pure + never-raising: :func:`read_splinter_sha` returns the pinned fetch commit,
+a constant, so it needs no file and cannot fail.
 """
 from __future__ import annotations
 
-import re
-from pathlib import Path
 from typing import Literal
+
+from repo_audit.adapters.supabase.splinter_fetch import SPLINTER_COMMIT
 
 # The five honest runtime postures (D-08-05). "not_run_*" carry NO enforcement
 # claim; "run_*" reflect the actually-executed two-account probe's verdict.
@@ -37,47 +36,20 @@ RuntimePosture = Literal[
     "run_error",
 ]
 
-# The vendored splinter.sql lives beside the package's vendor tree. Header line 1
-# is ``-- splinter.sql vendored from supabase/splinter @ <40-hex-sha>``.
-_SPLINTER_SQL_PATH = (
-    Path(__file__).resolve().parents[2] / "vendor" / "splinter" / "splinter.sql"
-)
-
-# Matches the 40-hex commit SHA after the ``@`` in the vendored header line.
-_SHA_RE = re.compile(r"@\s*([0-9a-fA-F]{40})")
-
-# Sentinel when the header / file is unreadable — honest "unknown", never a fake.
+# Sentinel for a missing provenance field — honest "unknown", never a fake.
 _UNKNOWN_SHA = "unknown"
 
 
-def read_splinter_sha(path: Path | None = None) -> str:
-    """Parse the vendored splinter.sql header for its pinned commit SHA.
+def read_splinter_sha() -> str:
+    """Return the upstream commit splinter.sql is fetched from.
 
-    The vendored file's first header line records the exact upstream commit the
-    lint set was fetched from (``-- splinter.sql vendored from supabase/splinter
-    @ <sha>``). Returns that 40-hex SHA, or :data:`_UNKNOWN_SHA` when the file or
-    header line is absent (never raises — provenance must degrade honestly).
-
-    Args:
-        path: optional override for the vendored splinter.sql (tests).
+    splinter.sql is downloaded at a pinned commit and verified against a pinned
+    sha256 (see ``splinter_fetch``), so the lint set's version is that constant.
 
     Returns:
-        The 40-hex SHA string, or ``"unknown"`` when it cannot be read.
+        The 40-hex commit SHA.
     """
-    sql_path = path or _SPLINTER_SQL_PATH
-    try:
-        # Only the first few header lines are needed; read a bounded prefix.
-        with sql_path.open("r", encoding="utf-8") as fh:
-            for _ in range(8):
-                line = fh.readline()
-                if not line:
-                    break
-                match = _SHA_RE.search(line)
-                if match is not None:
-                    return match.group(1).lower()
-    except OSError:
-        return _UNKNOWN_SHA
-    return _UNKNOWN_SHA
+    return SPLINTER_COMMIT
 
 
 def build_rls_provenance(
@@ -97,7 +69,7 @@ def build_rls_provenance(
     the same discovered migration layout, and with the same runtime posture.
 
     Args:
-        splinter_sha: the vendored splinter.sql commit SHA.
+        splinter_sha: the commit splinter.sql is fetched from.
         pgrls_version: the installed pgrls version (or a floor pin).
         squawk_version: the installed squawk version (or ``"unknown"``).
         image_ref: the pinned ``supabase/postgres`` ``tag@sha256:digest``.

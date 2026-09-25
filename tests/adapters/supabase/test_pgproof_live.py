@@ -145,6 +145,38 @@ def test_success_path_maps_findings(tmp_path, fake_supabase_repo, monkeypatch):
     assert "layout=supabase/migrations" in result.notes
 
 
+def test_splinter_sql_unavailable_is_unavailable_not_unexpected(
+    tmp_path, fake_supabase_repo, monkeypatch
+):
+    """No lint set (offline / bad hash) → unavailable, naming the URL."""
+    repo = fake_supabase_repo(tmp_path, api_client_layout=False)
+
+    from contextlib import contextmanager
+
+    from repo_audit.adapters.supabase.splinter_fetch import (
+        SPLINTER_URL,
+        SplinterSqlUnavailable,
+    )
+
+    @contextmanager
+    def _fake_lifecycle(*_a, **_k):
+        yield "postgresql://test:test@localhost:5432/test"
+
+    def _unavailable(_dsn, **_k):
+        raise SplinterSqlUnavailable(
+            f"splinter.sql unavailable: could not fetch {SPLINTER_URL} into "
+            "/cache/repo-audit/splinter/splinter.sql: URLError: offline"
+        )
+
+    monkeypatch.setattr(pgproof, "ephemeral_supabase_pg", _fake_lifecycle)
+    monkeypatch.setattr(pgproof, "run_splinter", _unavailable)
+    result = collect_rls_static(repo)
+    assert result.status == "unavailable"
+    assert result.findings == []
+    assert SPLINTER_URL in result.notes
+    assert "unexpectedly" not in result.notes
+
+
 # --- Live integration (docker-gated; skips cleanly) -----------------------
 
 def _docker_available() -> bool:

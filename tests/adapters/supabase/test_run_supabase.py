@@ -203,6 +203,36 @@ def test_default_composes_floor_squawk_footguns_no_pgrls_no_runtime(
     assert "runtime" in joined and "not run" in joined
 
 
+def test_splinter_sql_unavailable_degrades_floor_and_pgrls_still_runs(
+    tmp_path, patched_collectors, monkeypatch
+):
+    """No lint set (offline / bad hash): floor unavailable, pgrls still runs."""
+    from repo_audit.adapters.supabase.splinter_fetch import (
+        SPLINTER_URL,
+        SplinterSqlUnavailable,
+    )
+
+    def _unavailable(dsn, *, timeout_seconds):
+        raise SplinterSqlUnavailable(
+            f"splinter.sql unavailable: could not fetch {SPLINTER_URL} into "
+            "/cache/repo-audit/splinter/splinter.sql: URLError: offline"
+        )
+
+    monkeypatch.setattr(supa, "run_splinter", _unavailable, raising=True)
+
+    result = supa.run_supabase(
+        tmp_path, base_env={}, rls_pgrls=True, rls_runtime=False
+    )
+
+    assert patched_collectors["pgrls"] == 1
+    assert any(SPLINTER_URL in note for note in result.ledger_notes)
+    joined = " ".join(result.ledger_notes)
+    assert "unexpectedly" not in joined
+    assert all(f.source_tool != "splinter" for f in result.findings)
+    assert "pgrls_rule" in {f.rule_id for f in result.findings}
+    assert result.status != "ok"
+
+
 def test_pgrls_runs_only_when_flagged_and_against_floor_dsn(
     tmp_path, patched_collectors
 ):
@@ -314,10 +344,11 @@ def test_build_rls_provenance_structured_payload():
     assert payload["runtime_posture"] == "not_run_not_opted_in"
 
 
-def test_read_splinter_sha_from_vendored_header():
-    """The splinter SHA is parsed from the vendored splinter.sql header line."""
+def test_read_splinter_sha_is_the_pinned_commit():
+    """The splinter SHA is the commit splinter.sql is fetched from."""
+    from repo_audit.adapters.supabase.splinter_fetch import SPLINTER_COMMIT
+
     sha = prov_mod.read_splinter_sha()
-    # 40-hex commit SHA from the vendored header.
-    assert isinstance(sha, str)
+    assert sha == SPLINTER_COMMIT
     assert len(sha) == 40
     int(sha, 16)  # parses as hex
