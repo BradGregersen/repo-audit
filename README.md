@@ -61,6 +61,12 @@ the tool at a repository.
   `--no-agent` and in `fleet`. Candidates cap at major, so the header's
   blocker/critical count reads zero in those modes. Read the Security section,
   not only the headline list.
+- **CodeQL has its own license terms.** CodeQL's terms allow academic research
+  and analysis of codebases released under an OSI-approved open-source license.
+  Scanning private or commercial code needs a GitHub Advanced Security license.
+  repo-audit leaves CodeQL off by default; a target's `.repo-audit.yaml` can
+  turn it on. Check that you are entitled to run it before enabling it. See
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Install and run
 
