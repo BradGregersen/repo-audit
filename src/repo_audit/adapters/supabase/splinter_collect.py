@@ -1,7 +1,7 @@
 """splinter row→Finding mapper + ``run_splinter`` (Plan 08-02).
 
-splinter is the authoritative, always-on Supabase RLS/security lint floor
-(D-08-06). It is NOT a SARIF tool (D-08-14): executing the pinned
+splinter is the authoritative, always-on Supabase RLS/security lint floor.
+It is NOT a SARIF tool: executing the pinned
 ``splinter.sql`` against a live (ephemeral) database returns a uniform
 **10-column** row set —
 ``name, title, level, facing, categories, description, detail, remediation,

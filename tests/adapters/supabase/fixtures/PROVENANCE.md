@@ -49,7 +49,7 @@ deliverable — not available at Plan 01 time). These rows are therefore
 hand-authored to match the **exact 10-column shape and field values** emitted
 by `splinter.sql` at the pinned commit a7f71080 — the `name`/`title`/`level`/`facing`/
 `categories`/`remediation` values for each rule were read directly out of the
-pinned SQL's `select ... as <col>` blocks (mirrors the Phase 6
+pinned SQL's `select ... as <col>` blocks (mirrors the earlier
 dependency-cruiser docs-sourced precedent). The four rows cover every
 level->Severity + categories->Dimension branch Plan 02's row-mapper needs:
 
