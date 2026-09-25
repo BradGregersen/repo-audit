@@ -322,7 +322,7 @@ def _run_gitleaks_target(
     *,
     timeout: float,
     source: str,
-) -> list[SecretHit]:
+) -> list[SecretHit] | None:
     """Run gitleaks in a target-path mode (``git`` history or ``dir`` tree).
 
     INTENTIONAL subprocess discipline: this mirrors ``scan_with_gitleaks`` in
@@ -334,14 +334,21 @@ def _run_gitleaks_target(
     to route through ``run_tool``.
 
     Per CLAUDE.md hard rule: ``shell=False``, command as ``list[str]``, explicit
-    ``timeout``. Returns ``[]`` when gitleaks is absent (A1 graceful degrade) or
-    on timeout / a non-positive budget. The JSON report is written to a tempfile
-    and read back (A3 -- do NOT rely on ``/dev/stdout``).
+    ``timeout``. The JSON report is written to a tempfile and read back (A3 --
+    do NOT rely on ``/dev/stdout``).
+
+    Returns:
+        * ``None`` when gitleaks did not finish: the run timed out, or the
+          budget was already non-positive. The caller must not read this as a
+          clean result.
+        * ``[]`` when gitleaks ran clean (no report file), or is absent from
+          PATH (callers detect absence up front and report it themselves).
+        * the parsed hits otherwise.
     """
     if shutil.which("gitleaks") is None:
         return []
     if timeout <= 0:
-        return []
+        return None
 
     # gitleaks 8.30.1: ``gitleaks git <repo>`` walks FULL commit history;
     # ``gitleaks dir <path>`` scans a no-git working tree (Pitfall 2 — the
@@ -371,7 +378,12 @@ def _run_gitleaks_target(
                 shell=False,  # CLAUDE.md hard rule
                 check=False,  # gitleaks exits non-zero when it finds secrets
             )
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except subprocess.TimeoutExpired:
+            # Did not finish: distinct from a clean run.
+            return None
+        except FileNotFoundError:
+            # Binary vanished between the PATH check and the spawn; treat as
+            # absent, which callers already detect and report.
             return []
         try:
             stdout = report_path.read_text(encoding="utf-8")
@@ -381,7 +393,7 @@ def _run_gitleaks_target(
     return _parse_gitleaks_json(stdout, source=source)
 
 
-def scan_git_history(repo_path: Path, *, timeout: float) -> list[SecretHit]:
+def scan_git_history(repo_path: Path, *, timeout: float) -> list[SecretHit] | None:
     """HIST-01: gitleaks over a repo's FULL git history (committed-then-deleted
     secrets still count).
 
@@ -389,8 +401,9 @@ def scan_git_history(repo_path: Path, *, timeout: float) -> list[SecretHit]:
     ``gitleaks git <repo_path>`` once over all commits, parses the JSON report
     through the shared ``_parse_gitleaks_json`` helper, and stamps
     ``source="gitleaks-history"`` so the report can distinguish a history hit
-    from a working-tree hit. Returns ``[]`` when gitleaks is not on PATH (the
-    Wave-1 history collector maps absence to ``unavailable``) or on timeout.
+    from a working-tree hit. Returns ``[]`` when gitleaks ran clean or is not
+    on PATH (the history collector maps absence to ``unavailable``), and
+    ``None`` when gitleaks did not finish within ``timeout``.
 
     The value-blind contract is inherited verbatim from ``_parse_gitleaks_json``:
     ``--redact`` is passed and the raw ``Secret`` value is never stored on a
@@ -401,15 +414,16 @@ def scan_git_history(repo_path: Path, *, timeout: float) -> list[SecretHit]:
     )
 
 
-def scan_working_tree(repo_path: Path, *, timeout: float) -> list[SecretHit]:
+def scan_working_tree(repo_path: Path, *, timeout: float) -> list[SecretHit] | None:
     """COLL-03 one-shot working-tree scan via ``gitleaks dir <repo>``.
 
     The working-tree equivalent of ``scan_git_history`` and the replacement for
     the old per-file ``gitleaks stdin`` loop (the folded
     "invoke-gitleaks-once-per-repo" todo: thousands of spawns and tens of minutes on a large monorepo
     collapse to ONE invocation). Stamps ``source="gitleaks"`` so working-tree
-    hits keep their faithful attribution. Returns ``[]`` when gitleaks is absent
-    or on timeout.
+    hits keep their faithful attribution. Returns ``[]`` when gitleaks ran
+    clean or is absent, and ``None`` when gitleaks did not finish within
+    ``timeout``.
     """
     return _run_gitleaks_target(
         "dir", Path(repo_path), timeout=timeout, source="gitleaks"

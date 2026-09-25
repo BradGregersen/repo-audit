@@ -23,9 +23,13 @@ The pipeline:
        egress — Pitfall 3, T-10-03-03).
     3. Gate on the run_tool sentinels: TIMED_OUT (-2) → status='timeout';
        EXEC_FAILED (-1) → status='unavailable'.
-    4. Parse stdout as SARIF through the SINGLE parse path (FND-01). Semgrep
-       exits 0 EVEN WITH findings, so we gate on whether stdout PARSES, not on
-       returncode (Pitfall 6, T-10-03-04). Unparseable stdout → unavailable.
+    4. Gate on the exit code: semgrep succeeds with 0 (clean) or 1 (findings);
+       any other exit (e.g. 7 for a missing registry pack) → unavailable. Then
+       parse stdout as SARIF through the SINGLE parse path (FND-01);
+       unparseable stdout → unavailable. A SARIF run carrying a
+       ``toolExecutionNotifications`` entry at ``level: error`` →
+       unavailable, because semgrep can exit cleanly after failing to load a
+       rule pack.
     5. apply_noise_floor (SAST-02) → drop_anon_key_secrets (SAST-03) →
        annotate_owasp (OWASP/CWE tags) — in that order.
     6. Extract scanner_version from the SARIF driver (FeedProvenance, Plan 04).
@@ -52,6 +56,7 @@ from repo_audit.adapters.sast import SastResult
 from repo_audit.adapters.sast.anon import drop_anon_key_secrets
 from repo_audit.adapters.sast.noise import DEFAULT_EXCLUDES, apply_noise_floor
 from repo_audit.adapters.sast.owasp import annotate_owasp
+from repo_audit.adapters.sca.refresh import _redact_tail
 from repo_audit.adapters.toolops import EXEC_FAILED, TIMED_OUT, run_tool
 
 # Default wall-clock bound for a single Semgrep run over a repo (Pitfall 5 —
@@ -60,6 +65,44 @@ _SAST_TIMEOUT_SECONDS: float = 180.0
 
 _SOURCE_TOOL = "semgrep"
 _DIMENSION = "security"
+
+# semgrep exit codes that mean the scan ran: 0 = clean, 1 = findings. Anything
+# else (2 = fatal error, 7 = missing config, ...) is a failed run.
+_SUCCESS_EXIT_CODES: frozenset[int] = frozenset({0, 1})
+
+# Bound on the stderr tail carried into SastResult.notes (after whitespace is
+# collapsed to one line).
+_STDERR_TAIL_CHARS: int = 300
+
+
+def _stderr_tail(text: str) -> str:
+    """A bounded, single-line, secret-linted tail of a tool's stderr."""
+    one_line = " ".join((text or "").split())
+    return _redact_tail(one_line[-_STDERR_TAIL_CHARS:]) or "(no stderr)"
+
+
+def _first_execution_error(sarif: object) -> Optional[str]:
+    """Return the message of the first error-level execution notification.
+
+    Walks ``runs[*].invocations[*].toolExecutionNotifications[*]`` defensively:
+    any missing or non-dict level is skipped. Returns ``None`` when there is no
+    error-level notification.
+    """
+    if not isinstance(sarif, dict):
+        return None
+    for run in sarif.get("runs") or []:
+        if not isinstance(run, dict):
+            continue
+        for invocation in run.get("invocations") or []:
+            if not isinstance(invocation, dict):
+                continue
+            for note in invocation.get("toolExecutionNotifications") or []:
+                if not isinstance(note, dict) or note.get("level") != "error":
+                    continue
+                message = note.get("message")
+                text = message.get("text") if isinstance(message, dict) else None
+                return text if isinstance(text, str) else ""
+    return None
 
 
 def _semgrep_argv(
@@ -151,7 +194,9 @@ def collect_semgrep(
     Returns:
         A :class:`SastResult`. ``status='ok'`` with security-dimension
         static/candidate findings on success; ``status='unavailable'`` when
-        semgrep is absent, exec-failed, or stdout is not parseable SARIF;
+        semgrep is absent, exec-failed, exits outside {0, 1}, prints stdout
+        that is not parseable SARIF, or reports an error-level execution
+        notification;
         ``status='timeout'`` when the run exceeds ``timeout_seconds``. NEVER
         raises and NEVER hangs.
     """
@@ -181,16 +226,35 @@ def collect_semgrep(
             notes=f"semgrep could not be executed: {invocation.stderr}",
         )
 
-    # Gate on whether stdout PARSES as SARIF, NOT on returncode: Semgrep exits 0
-    # even with findings present, so a non-zero exit is a tool problem rather
-    # than a "found issues" signal, and an unparseable stdout is unavailable
-    # (Pitfall 6, T-10-03-04).
+    # Gate on the exit code first: 0 (clean) and 1 (findings) are the only
+    # success codes. Then stdout must parse as SARIF, and the SARIF must carry
+    # no error-level execution notification (semgrep can exit cleanly after
+    # failing to load a rule pack). Each failure is 'unavailable', never 'ok'.
+    if invocation.returncode not in _SUCCESS_EXIT_CODES:
+        return SastResult(
+            status="unavailable",
+            notes=(
+                f"semgrep exited {invocation.returncode}, which is not a "
+                f"success code; stderr: {_stderr_tail(invocation.stderr)}"
+            ),
+        )
+
     try:
         sarif = json.loads(invocation.stdout)
     except (json.JSONDecodeError, ValueError):
         return SastResult(
             status="unavailable",
             notes="semgrep produced no parseable SARIF",
+        )
+
+    execution_error = _first_execution_error(sarif)
+    if execution_error is not None:
+        return SastResult(
+            status="unavailable",
+            notes=(
+                "semgrep reported an execution error: "
+                + _stderr_tail(execution_error)
+            ),
         )
 
     # SARIF is the SINGLE finding source (FND-01). The empty severity_map selects

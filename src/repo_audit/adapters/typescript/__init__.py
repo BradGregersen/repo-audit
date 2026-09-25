@@ -34,6 +34,7 @@ falls through to ``status='unavailable'`` until Wave 2 lands.
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -43,9 +44,39 @@ from repo_audit.adapters.base import AdapterResult, InvocationResult
 from repo_audit.adapters.cache_env import build_scan_env, scan_tempdir
 from repo_audit.adapters.registry import register_adapter
 from repo_audit.adapters.resolution import resolve_tool
+from repo_audit.adapters.sca.refresh import _redact_tail
 from repo_audit.adapters.toolops import EXEC_FAILED, run_tool
 from repo_audit.adapters.typescript.detection import detect_eslint_config
 from repo_audit.schema.detection import DetectionResult
+
+
+# --- per-tool success exit codes -------------------------------------------
+#
+# Any exit code outside a tool's set means the tool failed, and the result is
+# 'unavailable' -- never 'ok' with zero findings.
+_SUCCESS_EXIT_CODES: dict[str, frozenset[int]] = {
+    # eslint: 0 = clean, 1 = lint problems found; 2 = config error or crash.
+    "eslint": frozenset({0, 1}),
+    # tsc: 0 = clean, 1/2 = diagnostics present; higher = invalid project.
+    "tsc": frozenset({0, 1, 2}),
+    # knip: 0 = clean, 1 = issues found; 2 = config error.
+    "knip": frozenset({0, 1}),
+}
+# A tool not listed above succeeds only on exit 0.
+_DEFAULT_SUCCESS_EXIT_CODES: frozenset[int] = frozenset({0})
+
+# Tools whose stdout must parse as JSON when non-empty.
+_JSON_STDOUT_TOOLS: frozenset[str] = frozenset({"eslint", "knip"})
+
+# Bound on the stderr tail carried into AdapterResult.notes (after whitespace
+# is collapsed to one line).
+_STDERR_TAIL_CHARS: int = 300
+
+
+def _stderr_tail(text: str) -> str:
+    """A bounded, single-line, secret-linted tail of a tool's stderr."""
+    one_line = " ".join((text or "").split())
+    return _redact_tail(one_line[-_STDERR_TAIL_CHARS:]) or "(no stderr)"
 
 
 # --- adapter.yaml load (T-03-01 safe-mode) --------------------------------
@@ -174,9 +205,16 @@ def _run_subprocess_tool(
         1. ``resolve_tool`` returns None ⇒ unavailable.
         2. Subprocess raises FileNotFoundError ⇒ unavailable.
         3. Subprocess times out (returncode == -2) ⇒ timeout.
-        4. Parser module absent (ModuleNotFoundError) ⇒ unavailable.
-        5. Parser raises any other exception ⇒ unavailable + notes.
-        6. Parser returns non-list ⇒ unavailable + notes.
+        4. Exit code outside the tool's ``_SUCCESS_EXIT_CODES`` set ⇒
+           unavailable + exit code + stderr tail.
+        5. eslint / knip: non-empty stdout that is not valid JSON ⇒
+           unavailable + stderr tail.
+        6. Parser module absent (ModuleNotFoundError) ⇒ unavailable.
+        7. Parser raises any other exception ⇒ unavailable + notes.
+        8. Parser returns non-list ⇒ unavailable + notes.
+        9. tsc: non-zero exit but no diagnostic parsed ⇒ unavailable +
+           stderr tail (a non-zero exit means diagnostics exist; an empty
+           parse means they could not be read).
 
     Wave 1: paths (4)–(6) are the expected outcome for every tool
     because the parser modules don't ship until Wave 2.
@@ -241,6 +279,27 @@ def _run_subprocess_tool(
             dimension=dimension,
         )
 
+    rc = invocation.returncode
+    success_codes = _SUCCESS_EXIT_CODES.get(tool_name, _DEFAULT_SUCCESS_EXIT_CODES)
+    if rc not in success_codes:
+        return _make_unavailable(
+            tool_name,
+            dimension,
+            f"{tool_name} exited {rc}, which is not a success code; "
+            f"stderr: {_stderr_tail(invocation.stderr)}",
+        )
+
+    if tool_name in _JSON_STDOUT_TOOLS and invocation.stdout.strip():
+        try:
+            json.loads(invocation.stdout)
+        except ValueError:
+            return _make_unavailable(
+                tool_name,
+                dimension,
+                f"{tool_name} stdout is not valid JSON; "
+                f"stderr: {_stderr_tail(invocation.stderr)}",
+            )
+
     parser_path = tool_cfg.get("parser") or tool_cfg.get("parser_dotted_path")
     if not parser_path:
         return _make_unavailable(
@@ -277,6 +336,14 @@ def _run_subprocess_tool(
             tool_name,
             dimension,
             f"{tool_name} parser returned {type(findings).__name__}, not list",
+        )
+
+    if tool_name == "tsc" and rc != 0 and not findings:
+        return _make_unavailable(
+            tool_name,
+            dimension,
+            f"tsc exited {rc} but reported no parseable diagnostic; "
+            f"stderr: {_stderr_tail(invocation.stderr)}",
         )
 
     return AdapterResult(

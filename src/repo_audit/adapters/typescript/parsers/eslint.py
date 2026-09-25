@@ -105,9 +105,10 @@ def _route(rule_id: str, severity_int: int) -> tuple[str, str, str | None]:
 def parse(inv: InvocationResult) -> list[Finding]:
     """Transform eslint JSON output into Findings.
 
-    Adapter contract: invoked when ``status='ok'``. Tolerates malformed
-    JSON by returning ``[]`` (the adapter then flips status to
-    ``'unavailable'`` based on stdout JSON parse failure at the boundary).
+    Adapter contract: invoked only after the exit code is in eslint's
+    success set. This parser keeps returning ``[]`` on malformed JSON; the
+    gate that turns unparseable stdout into ``status='unavailable'`` lives in
+    the adapter, ``typescript._run_subprocess_tool``, before this runs.
     """
     try:
         per_file: list[Any] = json.loads(inv.stdout or "[]")

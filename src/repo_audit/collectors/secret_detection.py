@@ -159,7 +159,8 @@ def run(
     Returns:
         CollectorResult with status='ok' when gitleaks is available and the
         whole index was swept; status='partial' when gitleaks is absent
-        (precision drop); status='timeout' when the scan deadline cut the
+        (precision drop) or did not finish its working-tree run within its
+        timeout; status='timeout' when the scan deadline cut the
         sweep short (partial coverage, honestly disclosed).
     """
     repo_path = Path(repo_path).resolve()
@@ -214,13 +215,21 @@ def run(
     # File field per hit, which we use directly for attribution. Stamped
     # source="gitleaks" inside scan_working_tree. remaining<=0 -> the sibling
     # skips the call; the per-file in-process backstop below still runs.
+    # A None from scan_working_tree means gitleaks did not finish (timeout or
+    # no budget left) -- reported as 'partial' below, never as a clean 'ok'.
+    gitleaks_incomplete = False
+    gl_timeout = 0.0
     if GITLEAKS_AVAILABLE:
         rem = remaining_seconds(deadline)
         gl_timeout = 30.0 if rem is None else min(30.0, rem)
-        for hit in scan_working_tree(repo_path, timeout=gl_timeout):
-            # gitleaks reports File as a repo-relative path already; default to
-            # "" when absent so the Finding still constructs.
-            _emit(hit, hit.file or "")
+        gl_hits = scan_working_tree(repo_path, timeout=gl_timeout)
+        if gl_hits is None:
+            gitleaks_incomplete = True
+        else:
+            for hit in gl_hits:
+                # gitleaks reports File as a repo-relative path already; default
+                # to "" when absent so the Finding still constructs.
+                _emit(hit, hit.file or "")
 
     # 05.1-gap: shared-deadline guard so the per-file in-process loop can never
     # run past the scan budget.
@@ -293,6 +302,12 @@ def run(
         notes = (
             f"scan time budget reached after {scanned_files} files; "
             "remaining files not swept for secrets"
+        )
+    elif gitleaks_incomplete:
+        status = "partial"
+        notes = (
+            f"gitleaks did not finish within {gl_timeout:.0f}s -- working tree "
+            "covered by the known-pattern backstop only"
         )
     else:
         status = "ok" if GITLEAKS_AVAILABLE else "partial"

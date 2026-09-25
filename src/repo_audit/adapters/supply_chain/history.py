@@ -31,7 +31,7 @@ Cost / timeout (Pitfall 3 / T-12-02-DOS):
     The full-history walk runs OUTSIDE the 95 s per-collector deadline that
     bounds ``secret_detection``. It carries its OWN generous timeout
     (``_HISTORY_TIMEOUT_SECONDS``, default ~900 s) per the v2.0 "cost no object"
-    stance. On timeout, ``scan_git_history`` returns ``[]`` and this collector
+    stance. On timeout, ``scan_git_history`` returns ``None`` and this collector
     reports ``status='timeout'`` so the scope ledger discloses the bounded walk.
 
 Degrade-honestly (SAFE-08 / D-12-04):
@@ -60,8 +60,8 @@ HistoryStatus = Literal["ok", "unavailable", "timeout"]
 
 # GENEROUS timeout: the full-history walk runs OUTSIDE the 95 s per-collector
 # deadline (Pitfall 3). v2.0 "cost no object" — a 10-minute walk on a large repo
-# is accepted, not a bug. On timeout scan_git_history returns [] and we report
-# status='timeout'.
+# is accepted, not a bug. On timeout scan_git_history returns None and we
+# report status='timeout'.
 _HISTORY_TIMEOUT_SECONDS: float = 900.0
 
 
@@ -198,16 +198,24 @@ def collect_git_history(
         return HistoryResult(status="unavailable", notes="gitleaks not found")
 
     # Full-history walk (Pitfall 3): GENEROUS timeout, runs OUTSIDE the 95 s
-    # collector deadline. scan_git_history already never raises (it catches
-    # TimeoutExpired/FileNotFoundError internally and returns []).
+    # collector deadline. scan_git_history already never raises: it returns
+    # None when the walk did not finish, and [] when gitleaks ran clean.
     try:
-        hits: list[SecretHit] = scan_git_history(
+        hits: list[SecretHit] | None = scan_git_history(
             repo_path, timeout=_HISTORY_TIMEOUT_SECONDS
         )
     except Exception as exc:  # defensive — never raise across the boundary
         return HistoryResult(
             status="unavailable",
             notes=f"history scan failed unexpectedly: {type(exc).__name__}",
+        )
+    if hits is None:
+        return HistoryResult(
+            status="timeout",
+            notes=(
+                f"gitleaks history walk did not finish within "
+                f"{_HISTORY_TIMEOUT_SECONDS:.0f}s; history not fully scanned"
+            ),
         )
 
     # Build a Finding per hit, then dedup against the working-tree key set so a
