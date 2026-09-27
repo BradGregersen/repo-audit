@@ -1,7 +1,7 @@
 """SC-6 host-independent unit test (checker Blocker 6).
 
 Validates the D-46 cache-redirection contract WITHOUT requiring the
-``/path/to/example-app`` fleet (or any live TS toolchain) to be present. The
+``$REPO_AUDIT_LIVE_TARGET`` checkout (or any live TS toolchain) to be present. The
 full integration test at
 ``tests/adapters/test_integration_typescript.py::test_post_scan_repo_clean``
 stays as a separate live-binary check (gated by ``-m integration``).

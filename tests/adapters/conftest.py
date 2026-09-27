@@ -8,7 +8,7 @@ rules. This module adds adapter-specific fixtures:
   triple from ``tests/adapters/fixtures/{tool}/{scenario}/``. Lets parser tests
   feed real-world tool output shapes into the parsers without invoking a live
   TS toolchain. The shapes were captured live against
-  ``/path/to/example-app/node_modules/.bin/`` during 03-RESEARCH and committed
+  ``$REPO_AUDIT_LIVE_TARGET/node_modules/.bin/`` and committed
   to git (T-03-13 disposition: accept; review of fixture diffs is the safeguard).
 
 - ``ts_fixture_repo`` / ``ts_fixture_repo_no_lcov`` / ``ts_fixture_repo_stale_lcov``
@@ -23,7 +23,7 @@ rules. This module adds adapter-specific fixtures:
 - ``mock_ts_tools_subprocess`` — factory that registers canned tsc/eslint/knip
   subprocess responses via pytest-subprocess (``fp`` fixture). Enables the
   host-independent SC-6 unit test (checker Blocker 6) — the adapter can run
-  end-to-end without ``/path/to/example-app`` being present.
+  end-to-end without ``$REPO_AUDIT_LIVE_TARGET/node_modules`` being present.
 """
 from __future__ import annotations
 
@@ -36,6 +36,8 @@ from typing import Callable
 
 import pygit2
 import pytest
+
+from tests.live_targets import require_live_target
 
 
 # --- Module-level constants ------------------------------------------------
@@ -207,15 +209,12 @@ def lcov_path(request) -> Path:
 # --- Plan 03-05 integration-only fixture: symlinked dogfood toolchain ----
 
 
-_DOGFOOD_NODE_MODULES = Path("/path/to/example-app/node_modules")
-
-
 @pytest.fixture
 def ts_fixture_repo_with_tools(tmp_path) -> Path:
     """Integration-only: tmp_path TS repo + symlinked dogfood node_modules.
 
-    Skips if ``/path/to/example-app/node_modules`` is not present (CI without
-    the dogfood checkout). The symlink makes
+    The node_modules come from ``$REPO_AUDIT_LIVE_TARGET/node_modules``; skips
+    when that variable is unset or the directory is missing. The symlink makes
     ``tmp_path/node_modules/.bin/{tsc,eslint,knip}`` resolve transparently
     so the adapter's ``resolve_tool`` walk-up finds real binaries without
     the cost of a per-test ``npm install``.
@@ -224,10 +223,7 @@ def ts_fixture_repo_with_tools(tmp_path) -> Path:
     (would write to the dogfood repo). Adapters in this codebase only READ
     from node_modules, so the contract is naturally honored.
     """
-    if not _DOGFOOD_NODE_MODULES.is_dir():
-        pytest.skip(
-            f"dogfood node_modules not present at {_DOGFOOD_NODE_MODULES}"
-        )
+    node_modules = require_live_target("node_modules")
     repo = tmp_path / "ts-with-tools"
     repo.mkdir()
     (repo / "package.json").write_text(
@@ -244,7 +240,7 @@ def ts_fixture_repo_with_tools(tmp_path) -> Path:
     (repo / "eslint.config.js").write_text(
         "export default [];\n", encoding="utf-8",
     )
-    os.symlink(_DOGFOOD_NODE_MODULES, repo / "node_modules")
+    os.symlink(node_modules, repo / "node_modules")
     # Make it a real git repo so post-flight git_status works.
     pygit2.init_repository(str(repo), bare=False)
     r = pygit2.Repository(str(repo))

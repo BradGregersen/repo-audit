@@ -260,6 +260,13 @@ uv run pytest                 # full suite; finishes in minutes
 uv run pytest -m integration  # just the live-binary tests
 ```
 
+The live end-to-end tests skip unless `REPO_AUDIT_LIVE_TARGET` points at a checkout
+of a multi-stack app with `node_modules/` installed (the Supabase tests also need a
+`packages/api-client/sql` directory of numbered migrations) and
+`REPO_AUDIT_LIVE_COMPANION` points at a second git repository, used for the
+redaction canary. The vulnerability-reproducibility tests skip until
+`repo-audit scan --refresh-vuln-db` has seeded the local database.
+
 Tech stack: Python 3.11+, [Typer](https://typer.tiangolo.com/) CLI,
 [pydantic](https://docs.pydantic.dev/) models,
 [Jinja2](https://jinja.palletsprojects.com/) report templates,

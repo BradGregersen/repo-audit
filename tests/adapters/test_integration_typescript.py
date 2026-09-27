@@ -7,7 +7,7 @@
 Default suite (``pytest -q``) skips on (1) until Wave 1 lands; once Wave 1
 lands, default suite skips on (2). Live integration runs require an actual
 TS toolchain in ``<repo>/node_modules/.bin/`` (verified live in 03-RESEARCH
-against ``/path/to/example-app``).
+against the checkout named by ``$REPO_AUDIT_LIVE_TARGET``).
 
 The canonical SC-6 live-binary check (``test_post_scan_repo_clean``) lives
 here per checker Warning 10. A host-independent unit-test counterpart lives

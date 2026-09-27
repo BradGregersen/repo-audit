@@ -2,8 +2,9 @@
 
 Gated behind `pytest -m integration`. Requires:
   - Claude Code CLI auth (for the agent-path test)
-  - a real multi-stack app repo at EXAMPLE_APP_PATH (with node_modules present)
-  - a real companion repo at COMPANION_APP_PATH (for the entropy-redaction canary)
+  - REPO_AUDIT_LIVE_TARGET set to a multi-stack app checkout (node_modules installed)
+  - REPO_AUDIT_LIVE_COMPANION set to a second git repo (for the entropy-redaction canary),
+    each test skipping otherwise
 
 pytest cannot evaluate prose quality, only structural shape; narrative quality
 is reviewed by hand.
@@ -20,8 +21,7 @@ from pathlib import Path
 
 import pytest
 
-EXAMPLE_APP_PATH = Path("/path/to/example-app")
-COMPANION_APP_PATH = Path("/path/to/example-companion-app")
+from tests.live_targets import require_live_companion, require_live_target
 
 
 pytestmark = pytest.mark.integration
@@ -49,25 +49,19 @@ def _written_report_paths(stdout: bytes) -> tuple[Path, Path]:
     return md, js
 
 
-def _skip_if_no_example_app():
-    if not EXAMPLE_APP_PATH.exists():
-        pytest.skip(f"{EXAMPLE_APP_PATH} not available on this machine")
-    if not (EXAMPLE_APP_PATH / ".git").exists():
-        pytest.skip(f"{EXAMPLE_APP_PATH} is not a git repo")
+def _skip_if_no_example_app() -> Path:
+    return require_live_target(git=True)
 
 
-def _skip_if_no_companion_app():
-    if not COMPANION_APP_PATH.exists():
-        pytest.skip(f"{COMPANION_APP_PATH} not available on this machine")
-    if not (COMPANION_APP_PATH / ".git").exists():
-        pytest.skip(f"{COMPANION_APP_PATH} is not a git repo")
+def _skip_if_no_companion_app() -> Path:
+    return require_live_companion()
 
 
 # timeout: its own subprocess budget is 1200 s; the global 120 s stall-cap would fire on a healthy run.
 @pytest.mark.timeout(1260)
 def test_example_app_scan_produces_narrative():
     """Live agent loop produces a report with non-empty dimension narratives."""
-    _skip_if_no_example_app()
+    target = _skip_if_no_example_app()
 
     # `repo-audit scan` runs default-on deep tiers: typed detekt (a throwaway-copy
     # gradle build, --typed-detekt defaults True), expo-doctor, and type-coverage.
@@ -77,7 +71,7 @@ def test_example_app_scan_produces_narrative():
     # narrative time on top. 1200 s is a tripwire for an unbounded hang/walk,
     # well above that envelope.
     result = subprocess.run(
-        ["uv", "run", "repo-audit", "scan", str(EXAMPLE_APP_PATH)],
+        ["uv", "run", "repo-audit", "scan", str(target)],
         capture_output=True, timeout=1200,
     )
     if "unavailable_auth_missing" in result.stderr.decode():
@@ -133,9 +127,9 @@ def test_no_agent_path_produces_report():
     QUIET host — leaked gradle/kotlin daemons or gitleaks/scan children from a
     killed prior run compete for CPU and inflate this badly; reap them first.)
     """
-    _skip_if_no_example_app()
+    target = _skip_if_no_example_app()
     result = subprocess.run(
-        ["uv", "run", "repo-audit", "scan", "--no-agent", str(EXAMPLE_APP_PATH)],
+        ["uv", "run", "repo-audit", "scan", "--no-agent", str(target)],
         capture_output=True, timeout=900,
     )
     assert result.returncode == 0
@@ -172,9 +166,9 @@ def test_companion_app_no_agent_exit0():
     tokens, item 3 would need downgrading to "field exists as a list" — but that
     is not the expected state of this canary repo.
     """
-    _skip_if_no_companion_app()
+    companion = _skip_if_no_companion_app()
     result = subprocess.run(
-        ["uv", "run", "repo-audit", "scan", "--no-agent", str(COMPANION_APP_PATH)],
+        ["uv", "run", "repo-audit", "scan", "--no-agent", str(companion)],
         capture_output=True, timeout=120,
     )
     # 1. exit 0 (was exit 2 before the redact-and-continue split).

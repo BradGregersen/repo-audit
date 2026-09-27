@@ -29,12 +29,9 @@ from typing import Any, Callable
 
 import pytest
 
-_FIXTURES = Path(__file__).parent / "fixtures"
+from tests.live_targets import require_live_target
 
-# The example app has NO supabase/migrations/ — its SQL lives here (RESEARCH Pitfall 1,
-# D-08-13). The two-account runtime script and the real lint corpus reference
-# this path; it MUST stay host-independent via the skip below.
-_EXAMPLE_APP_SQL_DIR = Path("/path/to/example-app/packages/api-client/sql")
+_FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def _load_json(name: str) -> Any:
@@ -154,9 +151,8 @@ def example_app_sql_dir() -> Path:
     """Path to the example app's real SQL dir, or ``pytest.skip`` when absent.
 
     The Phase 3 host-independence lesson: any fixture that points at a real
-    checkout under ``/path/to/repos`` must skip cleanly when that path is not
-    present (CI / another machine), never fail.
+    checkout must skip cleanly when that path is not present (CI / another
+    machine), never fail. The dir is ``$REPO_AUDIT_LIVE_TARGET/packages/api-client/sql``
+    (numbered migrations).
     """
-    if not _EXAMPLE_APP_SQL_DIR.is_dir():
-        pytest.skip(f"example-app SQL dir not present at {_EXAMPLE_APP_SQL_DIR}")
-    return _EXAMPLE_APP_SQL_DIR
+    return require_live_target("packages/api-client/sql")
