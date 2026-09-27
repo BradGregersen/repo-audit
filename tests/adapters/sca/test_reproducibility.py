@@ -14,8 +14,8 @@ These catch argv-shape bugs the recorded-fixture unit tests cannot — the Phase
 lesson (each adapter needs at least one live-binary integration test).
 
 SKIP discipline: when the persistent vuln-DB is unseeded AND we cannot reach the
-network to seed it, the test SKIPs cleanly (the first-run seed is the documented
-manual step, VALIDATION.md). When the vendored binaries are absent it SKIPs too.
+network to seed it, the test SKIPs cleanly (seed it once with
+``repo-audit scan --refresh-vuln-db``). When the vendored binaries are absent it SKIPs too.
 """
 from __future__ import annotations
 
@@ -57,7 +57,8 @@ def _guard(repo: Path) -> None:
         pytest.skip("vendored osv-scanner/grype not present")
     if not _osv_db_seeded():
         pytest.skip(
-            "vuln-DB unseeded; first-run seed is a manual/network step (VALIDATION.md)"
+            "vuln-DB not seeded; run `repo-audit scan --refresh-vuln-db` once "
+            "(needs network) to seed it"
         )
 
 
