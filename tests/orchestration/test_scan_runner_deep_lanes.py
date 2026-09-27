@@ -1,4 +1,4 @@
-"""scan_runner Phase-16 dynamic/deep-lane wiring tests (Plan 16-07).
+"""scan_runner wiring tests for the dynamic/deep lanes (e2e, fuzz, CodeQL, DAST, BYO commercial).
 
 Proves the orchestration-level wiring of the five Phase-16 lanes
 (``run_e2e`` / ``run_fuzz`` / ``run_codeql`` / ``run_dast`` /

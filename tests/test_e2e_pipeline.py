@@ -1,4 +1,4 @@
-"""End-to-end Phase 4 pipeline test (mocked SDK, full render flow).
+"""End-to-end pipeline test (mocked SDK, full render flow).
 
 Verifies the 6-stage chokepoint pipeline runs in order:
   collectors → adapters → agent → faithfulness → dilution →

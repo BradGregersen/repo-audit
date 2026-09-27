@@ -1,4 +1,4 @@
-"""D-55: 3+ invalid emit_report calls; repair loop exhausts."""
+"""Three or more invalid emit_report calls; the repair loop exhausts."""
 from claude_agent_sdk import AssistantMessage, ToolUseBlock
 
 _INVALID_PAYLOAD = {"dimensions": "should be a list — triggers ValidationError"}

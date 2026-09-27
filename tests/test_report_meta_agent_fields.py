@@ -1,4 +1,4 @@
-"""Plan 04-03 — ReportMeta Phase 4 additive extension (D-65, D-67, D-69, D-70).
+"""ReportMeta agent-status and additive-field contract tests.
 
 These tests pin the additive-extension contract:
 - AgentStatus Literal covers exactly the 6 D-67 states.

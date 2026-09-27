@@ -1,4 +1,4 @@
-"""Plan 11-05 — per-tool LIVE-BINARY integration tests (the Phase-3 argv-shape guard).
+"""Per-tool live-binary integration tests for the stack-depth tools (argv-shape guard).
 
 Phase-3 lesson (Plan 03-05 deviation, Pitfall 5): an argv-shape bug (``--pretty=false``
 vs ``["--pretty", "false"]``) went undetected until a live dogfood scan because no
