@@ -70,7 +70,8 @@ the tool at a repository.
 
 ## Install and run
 
-Requires Python 3.11–3.12.
+Requires Python 3.11–3.12. Runs on Linux x86_64; on Windows, use it inside WSL2. The vendored
+scanner binaries are Linux builds, so native Windows and macOS are not supported.
 
 ```bash
 git clone https://github.com/BradGregersen/repo-audit
