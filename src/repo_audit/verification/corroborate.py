@@ -158,8 +158,8 @@ def _winning_tier(
         if len(tools) >= 2:
             return "locus", sorted(tools)
 
-    # tier-3 coarse: same dim+file, tool diversity ≥2.
-    if is_corroborated(finding, all_findings):
+    # tier-3 coarse: same dim+file, tool diversity ≥2; needs a file.
+    if f_file and is_corroborated(finding, all_findings):
         coarse_peers = [
             f
             for f in all_findings

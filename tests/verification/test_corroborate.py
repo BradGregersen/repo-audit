@@ -180,3 +180,27 @@ def test_is_corroborated_still_exported(fake_finding):
     a = fake_finding(source_tool="osv", file="src/a.py", dimension="security")
     b = fake_finding(source_tool="grype", file="src/a.py", dimension="security")
     assert is_corroborated(a, [a, b]) is True
+
+
+def test_fileless_findings_do_not_coarse_corroborate(fake_finding):
+    """Two file-less rows in one dimension from different tools are not agreement."""
+    a = fake_finding(
+        dimension="quality", file=None, line=None,
+        source_tool="lighthouse", rule_id="perf-summary",
+    )
+    b = fake_finding(
+        dimension="quality", file=None, line=None,
+        source_tool="metro", rule_id="bundle-size-summary",
+    )
+    out, records = tiered_corroborate([a, b])
+    assert all(f.confidence == "candidate" for f in out)
+    assert not any(r.corroboration_tier == "coarse" for r in records)
+
+
+def test_fileless_findings_still_corroborate_by_identity(fake_finding):
+    """Two tools reporting the same rule with no file still agree by identity."""
+    a = fake_finding(file=None, line=None, source_tool="osv", rule_id="CVE-2026-0002")
+    b = fake_finding(file=None, line=None, source_tool="grype", rule_id="CVE-2026-0002")
+    out, records = tiered_corroborate([a, b])
+    assert all(f.confidence == "corroborated" for f in out)
+    assert any(r.corroboration_tier == "identity" for r in records)
