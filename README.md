@@ -12,61 +12,13 @@ auto-detected from its manifest files.
 
 ## Maturity
 
-Not every dimension is equally exercised. Where a capability stands today:
-
 | Status | Capabilities |
 |---|---|
-| **Proven** — run against real repositories | SARIF adapter foundation · dependency/CVE scanning · SAST · stack-depth and test-integrity adapters · supply-chain and git-history secrets · CI/CD and IaC · architecture fitness and duplication · the verification layer · synthesis and prioritization · issue filing · Supabase/RLS runtime enforcement check (run once against a live production database — scope below) |
+| **Proven** — run against real repositories | SARIF adapter foundation · dependency/CVE scanning · SAST · stack-depth and test-integrity adapters · supply-chain and git-history secrets · CI/CD and IaC · architecture fitness and duplication · the verification layer · synthesis and prioritization · issue filing · Supabase/RLS runtime enforcement check (run once against a live production database — scope under [What the report covers](#what-the-report-covers)) |
 | **Fixture-tested** — never run against a live target | mobile pentest / APK scanning |
 | **Incomplete** | The performance regression-finding pipeline |
 
-Fixture-tested means the code exists and is tested against recorded fixtures but
-has never been run against a real APK; findings from that path are unproven
-against live targets. Everything in the Proven row has produced real findings on
-real targets.
-
-The RLS runtime enforcement check (`--rls-runtime`) was run once, on 2026-09-23,
-against the live production Supabase project behind a real React Native app: 21
-two-account probes across 17 tables found zero cross-tenant reads or writes, and
-a forged cross-user insert was rejected by policy. That is a runtime assertion
-about the client (anon/authenticated) path on the tables probed, not proof of RLS
-correctness for unprobed tables, for the service-role path, or for policies added
-after that date.
-
-### Known limitations
-
-These are known, unfixed, and worth knowing before you trust a report or point
-the tool at a repository.
-
-- **It runs the target's own code, with your environment.** Project tools (tsc,
-  eslint, knip and the other npm project tools) resolve from the target's own
-  `node_modules/.bin` first, and `--typed-detekt` (on by default) runs the
-  target's `./gradlew`. Both run as you, with your full environment, including
-  any tokens or credentials in it (for example `GH_TOKEN` or the
-  `--rls-runtime` variables). Security scanners resolve only vendored or PATH
-  binaries. The target's own `.repo-audit.yaml` can switch on DAST (a ZAP
-  container spidering the URL it names), `live_url` web checks, CodeQL
-  autobuild, and bring-your-own commercial scanner wrappers. That file is
-  treated as consent, so scanning a repository executes its configuration. Only
-  scan repositories you would run `npm install` in.
-- **Trend diffing can mislabel fixes.** Findings match across scans on tool +
-  rule + file + line. grype and osv-scanner report absolute paths
-  (`/requirements.txt`, `file:///…`), so the CVEs fixed by a dependency upgrade
-  can read as "vanished with file" rather than "resolved". Inserting a line
-  above a finding reads as one resolved finding plus one new identical finding.
-- **"What matters most" can show the wrong things.** Only corroborated or
-  confirmed findings qualify. Low-severity inventory rows that carry no file can
-  corroborate each other and fill the list. Single-tool candidates are left
-  out, which includes every dependency CVE and committed-secret hit under
-  `--no-agent` and in `fleet`. Candidates cap at major, so the header's
-  blocker/critical count reads zero in those modes. Read the Security section,
-  not only the headline list.
-- **CodeQL has its own license terms.** CodeQL's terms allow academic research
-  and analysis of codebases released under an OSI-approved open-source license.
-  Scanning private or commercial code needs a GitHub Advanced Security license.
-  repo-audit leaves CodeQL off by default; a target's `.repo-audit.yaml` can
-  turn it on. Check that you are entitled to run it before enabling it. See
-  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Fixture-tested means the code is tested against recorded fixtures but has never been run against a real APK, so its findings are unproven on live targets.
 
 ## Install and run
 
@@ -114,11 +66,19 @@ beside it), organized into:
 5. Test integrity
 6. Correctness & data/privacy — the static Supabase checks are proven; the
    opt-in **runtime** RLS enforcement check has one live run behind it (see
-   [Maturity](#maturity) for what that does and does not cover)
+   the note below this list for what that does and does not cover)
 7. Quality / footprint / docs — the performance regression-finding pipeline is
    incomplete and reports nothing useful yet
 8. Process & backlog
 9. Observability & runtime
+
+The RLS runtime enforcement check (`--rls-runtime`) was run once, on 2026-09-23,
+against the live production Supabase project behind a real React Native app: 21
+two-account probes across 17 tables found zero cross-tenant reads or writes, and
+a forged cross-user insert was rejected by policy. That is a runtime assertion
+about the client (anon/authenticated) path on the tables probed, not proof of RLS
+correctness for unprobed tables, for the service-role path, or for policies added
+after that date.
 
 Mobile/APK scanning is opt-in via `--mobsf` / `--apk` and is fixture-tested
 only.
@@ -146,8 +106,43 @@ only.
   download), the default SAST pass fetches Semgrep rule packs over the network
   (`--no-sast` turns it off), and `--typed-detekt` (on by default) runs the
   target's own Gradle build (`./gradlew`) in a throwaway copy for any repo that
-  has a `gradlew` (`--no-typed-detekt` turns it off). Running a target's build
-  script executes that repo's code, so only scan repos you trust with it on.
+  has a `gradlew` (`--no-typed-detekt` turns it off). See
+  [Known limitations](#known-limitations).
+
+### Known limitations
+
+These are known, unfixed, and worth knowing before you trust a report or point
+the tool at a repository.
+
+- **It runs the target's own code, with your environment.** Project tools (tsc,
+  eslint, knip and the other npm project tools) resolve from the target's own
+  `node_modules/.bin` first, and `--typed-detekt` (on by default) runs the
+  target's `./gradlew`. Both run as you, with your full environment, including
+  any tokens or credentials in it (for example `GH_TOKEN` or the
+  `--rls-runtime` variables). Security scanners resolve only vendored or PATH
+  binaries. The target's own `.repo-audit.yaml` can switch on DAST (a ZAP
+  container spidering the URL it names), `live_url` web checks, CodeQL
+  autobuild, and bring-your-own commercial scanner wrappers. That file is
+  treated as consent, so scanning a repository executes its configuration. Only
+  scan repositories you would run `npm install` in.
+- **Trend matching is line-sensitive.** Findings match across scans on tool +
+  rule + file + line, so inserting a line above a finding lists it under
+  Resolved. The moved finding is not listed as new; it shows only in the
+  per-dimension count.
+- **"What matters most" lists only findings with a second signal.** A finding is
+  listed only when two tools agree on it or a reachability or runtime check
+  backs it. A finding from one tool stays in the report body, including a
+  dependency CVE that only one of osv-scanner and grype reports. Scanner
+  severities of critical or blocker are recorded as major and stay major after
+  agreement, so the header's blocker/critical count covers only findings emitted
+  at that level directly (type errors, runtime RLS leaks). Read the Security
+  section, not only the headline list.
+- **CodeQL has its own license terms.** CodeQL's terms allow academic research
+  and analysis of codebases released under an OSI-approved open-source license.
+  Scanning private or commercial code needs a GitHub Advanced Security license.
+  repo-audit leaves CodeQL off by default; a target's `.repo-audit.yaml` can
+  turn it on. Check that you are entitled to run it before enabling it. See
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Install (detail)
 
