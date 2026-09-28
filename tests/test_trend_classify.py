@@ -119,3 +119,83 @@ def test_sc2_deleting_file_with_findings_is_never_resolved(fake_repo):
     statuses = [c.status for c in delta.changes]
     assert statuses.count("vanished_with_file") == 3
     assert statuses.count("resolved") == 0
+
+
+def _sca_finding(*, tool: str, file: str, rule_id: str = "CVE-2026-0001") -> Finding:
+    """A dependency-scanner finding in the path shape the named scanner emits."""
+    return Finding(
+        dimension="security",
+        severity="major",
+        file=file,
+        line=1 if tool == "grype" else None,
+        evidence_type="static",
+        confidence="high",
+        source_tool=tool,
+        source_collector="sca_adapter",
+        rule_id=rule_id,
+        evidence=Evidence(tool=tool, parsed_value={"rule_id": rule_id}),
+    )
+
+
+def test_grype_root_relative_path_resolves_when_lockfile_present(fake_repo):
+    """grype reports ``/requirements.txt``; a fixed CVE with the lockfile present is resolved."""
+    repo = fake_repo({"requirements.txt": "requests==2.0.0\n"})
+    prior = _report([_sca_finding(tool="grype", file="/requirements.txt")], date(2026, 5, 1))
+    current = _report([], date(2026, 5, 28))
+
+    delta = compute_trend(prior, current, repo)
+
+    assert len(delta.changes) == 1
+    assert delta.changes[0].status == "resolved"
+    assert delta.changes[0].file == "requirements.txt"
+
+
+def test_osv_file_uri_path_resolves_when_lockfile_present(fake_repo):
+    """osv-scanner reports a ``file:///`` URI; a fixed CVE with the lockfile present is resolved."""
+    repo = fake_repo({"requirements.txt": "requests==2.0.0\n"})
+    uri = (Path(repo) / "requirements.txt").as_uri()
+    prior = _report([_sca_finding(tool="osv-scanner", file=uri)], date(2026, 5, 1))
+    current = _report([], date(2026, 5, 28))
+
+    delta = compute_trend(prior, current, repo)
+
+    assert len(delta.changes) == 1
+    assert delta.changes[0].status == "resolved"
+    assert delta.changes[0].file == "requirements.txt"
+
+
+def test_grype_root_relative_path_with_lockfile_deleted_is_vanished(fake_repo):
+    """A lockfile deleted from disk is not a fix, whatever the path shape."""
+    repo = fake_repo({"requirements.txt": "requests==2.0.0\n"})
+    (Path(repo) / "requirements.txt").unlink()
+    prior = _report([_sca_finding(tool="grype", file="/requirements.txt")], date(2026, 5, 1))
+    current = _report([], date(2026, 5, 28))
+
+    delta = compute_trend(prior, current, repo)
+
+    assert len(delta.changes) == 1
+    assert delta.changes[0].status == "vanished_with_file"
+
+
+def test_grype_root_relative_path_on_both_sides_is_still_present(fake_repo):
+    repo = fake_repo({"requirements.txt": "requests==2.0.0\n"})
+    prior = _report([_sca_finding(tool="grype", file="/requirements.txt")], date(2026, 5, 1))
+    current = _report([_sca_finding(tool="grype", file="/requirements.txt")], date(2026, 5, 28))
+
+    delta = compute_trend(prior, current, repo)
+
+    assert len(delta.changes) == 1
+    assert delta.changes[0].status == "still_present"
+
+
+def test_path_escaping_repo_root_is_never_resolved(fake_repo):
+    """A ``..`` path never resolves to a file outside the repo root."""
+    repo = fake_repo({"requirements.txt": "requests==2.0.0\n"})
+    (Path(repo).parent / "outside.txt").write_text("x\n")
+    prior = _report([_sca_finding(tool="grype", file="../outside.txt")], date(2026, 5, 1))
+    current = _report([], date(2026, 5, 28))
+
+    delta = compute_trend(prior, current, repo)
+
+    assert len(delta.changes) == 1
+    assert delta.changes[0].status == "vanished_with_file"

@@ -25,8 +25,10 @@ network, no subprocess.
 """
 from __future__ import annotations
 
-from pathlib import Path
+import posixpath
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
+from urllib.parse import unquote, urlparse
 
 from repo_audit.schema.enums import Dimension
 from repo_audit.schema.trend import FindingChange, TrendDelta
@@ -61,6 +63,47 @@ def composite_finding_ref(f: "Finding") -> str:
     source_tool = getattr(f, "source_tool", "") or ""
     rule_id = getattr(f, "rule_id", "") or ""
     file = getattr(f, "file", "") or ""
+    line = getattr(f, "line", "")
+    line = "" if line is None else line
+    return f"{source_tool}::{rule_id}::{file}:{line}"
+
+
+def _normalize_trend_path(file: str | None, repo_root: Path) -> str | None:
+    """Return a scanner-reported path relative to ``repo_root``, or None.
+
+    Dependency scanners do not report plain relative paths: grype reports the
+    scan-root form ``/requirements.txt`` and osv-scanner reports a
+    ``file:///<absolute repo path>/requirements.txt`` URI. Both are reduced to
+    ``requirements.txt`` here. Relative paths pass through normalized. A path
+    that escapes the repo root (any ``..`` part) returns None, so it never
+    counts as present on disk.
+    """
+    if not file:
+        return file
+    path = file
+    if path.startswith("file://"):
+        path = unquote(urlparse(path).path)
+    if path.startswith("/"):
+        relative = None
+        for root in (repo_root, repo_root.resolve()):
+            try:
+                relative = PurePosixPath(path).relative_to(root.as_posix())
+            except ValueError:
+                continue
+            break
+        path = relative.as_posix() if relative is not None else path.lstrip("/")
+    path = posixpath.normpath(path) if path else path
+    if not path or path == "." or ".." in PurePosixPath(path).parts:
+        return None
+    return path
+
+
+def _trend_ref(f: "Finding", repo_root: Path) -> str:
+    """The cross-scan match key with the file path normalized against ``repo_root``."""
+    source_tool = getattr(f, "source_tool", "") or ""
+    rule_id = getattr(f, "rule_id", "") or ""
+    raw = getattr(f, "file", "") or ""
+    file = _normalize_trend_path(raw, repo_root) or raw
     line = getattr(f, "line", "")
     line = "" if line is None else line
     return f"{source_tool}::{rule_id}::{file}:{line}"
@@ -244,17 +287,19 @@ def compute_trend(
     }
 
     # --- Three-way finding classification (RESEARCH Pitfall 2 / SC-2). ---
-    current_refs = {composite_finding_ref(f) for f in current.findings}
+    current_refs = {_trend_ref(f, repo_root) for f in current.findings}
     changes: list[FindingChange] = []
     for f in prior.findings:
-        ref = composite_finding_ref(f)
-        file = getattr(f, "file", None)
+        ref = _trend_ref(f, repo_root)
+        raw_file = getattr(f, "file", None)
+        norm = _normalize_trend_path(raw_file, repo_root)
+        file = norm if norm else raw_file
         if ref in current_refs:
             status = "still_present"
         else:
             # Gone from current. Was it fixed (file still present) or did the
             # file vanish? A deletion is NEVER a fix (anti-cheating).
-            file_present = bool(file) and (repo_root / file).exists()
+            file_present = bool(norm) and (repo_root / norm).exists()
             status = "resolved" if file_present else "vanished_with_file"
         changes.append(
             FindingChange(
