@@ -14,11 +14,11 @@ auto-detected from its manifest files.
 
 | Status | Capabilities |
 |---|---|
-| **Proven** — run against real repositories | SARIF adapter foundation · dependency/CVE scanning · SAST · stack-depth and test-integrity adapters · supply-chain and git-history secrets · CI/CD and IaC · architecture fitness and duplication · the verification layer · synthesis and prioritization · issue filing · Supabase/RLS runtime enforcement check (run once against a live production database — scope under [What the report covers](#what-the-report-covers)) |
-| **Fixture-tested** — never run against a live target | mobile pentest / APK scanning |
+| **Proven** — run against real repositories | SARIF adapter foundation · dependency/CVE scanning · SAST · stack-depth and test-integrity adapters · supply-chain and git-history secrets · CI/CD and IaC · architecture fitness and duplication · the verification layer · synthesis and prioritization · issue filing · Supabase/RLS runtime enforcement check (run once against a live production database) · mobile static scanning — mobsfscan on Android source and MobSF on a release APK (each run once against a live app) — scope for both under [What the report covers](#what-the-report-covers) |
+| **Fixture-tested** — never run against a live target | the `--mobsf-build` diagnostic build path (Gradle `assembleDebug` in a throwaway copy) |
 | **Incomplete** | The performance regression-finding pipeline |
 
-Fixture-tested means the code is tested against recorded fixtures but has never been run against a real APK, so its findings are unproven on live targets.
+Fixture-tested means the code is tested against recorded fixtures but has never been run against a real target, so its findings are unproven on live targets.
 
 ## Install and run
 
@@ -47,8 +47,8 @@ repo-audit fleet ~/Code     # sweep every git repo under a directory
 - **Aggregates many tools behind one entry point** — linters, type checkers,
   SAST/SCA security scanners, architecture and quality probes — and merges them
   into one prioritized report instead of raw tool dumps. The mobile-scanning path
-  runs through the same pipeline but is fixture-tested only (see
-  [Maturity](#maturity)).
+  runs through the same pipeline (see [Maturity](#maturity) for what has been
+  run live).
 - **Trend-aware.** Each scan diffs against the prior report (resolved / still
   present / vanished-with-file).
 
@@ -80,8 +80,13 @@ about the client (anon/authenticated) path on the tables probed, not proof of RL
 correctness for unprobed tables, for the service-role path, or for policies added
 after that date.
 
-Mobile/APK scanning is opt-in via `--mobsf` / `--apk` and is fixture-tested
-only.
+APK scanning is opt-in via `--mobsf` / `--apk`. The two mobile static tiers
+were each run once against the same live React Native app: mobsfscan on
+2026-09-22 against its Android source (85 findings), and MobSF v4.4.6 on
+2026-09-29 against its 85 MB release APK (8 hardcoded-secret candidates, every
+value redacted, 190 s wall-clock, container torn down, target tree unchanged).
+That is one run each on one app, not repeated coverage. The `--mobsf-build`
+path, which builds a debug APK when none exists, has not been run live.
 
 ## What it does not do
 
