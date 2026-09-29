@@ -262,7 +262,9 @@ _DOCKER_START_TIMEOUT_SECONDS: float = 120.0
 _DOCKER_STOP_TIMEOUT_SECONDS: float = 60.0
 # Wall-clock cap for the readiness poll loop after the container starts.
 _READINESS_WAIT_SECONDS: float = 60.0
-# Per-HTTP-call socket timeout so no single REST call can hang the tier.
+# Socket timeout for the short REST calls (readiness, delete_scan). The upload,
+# scan and report_json calls use the caller's ``timeout_seconds`` instead: the
+# scan endpoint is synchronous and a real APK takes minutes to decompile.
 _HTTP_TIMEOUT_SECONDS: float = 30.0
 # Host port the MobSF REST API is published on (container always listens on 8000).
 _HOST_PORT: int = 8000
@@ -308,14 +310,15 @@ def _http_post(
     api_key: str,
     fields: dict[str, str] | None = None,
     file_field: tuple[str, str, bytes] | None = None,
+    timeout: float = _HTTP_TIMEOUT_SECONDS,
 ) -> dict:
     """POST to a MobSF endpoint via stdlib ``urllib`` and return parsed JSON.
 
     No new HTTP dependency (T — stdlib urllib keeps the surface shell-free and
     minimal). ``file_field`` is ``(field_name, filename, content)`` for the
     multipart upload; ``fields`` are form-encoded for the other calls. Every
-    call carries the ``Authorization: <api_key>`` header and a socket timeout so
-    it cannot hang. Any error raises :class:`_MobsfHttpError`.
+    call carries the ``Authorization: <api_key>`` header and a socket
+    ``timeout`` so it cannot hang. Any error raises :class:`_MobsfHttpError`.
     """
     headers = {"Authorization": api_key}
     if file_field is not None:
@@ -338,7 +341,7 @@ def _http_post(
 
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT_SECONDS) as resp:
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
             raw = resp.read()
     except (urllib.error.URLError, socket.timeout, OSError) as exc:
         raise _MobsfHttpError(f"POST {url} failed: {type(exc).__name__}: {exc}") from exc
@@ -503,7 +506,9 @@ def collect_mobsf(
                     **base_kwargs,
                 )
 
-            report_json = _run_static_scan(base_url, api_key=api_key, apk=apk)
+            report_json = _run_static_scan(
+                base_url, api_key=api_key, apk=apk, timeout_seconds=timeout_seconds
+            )
             findings = map_mobsf_report(report_json)
             return AdapterResult(
                 findings=findings,
@@ -529,27 +534,47 @@ def collect_mobsf(
         )
 
 
-def _run_static_scan(base_url: str, *, api_key: str, apk: Path) -> dict:
+def _run_static_scan(
+    base_url: str,
+    *,
+    api_key: str,
+    apk: Path,
+    timeout_seconds: float = _MOBSF_TIMEOUT_SECONDS,
+) -> dict:
     """upload → scan → report_json → delete_scan over the MobSF REST API.
 
     Returns the parsed ``report_json`` document (the ``StaticAnalyzerAndroid``
     shape :func:`map_mobsf_report` consumes). Raises :class:`_MobsfHttpError` on
     any HTTP/JSON failure (mapped to ``unavailable`` by the caller). The
     ``delete_scan`` cleanup is best-effort and never masks a successful report.
+
+    ``timeout_seconds`` bounds each of the upload, scan and report_json calls.
+    The scan endpoint blocks until MobSF has decompiled the APK, which takes
+    minutes for a real app, so it cannot share the short socket timeout the
+    housekeeping calls use.
     """
     content = apk.read_bytes()
     upload = _http_post(
         base_url + "/api/v1/upload",
         api_key=api_key,
         file_field=("file", apk.name, content),
+        timeout=timeout_seconds,
     )
     file_hash = str(upload.get("hash", "")).strip()
     if not file_hash:
         raise _MobsfHttpError("MobSF upload returned no hash")
 
-    _http_post(base_url + "/api/v1/scan", api_key=api_key, fields={"hash": file_hash})
+    _http_post(
+        base_url + "/api/v1/scan",
+        api_key=api_key,
+        fields={"hash": file_hash},
+        timeout=timeout_seconds,
+    )
     report = _http_post(
-        base_url + "/api/v1/report_json", api_key=api_key, fields={"hash": file_hash}
+        base_url + "/api/v1/report_json",
+        api_key=api_key,
+        fields={"hash": file_hash},
+        timeout=timeout_seconds,
     )
 
     # Best-effort cleanup of the scan inside MobSF — never masks the report.

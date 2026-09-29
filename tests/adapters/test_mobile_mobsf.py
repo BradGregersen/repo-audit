@@ -64,3 +64,50 @@ def test_unavailable(fp):
 
     result = mobsf.run_mobsf(apk_path=None)
     assert result.status == "unavailable"
+
+
+def test_static_scan_threads_timeout_to_slow_calls(tmp_path, monkeypatch):
+    """upload, scan and report_json get the caller's timeout; delete_scan keeps the short one."""
+    if not hasattr(mobsf, "_run_static_scan"):
+        pytest.skip("_run_static_scan entry point not present")
+
+    apk = tmp_path / "app.apk"
+    apk.write_bytes(b"PK\x03\x04")
+    seen: dict[str, float] = {}
+
+    def fake_post(url, *, api_key, fields=None, file_field=None, timeout=mobsf._HTTP_TIMEOUT_SECONDS):
+        seen[url.rsplit("/", 1)[-1]] = timeout
+        return {"hash": "abc123"} if url.endswith("/upload") else {"ok": True}
+
+    monkeypatch.setattr(mobsf, "_http_post", fake_post)
+    mobsf._run_static_scan("http://127.0.0.1:8000", api_key="k", apk=apk, timeout_seconds=321.0)
+
+    assert seen["upload"] == 321.0
+    assert seen["scan"] == 321.0
+    assert seen["report_json"] == 321.0
+    assert seen["delete_scan"] == mobsf._HTTP_TIMEOUT_SECONDS
+
+
+def test_http_post_passes_timeout_to_urlopen(monkeypatch):
+    """The socket timeout handed to urlopen is the one the caller asked for."""
+    captured: dict[str, float] = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return b"{}"
+
+    def fake_urlopen(request, timeout):
+        captured["timeout"] = timeout
+        return _Resp()
+
+    monkeypatch.setattr(mobsf.urllib.request, "urlopen", fake_urlopen)
+    mobsf._http_post("http://127.0.0.1:8000/api/v1/scan", api_key="k", fields={}, timeout=45.0)
+    assert captured["timeout"] == 45.0
+    mobsf._http_post("http://127.0.0.1:8000/api/v1/delete_scan", api_key="k", fields={})
+    assert captured["timeout"] == mobsf._HTTP_TIMEOUT_SECONDS
