@@ -52,17 +52,17 @@ def _have_detekt() -> bool:
 
 @pytest.mark.skipif(not _have_detekt(), reason="java + vendored detekt jar absent")
 def test_detekt_live(tmp_path):
-    """Seed a tiny Kotlin file; run_kotlin must accept the argv (no EXEC_FAILED)."""
+    """Seed a tiny Kotlin project; run_kotlin must run detekt and parse its SARIF."""
+    (tmp_path / "build.gradle.kts").write_text("plugins {}\n", encoding="utf-8")
     (tmp_path / "Main.kt").write_text(
         "fun main() { val x = 1; println(x) }\n", encoding="utf-8"
     )
     with scan_tempdir() as td:
         env = build_scan_env(td)
         result = run_kotlin(tmp_path, base_env=env, attempt_typed=False)
-    # The invocation argv was accepted: status is a known envelope value, never
-    # an exception. unavailable here would mean a real jar/JRE miss (skipif
-    # should have caught it), so we assert the run COMPLETED honestly.
-    assert result.status in {"ok", "partial", "unavailable", "timeout"}
+    # detekt resolved (the skipif), so anything but ok means the invocation
+    # failed: a launcher run as a jar, an argv detekt rejected, or no SARIF.
+    assert result.status == "ok", result.notes
 
 
 # --- pytest-cov coverage tier (TST-01) -------------------------------------

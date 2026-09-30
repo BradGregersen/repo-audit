@@ -126,6 +126,32 @@ def test_detekt_non_zero_exit_is_not_failure(monkeypatch):
     assert len(result.findings) >= 1
 
 
+def test_detekt_argv_runs_a_path_launcher_directly(tmp_path):
+    """A ``detekt`` found on PATH is the launcher script; ``java -jar`` cannot run it."""
+    launcher = tmp_path / "detekt"
+    launcher.write_text('#!/bin/sh\nexec java -jar detekt-cli-all.jar "$@"\n', encoding="utf-8")
+
+    argv = detekt._detekt_argv(
+        Path("/usr/bin/java"), launcher, Path("/repo"), tmp_path / "out.sarif", None
+    )
+
+    assert argv[0] == str(launcher)
+    assert "-jar" not in argv
+    assert "--build-upon-default-config" in argv
+
+
+def test_detekt_argv_runs_a_jar_under_java(tmp_path):
+    """The vendored fat jar (no ``.jar`` suffix at ``vendor/detekt/detekt``) runs under ``java -jar``."""
+    jar = tmp_path / "detekt"
+    jar.write_bytes(b"PK\x03\x04 rest of the archive")
+
+    argv = detekt._detekt_argv(
+        Path("/usr/bin/java"), jar, Path("/repo"), tmp_path / "out.sarif", None
+    )
+
+    assert argv[:3] == ["/usr/bin/java", "-jar", str(jar)]
+
+
 def test_detekt_absent_jre_unavailable(monkeypatch):
     """No detekt binary / JRE -> status='unavailable', no raise (scan completes)."""
     _patch_detekt(monkeypatch, sarif=None, returncode=-1, resolve_to=None)

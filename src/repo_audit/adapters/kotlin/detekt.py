@@ -69,6 +69,22 @@ _DIMENSION = "quality"
 _JVM_TARGET = "17"
 
 
+def _is_jar(path: Path) -> bool:
+    """True when ``path`` is a jar (``.jar`` suffix or a zip header), not a launcher.
+
+    ``resolve_tool("detekt")`` returns either the vendored fat jar or a ``detekt``
+    on PATH, and a PATH ``detekt`` is normally the distribution's launcher
+    script, which ``java -jar`` cannot run. An unreadable path keeps the jar form.
+    """
+    if path.suffix == ".jar":
+        return True
+    try:
+        with path.open("rb") as fh:
+            return fh.read(2) == b"PK"
+    except OSError:
+        return True
+
+
 def _detekt_argv(
     java: Path,
     jar: Path,
@@ -85,12 +101,12 @@ def _detekt_argv(
     ``classpath`` is resolved (D-11-07 typed path), ``--classpath`` +
     ``--jvm-target`` activate type-resolution rules; otherwise the STANDALONE
     argv omits both (the always-safe KOT-01 floor). ``repo_path`` is a single
-    argv element — never interpolated into a shell string.
+    argv element — never interpolated into a shell string. A jar runs under
+    ``java -jar``; a launcher script found on PATH runs directly.
     """
+    launch = [str(java), "-jar", str(jar)] if _is_jar(jar) else [str(jar)]
     argv: list[str] = [
-        str(java),
-        "-jar",
-        str(jar),
+        *launch,
         "--input",
         str(repo_path),
         "--build-upon-default-config",
