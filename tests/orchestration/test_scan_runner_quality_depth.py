@@ -108,7 +108,7 @@ def _neutralize_other_steps(monkeypatch):
     )
     monkeypatch.setattr(
         scan_runner, "run_kotlin",
-        lambda repo_path, *, base_env, attempt_typed=True: TestDepthScanResult(status="ok"),
+        lambda repo_path, *, base_env, attempt_typed=True, gradle_roots=(): TestDepthScanResult(status="ok"),
         raising=True,
     )
     monkeypatch.setattr(

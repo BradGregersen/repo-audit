@@ -280,6 +280,46 @@ def test_genuine_degradation_still_flips_partial(fake_repo_on_disk, monkeypatch)
     assert result.scan_report.meta.partial is True
 
 
+def test_detected_kotlin_roots_reach_run_kotlin(fake_repo_on_disk, monkeypatch):
+    """A kotlin-android root found by detection (``android/``) is passed to run_kotlin.
+
+    Without it, an Expo or React Native app whose Gradle build lives under
+    ``android/`` read as not applicable and detekt never ran.
+    """
+    from repo_audit.schema.detection import DetectionResult, StackProfile
+
+    android = fake_repo_on_disk / "android"
+    detection = DetectionResult(
+        stacks=[
+            StackProfile(stack="typescript-node", root_dir=fake_repo_on_disk),
+            StackProfile(stack="kotlin-android", root_dir=android),
+        ]
+    )
+    monkeypatch.setattr(scan_runner, "detect_stacks", lambda repo: detection)
+    _stub_all_steps_ok(monkeypatch)
+    monkeypatch.setattr(
+        scan_runner, "run_test_depth",
+        lambda repo, **kw: TestDepthScanResult(status="ok"),
+        raising=True,
+    )
+    monkeypatch.setattr(
+        scan_runner, "run_expo",
+        lambda repo, **kw: TestDepthScanResult(status="not_applicable"),
+        raising=True,
+    )
+    spy = {}
+
+    def _spy_run_kotlin(repo, **kw):
+        spy["gradle_roots"] = kw.get("gradle_roots")
+        return TestDepthScanResult(status="ok")
+
+    monkeypatch.setattr(scan_runner, "run_kotlin", _spy_run_kotlin, raising=True)
+
+    scan_runner.run_scan(fake_repo_on_disk, no_agent=True)
+
+    assert spy["gradle_roots"] == [android]
+
+
 # --- W1: the partial-determination predicate (unit) ------------------------
 
 

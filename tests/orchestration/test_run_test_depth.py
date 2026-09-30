@@ -101,6 +101,43 @@ def test_run_kotlin_applicable_when_gradle_present(monkeypatch, tmp_path):
     assert result.status == "unavailable"  # genuine degradation, NOT not_applicable
 
 
+def test_run_kotlin_applicable_when_gradle_build_is_in_a_subdirectory(
+    monkeypatch, tmp_path
+):
+    """An Expo or React Native app keeps its Gradle build under ``android/``.
+
+    No build file at the repo root, but a detected Kotlin root holds one: detekt
+    runs, still over the whole repo so finding paths stay repo-relative.
+    """
+    android = tmp_path / "android"
+    android.mkdir()
+    (android / "build.gradle").write_text("buildscript {}\n", encoding="utf-8")
+    called = {}
+
+    def _detekt(repo_path, env, **kwargs):
+        called["repo"] = repo_path
+        return KotlinResult(status="ok", notes="detekt (standalone): 0 finding(s)")
+
+    monkeypatch.setattr(test_depth, "collect_detekt", _detekt)
+    result = run_kotlin(tmp_path, base_env={}, gradle_roots=[android])
+    assert result.status == "ok"
+    assert called["repo"] == tmp_path
+
+
+def test_run_kotlin_not_applicable_when_detected_root_has_no_gradle_file(
+    monkeypatch, tmp_path
+):
+    """A detected Kotlin root without a Gradle build file does not make detekt applicable."""
+    (tmp_path / "android").mkdir()
+
+    def _must_not_run(repo_path, env, **kwargs):
+        raise AssertionError("collect_detekt invoked without a gradle build file")
+
+    monkeypatch.setattr(test_depth, "collect_detekt", _must_not_run)
+    result = run_kotlin(tmp_path, base_env={}, gradle_roots=[tmp_path / "android"])
+    assert result.status == "not_applicable"
+
+
 def test_run_expo_not_applicable_on_non_expo_repo(monkeypatch, tmp_path):
     """W1: a repo with no app.json / app.config.* → run_expo status='not_applicable'.
 

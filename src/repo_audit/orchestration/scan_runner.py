@@ -657,7 +657,14 @@ def run_scan(
     with scan_tempdir() as _kot_td:
         kot_base_env = build_scan_env(_kot_td)
         kotlin_result = _THIS_MODULE.run_kotlin(
-            repo_path, base_env=kot_base_env, attempt_typed=typed_detekt
+            repo_path,
+            base_env=kot_base_env,
+            attempt_typed=typed_detekt,
+            gradle_roots=[
+                Path(s.root_dir)
+                for s in detection.stacks
+                if s.stack == "kotlin-android"
+            ],
         )
     with scan_tempdir() as _expo_td:
         expo_base_env = build_scan_env(_expo_td)

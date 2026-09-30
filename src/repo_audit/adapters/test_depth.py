@@ -45,7 +45,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, Sequence
 
 from repo_audit.adapters.expo.doctor import collect_expo_doctor
 from repo_audit.adapters.kotlin.detekt import collect_detekt
@@ -99,6 +99,17 @@ def _any_manifest_present(repo_path: Path, names: tuple[str, ...]) -> bool:
         # Could not prove inapplicability → treat as applicable (disclose, don't skip).
         return True
 
+
+def _gradle_build_present(repo_path: Path, gradle_roots: Sequence[Path]) -> bool:
+    """READ-ONLY: True when a Gradle build file sits at the repo root or a detected Kotlin root.
+
+    An Expo or React Native app keeps its Gradle build under ``android/``, which
+    detection reports as a ``kotlin-android`` root; the repo root has none.
+    """
+    if _any_manifest_present(repo_path, _KOTLIN_MANIFESTS):
+        return True
+    return any(_any_manifest_present(root, _KOTLIN_MANIFESTS) for root in gradle_roots)
+
 # D-11-05 hard wall-clock cap for a Stryker mutation run (NOT the per-test ms flag).
 _MUTATION_TIMEOUT_S: float = 1800.0
 # A generous read-only type-coverage bound.
@@ -144,6 +155,7 @@ def run_kotlin(
     *,
     base_env: dict[str, str],
     attempt_typed: bool = True,
+    gradle_roots: Sequence[Path] = (),
 ) -> TestDepthScanResult:
     """Never-raising detekt envelope (KOT-01). Absent JRE/jar → unavailable.
 
@@ -151,12 +163,14 @@ def run_kotlin(
     :class:`TestDepthScanResult`. Any unexpected exception folds to
     ``status="unavailable"`` — NEVER raises (SAFE-08).
 
-    W1: when the repo has NO gradle build file, detekt is not applicable — return
+    W1: when neither the repo root nor any detected Kotlin root in
+    ``gradle_roots`` has a gradle build file, detekt is not applicable — return
     ``status="not_applicable"`` (a disclosed-but-non-degrading status the scan
     runner excludes from ``partial``) without invoking ``collect_detekt``. A
     missing JRE/jar on an APPLICABLE Kotlin repo still degrades to ``unavailable``.
+    detekt always runs over the whole repo, so finding paths stay repo-relative.
     """
-    if not _any_manifest_present(repo_path, _KOTLIN_MANIFESTS):
+    if not _gradle_build_present(repo_path, gradle_roots):
         return TestDepthScanResult(
             status="not_applicable",
             notes="Kotlin/detekt not applicable: no gradle build files",
