@@ -6,19 +6,20 @@ faithful **state report** — the same dimensions and quality you'd produce by
 hand, in minutes instead of days. Run it per-repo (`repo-audit scan`) or across a
 whole directory of repos (`repo-audit fleet ~/Code`).
 
-Exercised against a fleet spanning TypeScript/React Native, Kotlin/Android,
-Python, C++, C#, Go, Rust, and Supabase — 9 language ecosystems, each
-auto-detected from its manifest files.
+Auto-detects 9 language ecosystems from their manifest files: TypeScript/React
+Native, Kotlin/Android, Python, C++, C#, Go, Rust, and Supabase. Scans of real
+repositories have detected all of them except C++ and Go, which are tested
+against fixtures only.
 
 ## Maturity
 
 | Status | Capabilities |
 |---|---|
-| **Proven** — run against real repositories | SARIF adapter foundation · dependency/CVE scanning · SAST · stack-depth and test-integrity adapters · supply-chain and git-history secrets · CI/CD and IaC · architecture fitness and duplication · the verification layer · synthesis and prioritization · issue filing · Supabase/RLS runtime enforcement check (run once against a live production database) · mobile static scanning — mobsfscan on Android source and MobSF on a release APK (each run once against a live app) — scope for both under [What the report covers](#what-the-report-covers) |
-| **Fixture-tested** — never run against a live target | the `--mobsf-build` diagnostic build path (Gradle `assembleDebug` in a throwaway copy) |
+| **Proven** — run against real repositories | secrets in the working tree and full git history (gitleaks) · SAST (Semgrep) · dependency CVEs (Grype) · SBOM and license risk (Syft) · TypeScript checks (tsc, ESLint, knip, type coverage, test coverage) · Expo doctor · React Native bundle size (Metro) · mutation testing (StrykerJS) · Supabase migration safety (squawk) · Supabase RLS runtime enforcement check (run once against a live production database) · mobile static scanning — mobsfscan on Android source and MobSF on a release APK (each run once against a live app) · AI narration, the verification layer, and prioritization · trend diffing — scope for RLS and mobile under [What the report covers](#what-the-report-covers) |
+| **Not yet run against a real repository** — tested against recorded fixtures only | architecture fitness and duplication (dependency-cruiser, jscpd) · CI/CD and IaC (zizmor, actionlint, hadolint, checkov) · Kotlin static analysis (detekt) · osv-scanner, the second CVE source · static Supabase RLS checks (splinter, pgrls) · issue filing · `fleet` sweeps · E2E and fuzz suite execution · CodeQL · DAST · commercial scanner wrappers · the `--mobsf-build` diagnostic build path |
 | **Incomplete** | The performance regression-finding pipeline |
 
-Fixture-tested means the code is tested against recorded fixtures but has never been run against a real target, so its findings are unproven on live targets.
+The second row is tested against recorded fixtures but has never produced a result on a real repository, so its findings are unproven.
 
 ## Install and run
 
@@ -64,9 +65,10 @@ beside it), organized into:
 3. Security & SAST
 4. Architecture rot
 5. Test integrity
-6. Correctness & data/privacy — the static Supabase checks are proven; the
-   opt-in **runtime** RLS enforcement check has one live run behind it (see
-   the note below this list for what that does and does not cover)
+6. Correctness & data/privacy — Supabase migration-safety checks (squawk) have
+   run on a real repository; the static RLS checks (splinter, pgrls) have not
+   yet; the opt-in **runtime** RLS enforcement check has one live run behind it
+   (see the note below this list for what that does and does not cover)
 7. Quality / footprint / docs — the performance regression-finding pipeline is
    incomplete and reports nothing useful yet
 8. Process & backlog
@@ -130,6 +132,9 @@ the tool at a repository.
   autobuild, and bring-your-own commercial scanner wrappers. That file is
   treated as consent, so scanning a repository executes its configuration. Only
   scan repositories you would run `npm install` in.
+- **detekt looks for a Gradle build only at the repository root.** An Expo or
+  React Native app keeps its Gradle build under `android/`, so for those apps
+  the Kotlin static analysis reports `not_applicable` and does not run.
 - **Trend matching is line-sensitive.** Findings match across scans on tool +
   rule + file + line, so inserting a line above a finding lists it under
   Resolved. The moved finding is not listed as new; it shows only in the
