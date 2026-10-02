@@ -116,9 +116,18 @@ def render_fleet_dashboard(snapshot: FleetSnapshot, md_path: Path) -> int:
     json_buf = snapshot.model_dump_json(indent=2)
 
     # ----- LOCKED chokepoint on BOTH buffers BEFORE any write (T-05-08). -----
+    # The sweep root is the operator's own directory, printed by repo-audit
+    # itself; a random-looking name in it (a UUID) must not read as a secret.
+    # Only that exact string is masked, and only in what is scanned.
+    sweep_root = str(snapshot.sweep_root)
     try:
-        lint_buffer(markdown_buf, buffer_name="fleet-dashboard")
-        lint_buffer(json_buf, buffer_name="fleet-json")
+        lint_buffer(
+            markdown_buf.replace(sweep_root, "<sweep-root>"),
+            buffer_name="fleet-dashboard",
+        )
+        lint_buffer(
+            json_buf.replace(sweep_root, "<sweep-root>"), buffer_name="fleet-json"
+        )
         completion_honesty_lint(
             markdown_buf, partial=False, buffer_name="fleet-dashboard"
         )

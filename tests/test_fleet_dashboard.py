@@ -141,3 +141,33 @@ def test_planted_secret_refuses_no_write(tmp_path):
     assert rc == 2
     assert not md_path.exists()
     assert not (tmp_path / "fleet-2026-05-29.json").exists()
+
+
+def test_random_looking_sweep_root_is_not_a_secret(tmp_path):
+    """The sweep root is the operator's own directory, which repo-audit prints
+    itself. A path with a session UUID in it used to trip the entropy backstop
+    on the ``_Sweep root:`` line and refuse the whole dashboard."""
+    root = "/tmp/runs/3f9c2a71-58d4-4e0b-9b6a-c41e7d02a8f5/workspace/fleet"
+    row = _ok_row("adapt-website", major=2)
+    row = row.model_copy(update={"repo_path": f"{root}/adapt-website"})
+    snap = _snapshot([row]).model_copy(update={"sweep_root": root})
+    md_path = tmp_path / "fleet-dashboard-2026-05-29.md"
+
+    rc = render_fleet_dashboard(snap, md_path)
+
+    assert rc == 0
+    assert root in md_path.read_text(encoding="utf-8")
+
+
+def test_secret_beside_the_sweep_root_still_refuses(tmp_path):
+    """Masking the sweep root does not mask anything else in the buffer."""
+    aws_key = "AKIA" + "IOSFODNN7EXAMPLE"
+    root = "/tmp/3f9c2a71-58d4-4e0b-9b6a-c41e7d02a8f5/fleet"
+    snap = _snapshot([_failed_row("leaky", f"auth failed using {aws_key}")])
+    snap = snap.model_copy(update={"sweep_root": root})
+    md_path = tmp_path / "fleet-dashboard-2026-05-29.md"
+
+    rc = render_fleet_dashboard(snap, md_path)
+
+    assert rc == 2
+    assert not md_path.exists()
