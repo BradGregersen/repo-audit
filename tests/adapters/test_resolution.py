@@ -67,3 +67,23 @@ def test_tool_not_found_returns_none(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", "")
     resolved = resolve_tool("definitely-not-a-real-tool-xyz", tmp_path)
     assert resolved is None
+
+
+def test_console_script_beside_the_interpreter(tmp_path, monkeypatch):
+    """A runtime dependency's console script (pgrls) resolves from repo-audit's own
+    environment even when that environment's bin dir is not on PATH.
+
+    Run as ``.venv/bin/repo-audit`` without activating the venv, ``--rls-pgrls``
+    reported pgrls "not installed" although it ships with repo-audit.
+    """
+    import sys
+
+    env_bin = tmp_path / "venv" / "bin"
+    env_bin.mkdir(parents=True)
+    _make_executable(env_bin / "pgrls")
+    monkeypatch.setattr(sys, "executable", str(env_bin / "python"))
+    monkeypatch.setenv("PATH", "")
+
+    resolved = resolve_tool("pgrls", tmp_path, trusted_only=True)
+
+    assert resolved == env_bin / "pgrls"

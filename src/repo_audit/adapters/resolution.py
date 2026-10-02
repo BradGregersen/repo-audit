@@ -51,7 +51,9 @@ The default ``trusted_only=False`` preserves the project-tool behavior.
 """
 from __future__ import annotations
 
+import os
 import shutil
+import sys
 from pathlib import Path
 
 import repo_audit
@@ -122,8 +124,14 @@ def resolve_tool(
                 break
             current = current.parent
 
-    # 3. PATH fallback — last resort.
+    # 3. PATH fallback.
     which = shutil.which(tool)
     if which:
         return Path(which)
+    # 4. A console script installed alongside repo-audit itself (pgrls is a
+    #    runtime dependency): present beside this interpreter even when the venv
+    #    is not activated and its bin dir is not on PATH.
+    sibling = Path(sys.executable).parent / tool
+    if sibling.is_file() and os.access(sibling, os.X_OK):
+        return sibling
     return None
