@@ -104,6 +104,24 @@ def test_word_boundary_no_false_trip_on_substring():
     assert_verify_phrasing(findings)  # does not raise
 
 
+@pytest.mark.parametrize("compound", ["RLS-protected", "rls-protected", "grant-protected"])
+def test_table_category_compound_does_not_trip(compound):
+    """pgrls names a class of tables, not a verified state of this repo.
+
+    Its SEC014 text — a SECURITY DEFINER function "inherits the owner's reach
+    into RLS-protected tables" — used to discard the whole pgrls layer.
+    """
+    findings = [_static_finding(f"inherits the owner's reach into {compound} tables")]
+    assert_verify_phrasing(findings)  # does not raise
+
+
+def test_plain_protected_claim_still_trips_next_to_a_compound():
+    """The compound exemption does not open the bare word."""
+    findings = [_static_finding("RLS-protected tables; the profiles table is protected")]
+    with pytest.raises(VerifyPhrasingViolation):
+        assert_verify_phrasing(findings)
+
+
 def test_enforcement_word_in_caveat_and_snippet_also_raises():
     """The guard scans confidence_caveat + output_snippet too, not just recommendation."""
     via_caveat = Finding(

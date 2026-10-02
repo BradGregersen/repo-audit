@@ -39,7 +39,7 @@ from repo_audit.adapters.base import AdapterResult
 from repo_audit.adapters.resolution import resolve_tool
 from repo_audit.adapters.sarif.parser import sarif_to_findings
 from repo_audit.adapters.supabase.verify_phrasing import (
-    assert_verify_phrasing,
+    withhold_overclaiming,
 )
 from repo_audit.adapters.toolops import EXEC_FAILED, TIMED_OUT, run_tool
 from repo_audit.schema.enums import Severity
@@ -153,8 +153,10 @@ def collect_pgrls(
             default_dimension=_PGRLS_DIMENSION,
             severity_map=PGRLS_SEVERITY,
         )
-        # HARD CRIT-4 post-pass — every static finding must be verify-phrased.
-        assert_verify_phrasing(findings)
+        # CRIT-4 post-pass, per finding: a pgrls finding whose own text carries a
+        # runtime-certainty word is withheld and named, never reported, and the
+        # rest of the layer still ships.
+        findings, withheld = withhold_overclaiming(findings)
     except Exception as exc:  # noqa: BLE001 — never raise across the boundary
         return AdapterResult(
             status="unavailable",
@@ -164,10 +166,16 @@ def collect_pgrls(
             dimension=_PGRLS_DIMENSION,
         )
 
+    notes = f"pgrls {pgrls_version()}"
+    if withheld:
+        notes += (
+            f"; withheld {len(withheld)} finding(s) whose tool text uses "
+            f"runtime-certainty wording ({', '.join(sorted(set(withheld)))})"
+        )
     return AdapterResult(
         status="ok",
         findings=findings,
-        notes=f"pgrls {pgrls_version()}",
+        notes=notes,
         source_tool="pgrls",
         dimension=_PGRLS_DIMENSION,
     )

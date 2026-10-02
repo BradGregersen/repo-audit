@@ -37,8 +37,12 @@ if TYPE_CHECKING:
     from repo_audit.schema.finding import Finding
 
 # Word-boundary, case-insensitive. The banned vocabulary appears ONLY here.
-# \b boundaries mean "insecurely-typed" does NOT match "secure".
-_BANNED = re.compile(r"\b(enforced|secure|protected)\b", re.IGNORECASE)
+# \b boundaries mean "insecurely-typed" does NOT match "secure". "RLS-protected"
+# and "grant-protected" name a class of tables (pgrls uses them throughout), not
+# a verified state of the scanned repo, so those two compounds are let through.
+_BANNED = re.compile(
+    r"\b(enforced|secure|(?<!rls-)(?<!grant-)protected)\b", re.IGNORECASE
+)
 
 # The single evidence_type permitted to use enforcement language (D-08-04).
 _EXEMPT_EVIDENCE_TYPE = "runtime"
@@ -99,3 +103,25 @@ def assert_verify_phrasing(findings: Iterable[Finding]) -> None:
         match = _BANNED.search(_message_surface(finding))
         if match is not None:
             raise VerifyPhrasingViolation(finding.rule_id, match.group(0))
+
+
+def withhold_overclaiming(
+    findings: Iterable[Finding],
+) -> tuple[list[Finding], list[str]]:
+    """Split findings into those the report may carry and the rule ids withheld.
+
+    The per-finding form of :func:`assert_verify_phrasing`, for a third-party
+    tool whose own text uses the banned words descriptively (pgrls: "With RLS
+    enforced and no write-side policy ..."). One such finding must not discard
+    every other finding the tool produced; the caller discloses the rule ids.
+    """
+    kept: list[Finding] = []
+    withheld: list[str] = []
+    for finding in findings:
+        if finding.evidence_type != _EXEMPT_EVIDENCE_TYPE and _BANNED.search(
+            _message_surface(finding)
+        ):
+            withheld.append(finding.rule_id or "?")
+        else:
+            kept.append(finding)
+    return kept, withheld

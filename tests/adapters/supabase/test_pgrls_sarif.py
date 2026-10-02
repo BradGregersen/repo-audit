@@ -215,6 +215,48 @@ def test_empty_sarif_runs_is_ok_with_zero_findings(tmp_path, monkeypatch):
     assert result.findings == []
 
 
+def _sarif_result(rule_id: str, text: str) -> dict:
+    return {
+        "ruleId": rule_id,
+        "level": "warning",
+        "message": {"text": text},
+        "locations": [
+            {"physicalLocation": {"artifactLocation": {"uri": "public.profiles"}}}
+        ],
+    }
+
+
+def test_one_overclaiming_finding_does_not_discard_the_layer(tmp_path, monkeypatch):
+    """pgrls's own text uses 'enforced' descriptively (SEC022: "With RLS enforced
+    and no write-side policy ..."). That finding is withheld and named; the rest
+    of the pgrls layer still reaches the report."""
+    sarif = {
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {"driver": {"name": "pgrls", "rules": []}},
+                "results": [
+                    _sarif_result(
+                        "SEC022", "With RLS enforced and no write-side policy, writes fail."
+                    ),
+                    _sarif_result(
+                        "SEC014", "Function public.f is SECURITY DEFINER; review its reach."
+                    ),
+                ],
+            }
+        ],
+    }
+    _patch_resolve(monkeypatch, found=True)
+    _patch_run(monkeypatch, _FakeInvocation(stdout=json.dumps(sarif), returncode=0))
+
+    result = collect_pgrls(_DSN, env={}, timeout_seconds=30.0, scan_target=tmp_path)
+
+    assert result.status == "ok"
+    assert [f.rule_id for f in result.findings] == ["SEC014"]
+    assert "withheld 1 finding(s)" in result.notes
+    assert "SEC022" in result.notes
+
+
 # --- Provenance + severity-map shape --------------------------------------
 
 
