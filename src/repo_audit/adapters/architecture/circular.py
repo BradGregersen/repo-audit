@@ -112,6 +112,31 @@ _MINIMAL_RULESET: dict[str, Any] = {
     ]
 }
 
+# Paths a zero-config cruise never enters: installed dependencies, build output,
+# and dot-directories (tooling state, scratch, templates that are not real modules).
+_EXCLUDE_PATH = "(^|/)(node_modules|dist|build|coverage|\\.[^/]+)/"
+
+# Conventional JS/TS source directories, cruised when present. One unparseable
+# stray file anywhere under ``.`` aborts the whole cruise, so ``.`` is the
+# fallback only when none of these exist.
+_SOURCE_DIRS = (
+    "src",
+    "app",
+    "lib",
+    "components",
+    "packages",
+    "pages",
+    "screens",
+    "hooks",
+    "utils",
+    "services",
+    "features",
+    "modules",
+    "server",
+    "client",
+    "store",
+)
+
 
 @dataclass
 class CircularResult:
@@ -168,19 +193,52 @@ def _is_js_applicable(repo_path: Path, stacks: Iterable[str] | None) -> bool:
     return (repo_path / _JS_GRAPH_MANIFEST).is_file()
 
 
-def _depcruise_argv(binary: Path, shipped_config: Path | None) -> list[str]:
+def _source_roots(repo_path: Path) -> list[str]:
+    """The conventional source directories the repo has, else the repo root.
+
+    An Expo or React Native app keeps its code in ``app/``, ``lib/`` and
+    ``components/``; cruising a missing ``src`` makes depcruise exit with no JSON.
+    """
+    roots = [d for d in _SOURCE_DIRS if (repo_path / d).is_dir()]
+    return roots or ["."]
+
+
+def _shipped_config(repo_path: Path) -> dict[str, Any]:
+    """The minimal ruleset plus the options a zero-config cruise needs on a real repo.
+
+    Without ``doNotFollow``/``exclude`` depcruise walks into node_modules (cycles
+    inside dependencies, and a stack overflow on React Native's bundled
+    JavaScript); without ``tsConfig`` every tsconfig path alias reads as
+    unresolvable. ``tsConfig`` is passed only when dependencies are installed:
+    a tsconfig usually extends a package, and an unloadable one aborts the run.
+    """
+    options: dict[str, Any] = {
+        "doNotFollow": {"path": "node_modules"},
+        "exclude": {"path": _EXCLUDE_PATH},
+        "tsPreCompilationDeps": True,
+    }
+    if (repo_path / "tsconfig.json").is_file() and (
+        repo_path / "node_modules"
+    ).is_dir():
+        options["tsConfig"] = {"fileName": "tsconfig.json"}
+    return {**_MINIMAL_RULESET, "options": options}
+
+
+def _depcruise_argv(
+    binary: Path, shipped_config: Path | None, source_roots: list[str]
+) -> list[str]:
     """Build the EXACT depcruise argv (list[str], shell=False guard; RESEARCH line 507).
 
     ``--output-type json`` is the only reporter (no SARIF — D-14-04). When the repo
     has its own config we pass NO ``--config`` (auto-discovery, Pitfall 5); a
-    zero-config repo gets ``--config <shipped tempfile>``. ``src`` is the source root
-    arg (``.`` also works); each token is a DISCRETE argv element (T-14-02-01 —
+    zero-config repo gets ``--config <shipped tempfile>``. ``source_roots`` come
+    from :func:`_source_roots`; each token is a DISCRETE argv element (T-14-02-01 —
     never interpolated into a shell string).
     """
     argv = [str(binary), "--output-type", "json"]
     if shipped_config is not None:
         argv += ["--config", str(shipped_config)]
-    argv += ["src"]
+    argv += source_roots
     return argv
 
 
@@ -246,11 +304,12 @@ def collect_dependency_cruiser(
             tmp_dir = stack.enter_context(scan_tempdir())
             shipped_config = tmp_dir / "minimal.dependency-cruiser.json"
             shipped_config.write_text(
-                json.dumps(_MINIMAL_RULESET, indent=2) + "\n", encoding="utf-8"
+                json.dumps(_shipped_config(repo_path), indent=2) + "\n",
+                encoding="utf-8",
             )
 
         invocation = run_tool(
-            _depcruise_argv(binary, shipped_config),
+            _depcruise_argv(binary, shipped_config, _source_roots(repo_path)),
             env=dict(env),
             cwd=repo_path,
             timeout_seconds=timeout_seconds,
@@ -273,9 +332,19 @@ def collect_dependency_cruiser(
         # Malformed JSON -> unavailable (never raises).
         try:
             doc = json.loads(invocation.stdout)
-            violations = (
-                ((doc or {}).get("summary") or {}).get("violations") or []
-            )
+            summary = (doc or {}).get("summary") or {}
+            if summary.get("totalCruised") == 0:
+                # An empty graph is not a clean result: depcruise read nothing,
+                # typically TypeScript it could not parse (it supports < 7).
+                return CircularResult(
+                    status="unavailable",
+                    notes=(
+                        "dependency-cruiser analyzed 0 modules — it could not "
+                        "read the source (TypeScript needs a TypeScript older "
+                        "than 7 that dependency-cruiser can load)"
+                    ),
+                )
+            violations = summary.get("violations") or []
             findings = depcruise_summary_to_findings(
                 violations,
                 default_dimension=default_dimension,
@@ -287,10 +356,12 @@ def collect_dependency_cruiser(
                 notes=f"dependency-cruiser JSON parse failed: {type(exc).__name__}: {exc}",
             )
 
+        cruised = summary.get("totalCruised")
+        across = f" across {cruised} module(s)" if isinstance(cruised, int) else ""
         return CircularResult(
             findings=findings,
             status="ok",
-            notes=f"dependency-cruiser: {len(findings)} violation finding(s)",
+            notes=f"dependency-cruiser: {len(findings)} violation finding(s){across}",
         )
 
 

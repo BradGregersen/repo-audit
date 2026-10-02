@@ -19,6 +19,8 @@ dependency-cruiser is installed on the test host.
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 circular = pytest.importorskip(
@@ -149,3 +151,160 @@ def test_depcruise_absent_unavailable(monkeypatch, fake_js_repo) -> None:
 
     assert result.status == "unavailable"
     assert result.findings == []
+
+
+def _capture_run(monkeypatch, stdout: str, captured: dict) -> None:
+    """Stub run_tool to record the argv and the shipped config it was given."""
+    import json
+
+    from repo_audit.adapters import toolops
+
+    def _run(argv, *, env, cwd, timeout_seconds):
+        captured["argv"] = list(argv)
+        if "--config" in argv:
+            config_path = argv[argv.index("--config") + 1]
+            with open(config_path, encoding="utf-8") as fh:
+                captured["config"] = json.load(fh)
+        return toolops.InvocationResult(stdout=stdout, stderr="", returncode=0)
+
+    monkeypatch.setattr(circular, "run_tool", _run, raising=False)
+
+
+def test_source_root_is_src_when_present(monkeypatch, fake_js_repo, load_json) -> None:
+    """A repo with ``src/`` is cruised from ``src``."""
+    import json
+
+    captured: dict = {}
+    repo = fake_js_repo(circular=True)
+    _stub_resolve(monkeypatch)
+    _capture_run(monkeypatch, json.dumps(load_json("dependency-cruiser")), captured)
+
+    circular.collect_dependency_cruiser(repo, {})
+
+    assert captured["argv"][-1] == "src"
+
+
+def test_source_roots_are_the_source_dirs_present(monkeypatch, tmp_path, load_json) -> None:
+    """An Expo or React Native app keeps its code in ``app/`` and ``lib/``, not ``src/``.
+
+    Cruising a missing ``src`` made dependency-cruiser exit with no JSON at all, and
+    cruising ``.`` reaches stray files (templates, scratch) that abort the run.
+    """
+    import json
+
+    repo = tmp_path / "expo_app"
+    for d in ("app", "lib", "docs"):
+        (repo / d).mkdir(parents=True)
+    (repo / "package.json").write_text('{"name": "expo-app"}\n', encoding="utf-8")
+    captured: dict = {}
+    _stub_resolve(monkeypatch)
+    _capture_run(monkeypatch, json.dumps(load_json("dependency-cruiser")), captured)
+
+    circular.collect_dependency_cruiser(repo, {})
+
+    assert captured["argv"][-2:] == ["app", "lib"]
+
+
+def test_source_root_falls_back_to_repo_root(monkeypatch, tmp_path, load_json) -> None:
+    """A repo with none of the usual source dirs is cruised from its root."""
+    import json
+
+    repo = tmp_path / "flat_repo"
+    repo.mkdir()
+    (repo / "package.json").write_text('{"name": "flat"}\n', encoding="utf-8")
+    (repo / "index.js").write_text("module.exports = 1;\n", encoding="utf-8")
+    captured: dict = {}
+    _stub_resolve(monkeypatch)
+    _capture_run(monkeypatch, json.dumps(load_json("dependency-cruiser")), captured)
+
+    circular.collect_dependency_cruiser(repo, {})
+
+    assert captured["argv"][-1] == "."
+
+
+def test_shipped_config_stays_out_of_node_modules_and_reads_tsconfig(
+    monkeypatch, fake_js_repo, load_json
+) -> None:
+    """The zero-config ruleset never follows node_modules and resolves tsconfig path aliases."""
+    import json
+
+    captured: dict = {}
+    repo = fake_js_repo(circular=True)
+    (repo / "tsconfig.json").write_text('{"compilerOptions": {}}\n', encoding="utf-8")
+    (repo / "node_modules").mkdir()
+    _stub_resolve(monkeypatch)
+    _capture_run(monkeypatch, json.dumps(load_json("dependency-cruiser")), captured)
+
+    circular.collect_dependency_cruiser(repo, {})
+
+    options = captured["config"]["options"]
+    assert options["doNotFollow"]["path"] == "node_modules"
+    assert "node_modules" in options["exclude"]["path"]
+    assert re.search(options["exclude"]["path"], ".planning/x/TEMPLATE.test.tsx")
+    assert not re.search(options["exclude"]["path"], "app/index.tsx")
+    assert options["tsPreCompilationDeps"] is True
+    assert options["tsConfig"] == {"fileName": "tsconfig.json"}
+    assert [r["name"] for r in captured["config"]["forbidden"]] == [
+        "no-circular",
+        "not-to-unresolvable",
+        "not-to-dev-dep",
+    ]
+
+
+def test_shipped_config_omits_tsconfig_when_the_repo_has_none(
+    monkeypatch, fake_js_repo, load_json
+) -> None:
+    """A plain JavaScript repo gets no tsConfig option (depcruise would fail to open it)."""
+    import json
+
+    captured: dict = {}
+    repo = fake_js_repo(circular=True)
+    (repo / "node_modules").mkdir()
+    _stub_resolve(monkeypatch)
+    _capture_run(monkeypatch, json.dumps(load_json("dependency-cruiser")), captured)
+
+    circular.collect_dependency_cruiser(repo, {})
+
+    assert "tsConfig" not in captured["config"]["options"]
+
+
+def test_shipped_config_omits_tsconfig_without_installed_dependencies(
+    monkeypatch, fake_js_repo, load_json
+) -> None:
+    """A tsconfig usually extends a package (``astro/tsconfigs/strict``); without
+    node_modules depcruise cannot load it and exits with no JSON at all."""
+    import json
+
+    captured: dict = {}
+    repo = fake_js_repo(circular=True)
+    (repo / "tsconfig.json").write_text(
+        '{"extends": "astro/tsconfigs/strict"}\n', encoding="utf-8"
+    )
+    _stub_resolve(monkeypatch)
+    _capture_run(monkeypatch, json.dumps(load_json("dependency-cruiser")), captured)
+
+    circular.collect_dependency_cruiser(repo, {})
+
+    assert "tsConfig" not in captured["config"]["options"]
+
+
+def test_zero_modules_cruised_is_unavailable(monkeypatch, fake_js_repo) -> None:
+    """A cruise that read nothing is not a clean result.
+
+    The global dependency-cruiser cannot parse TypeScript without a TypeScript it
+    supports; it then returns an empty graph with zero violations, which used to
+    read as ``ok``.
+    """
+    import json
+
+    repo = fake_js_repo(circular=True)
+    _stub_resolve(monkeypatch)
+    _stub_run_returns_json(
+        monkeypatch,
+        json.dumps({"modules": [], "summary": {"violations": [], "totalCruised": 0}}),
+    )
+
+    result = circular.collect_dependency_cruiser(repo, {})
+
+    assert result.status == "unavailable"
+    assert "0 modules" in result.notes
