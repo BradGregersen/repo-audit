@@ -230,6 +230,16 @@ def _run_subprocess_tool(
             dimension,
             f"{tool_name} binary not found (node_modules/.bin walk-up + PATH exhausted)",
         )
+    if "node_modules" not in tool_bin.parts and not (repo_path / "node_modules").is_dir():
+        # A PATH copy would check the project against the wrong versions and
+        # without the packages its config extends — tsc then reports the repo's
+        # own tsconfig as critical errors. Only the project's install is faithful.
+        return _make_unavailable(
+            tool_name,
+            dimension,
+            f"{tool_name} not run: the target has no node_modules "
+            f"(run npm install there first)",
+        )
 
     # Per-tool argv augmentation for cache-redirection (D-46).
     extra_args = list(tool_cfg.get("args", []))

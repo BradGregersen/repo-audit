@@ -418,3 +418,61 @@ def test_scan_emits_adapter_unavailable_rows_for_missing_tools(
         f"Expected typescript-node:* unavailable rows in scope ledger; "
         f"got: {unavail_collectors}"
     )
+
+
+def test_path_tool_not_run_when_target_dependencies_are_missing(monkeypatch, tmp_path):
+    """No node_modules in the target and a tsc only on PATH → unavailable, tsc never run.
+
+    A PATH tsc checks the project against the wrong TypeScript and without the
+    packages its tsconfig extends; on a real Astro site that produced three
+    bogus ``critical`` findings about the site's own tsconfig.
+    """
+    from pathlib import Path
+
+    import repo_audit.adapters.typescript as ts_adapter
+
+    (tmp_path / "package.json").write_text('{"name": "site"}\n', encoding="utf-8")
+    (tmp_path / "tsconfig.json").write_text(
+        '{"extends": "astro/tsconfigs/strict"}\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        ts_adapter, "resolve_tool", lambda tool, repo, **kw: Path("/usr/local/bin/tsc")
+    )
+
+    def _must_not_run(*a, **k):
+        raise AssertionError("a PATH tsc was invoked on a repo without node_modules")
+
+    monkeypatch.setattr(ts_adapter, "_invoke_subprocess", _must_not_run)
+
+    result = ts_adapter._run_subprocess_tool(
+        "tsc", {"command": "tsc", "dimension": "correctness"}, tmp_path, tmp_path, {}
+    )
+
+    assert result.status == "unavailable"
+    assert "npm install" in result.notes
+
+
+def test_path_tool_still_runs_when_target_has_node_modules(monkeypatch, tmp_path):
+    """A target with node_modules may still use a PATH tool it does not install itself."""
+    from pathlib import Path
+
+    import repo_audit.adapters.typescript as ts_adapter
+
+    (tmp_path / "package.json").write_text('{"name": "app"}\n', encoding="utf-8")
+    (tmp_path / "node_modules").mkdir()
+    monkeypatch.setattr(
+        ts_adapter, "resolve_tool", lambda tool, repo, **kw: Path("/usr/local/bin/knip")
+    )
+    called = {}
+
+    def _invoke(tool_bin, extra_args, *, env, timeout_seconds, cwd):
+        called["bin"] = tool_bin
+        raise FileNotFoundError("stop after the resolve gate")
+
+    monkeypatch.setattr(ts_adapter, "_invoke_subprocess", _invoke)
+
+    ts_adapter._run_subprocess_tool(
+        "knip", {"command": "knip", "dimension": "architecture_rot"}, tmp_path, tmp_path, {}
+    )
+
+    assert called["bin"] == Path("/usr/local/bin/knip")

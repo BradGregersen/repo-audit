@@ -35,7 +35,10 @@ def _recorded(tool: str, scenario: str) -> tuple[str, str, int]:
 def _run_ts_tool(monkeypatch, tmp_path, tool, stdout, stderr, rc):
     from repo_audit.adapters import typescript as ts
 
-    monkeypatch.setattr(ts, "resolve_tool", lambda *a, **k: Path(tool))
+    # The project's own install, as on a target where npm install has run.
+    bin_dir = tmp_path / "node_modules" / ".bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(ts, "resolve_tool", lambda *a, **k: bin_dir / tool)
     monkeypatch.setattr(
         ts,
         "_invoke_subprocess",
