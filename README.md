@@ -8,15 +8,14 @@ whole directory of repos (`repo-audit fleet ~/Code`).
 
 Auto-detects 9 language ecosystems from their manifest files: TypeScript/React
 Native, Kotlin/Android, Python, C++, C#, Go, Rust, and Supabase. Scans of real
-repositories have detected all of them except C++ and Go, which are tested
-against fixtures only.
+repositories have detected all of them.
 
 ## Maturity
 
 | Status | Capabilities |
 |---|---|
-| **Proven** — run against real repositories | secrets in the working tree and full git history (gitleaks) · SAST (Semgrep) · dependency CVEs (Grype) · SBOM and license risk (Syft) · TypeScript checks (tsc, ESLint, knip, type coverage, test coverage) · Expo doctor · React Native bundle size (Metro) · mutation testing (StrykerJS) · Supabase migration safety (squawk) · Supabase RLS runtime enforcement check (run once against a live production database) · mobile static scanning — mobsfscan on Android source and MobSF on a release APK (each run once against a live app) · AI narration, the verification layer, and prioritization · trend diffing — scope for RLS and mobile under [What the report covers](#what-the-report-covers) |
-| **Not yet run against a real repository** — tested against recorded fixtures only | architecture fitness and duplication (dependency-cruiser, jscpd) · CI/CD and IaC (zizmor, actionlint, hadolint, checkov) · Kotlin static analysis (detekt) · osv-scanner, the second CVE source · static Supabase RLS checks (splinter, pgrls) · issue filing · `fleet` sweeps · E2E and fuzz suite execution · CodeQL · DAST · commercial scanner wrappers · the `--mobsf-build` diagnostic build path |
+| **Proven** — run against real repositories | secrets in the working tree and full git history (gitleaks) · SAST (Semgrep) · dependency CVEs (Grype and osv-scanner) · SBOM and license risk (Syft) · TypeScript checks (tsc, ESLint, knip, type coverage, test coverage) · Kotlin static analysis (detekt) · GitHub Actions workflow checks (zizmor, actionlint) · Dockerfile checks (hadolint) · duplication (jscpd) · Expo doctor · React Native bundle size (Metro) · mutation testing (StrykerJS) · Supabase migration safety (squawk) · Supabase RLS runtime enforcement check (run once against a live production database) · mobile static scanning — mobsfscan on Android source and MobSF on a release APK (each run once against a live app) · AI narration, the verification layer, and prioritization · trend diffing · `fleet` sweeps — scope for RLS and mobile under [What the report covers](#what-the-report-covers) |
+| **Not yet run against a real repository** — tested against recorded fixtures only | dependency graph and circular-dependency checks (dependency-cruiser) · IaC checks (checkov) · static Supabase RLS checks (splinter, pgrls) · issue filing · E2E and fuzz suite execution · CodeQL · DAST · commercial scanner wrappers · the `--mobsf-build` diagnostic build path |
 | **Incomplete** | The performance regression-finding pipeline |
 
 The second row is tested against recorded fixtures but has never produced a result on a real repository, so its findings are unproven.
@@ -132,9 +131,14 @@ the tool at a repository.
   autobuild, and bring-your-own commercial scanner wrappers. That file is
   treated as consent, so scanning a repository executes its configuration. Only
   scan repositories you would run `npm install` in.
-- **detekt looks for a Gradle build only at the repository root.** An Expo or
-  React Native app keeps its Gradle build under `android/`, so for those apps
-  the Kotlin static analysis reports `not_applicable` and does not run.
+- **Without the target's dependencies installed, results can be wrong rather than
+  missing.** tsc falls back to the one on PATH, and a different TypeScript version
+  can report the project's own configuration as critical errors; dependency-cruiser
+  can analyze zero modules and still report the architecture dimension as `ok`.
+  Run `npm install` in the target first.
+- **A fleet sweep of a directory whose path looks random** (for example, one
+  containing a UUID) is refused: the secret check flags the dashboard's own
+  sweep-root line.
 - **Trend matching is line-sensitive.** Findings match across scans on tool +
   rule + file + line, so inserting a line above a finding lists it under
   Resolved. The moved finding is not listed as new; it shows only in the
