@@ -14,8 +14,8 @@ repositories have detected all of them.
 
 | Status | Capabilities |
 |---|---|
-| **Proven** — run against real repositories | secrets in the working tree and full git history (gitleaks) · SAST (Semgrep) · dependency CVEs (Grype and osv-scanner) · SBOM and license risk (Syft) · TypeScript checks (tsc, ESLint, knip, type coverage, test coverage) · Kotlin static analysis (detekt) · GitHub Actions workflow checks (zizmor, actionlint) · Dockerfile checks (hadolint) · duplication (jscpd) · Expo doctor · React Native bundle size (Metro) · mutation testing (StrykerJS) · Supabase migration safety (squawk) · Supabase RLS runtime enforcement check (run once against a live production database) · mobile static scanning — mobsfscan on Android source and MobSF on a release APK (each run once against a live app) · AI narration, the verification layer, and prioritization · trend diffing · `fleet` sweeps — scope for RLS and mobile under [What the report covers](#what-the-report-covers) |
-| **Not yet run against a real repository** — tested against recorded fixtures only | dependency graph and circular-dependency checks (dependency-cruiser) · IaC checks (checkov) · static Supabase RLS checks (splinter, pgrls) · issue filing · E2E and fuzz suite execution · CodeQL · DAST · commercial scanner wrappers · the `--mobsf-build` diagnostic build path |
+| **Proven** — run against real repositories | secrets in the working tree and full git history (gitleaks) · SAST (Semgrep) · dependency CVEs (Grype and osv-scanner) · SBOM and license risk (Syft) · TypeScript checks (tsc, ESLint, knip, type coverage, test coverage) · Kotlin static analysis (detekt) · GitHub Actions workflow checks (zizmor, actionlint) · Dockerfile checks (hadolint) · duplication (jscpd) · dependency graph and circular dependencies (dependency-cruiser) · Expo doctor · React Native bundle size (Metro) · mutation testing (StrykerJS) · Supabase migration safety (squawk) · static Supabase RLS checks (splinter, pgrls) · Supabase RLS runtime enforcement check (run once against a live production database) · mobile static scanning — mobsfscan on Android source and MobSF on a release APK (each run once against a live app) · AI narration, the verification layer, and prioritization · trend diffing · `fleet` sweeps — scope for RLS and mobile under [What the report covers](#what-the-report-covers) |
+| **Not yet run against a real repository** — tested against recorded fixtures only | IaC checks (checkov) · issue filing · E2E and fuzz suite execution · CodeQL · DAST · commercial scanner wrappers · the `--mobsf-build` diagnostic build path |
 | **Incomplete** | The performance regression-finding pipeline |
 
 The second row is tested against recorded fixtures but has never produced a result on a real repository, so its findings are unproven.
@@ -64,10 +64,10 @@ beside it), organized into:
 3. Security & SAST
 4. Architecture rot
 5. Test integrity
-6. Correctness & data/privacy — Supabase migration-safety checks (squawk) have
-   run on a real repository; the static RLS checks (splinter, pgrls) have not
-   yet; the opt-in **runtime** RLS enforcement check has one live run behind it
-   (see the note below this list for what that does and does not cover)
+6. Correctness & data/privacy — Supabase migration-safety checks (squawk) and
+   the static RLS checks (splinter, pgrls) have run on a real repository; the
+   opt-in **runtime** RLS enforcement check has one live run behind it (see the
+   note below this list for what that does and does not cover)
 7. Quality / footprint / docs — the performance regression-finding pipeline is
    incomplete and reports nothing useful yet
 8. Process & backlog
@@ -131,14 +131,14 @@ the tool at a repository.
   autobuild, and bring-your-own commercial scanner wrappers. That file is
   treated as consent, so scanning a repository executes its configuration. Only
   scan repositories you would run `npm install` in.
-- **Without the target's dependencies installed, results can be wrong rather than
-  missing.** tsc falls back to the one on PATH, and a different TypeScript version
-  can report the project's own configuration as critical errors; dependency-cruiser
-  can analyze zero modules and still report the architecture dimension as `ok`.
-  Run `npm install` in the target first.
-- **A fleet sweep of a directory whose path looks random** (for example, one
-  containing a UUID) is refused: the secret check flags the dashboard's own
-  sweep-root line.
+- **The TypeScript checks need the target's dependencies installed.** On a
+  repository without `node_modules`, tsc, ESLint and knip report `unavailable`
+  rather than run a different version from PATH, and dependency-cruiser also
+  needs a TypeScript older than 7 it can load. Run `npm install` in the target
+  first.
+- **Some pgrls findings are withheld.** A pgrls finding whose own text uses
+  runtime-certainty wording ("enforced", "secure", "protected") is left out of
+  a static report; the scope ledger lists its rule id.
 - **Trend matching is line-sensitive.** Findings match across scans on tool +
   rule + file + line, so inserting a line above a finding lists it under
   Resolved. The moved finding is not listed as new; it shows only in the
