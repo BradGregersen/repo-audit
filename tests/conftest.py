@@ -295,7 +295,8 @@ def _stub_external_tool_subprocess(request, monkeypatch):
     runs first.
 
     Opt out with ``@pytest.mark.real_subprocess`` for a test that must observe
-    genuine subprocess behaviour; ``tests/integration/`` is exempt wholesale.
+    genuine subprocess behaviour; ``tests/integration/`` and any test marked
+    ``integration`` (live-binary by definition) are exempt wholesale.
     A test that requests ``pytest-subprocess``'s ``fp``/``fake_process`` fixture
     is exempt too — it has declared that it owns this seam, and shadowing the
     module object would silently disable its own registrations.
@@ -303,6 +304,10 @@ def _stub_external_tool_subprocess(request, monkeypatch):
     if request.node.get_closest_marker("real_subprocess"):
         return
     if _is_integration_test(request.node):
+        return
+    # A live-binary test outside tests/integration/ would otherwise run against
+    # the canned stand-in and pass without touching the tool it names.
+    if request.node.get_closest_marker("integration"):
         return
     if {"fp", "fake_process"} & set(request.fixturenames):
         return
