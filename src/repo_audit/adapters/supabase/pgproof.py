@@ -48,6 +48,7 @@ failure — is caught and folded into ``AdapterResult(status="unavailable")``.
 """
 from __future__ import annotations
 
+import re
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -124,8 +125,23 @@ class MigrationApplyFailed(Exception):
         self.file = file
         self.stderr_tail = stderr_tail
         super().__init__(
-            f"migration apply failed: {file.name}: {stderr_tail.strip()[:500]}"
+            f"migration apply failed: {file.name}: {_error_excerpt(stderr_tail)[:500]}"
         )
+
+
+def _error_excerpt(stderr: str) -> str:
+    """psql's ERROR/DETAIL/HINT/CONTEXT lines, else the whole text.
+
+    psql prints a migration's NOTICEs before the ERROR that stopped it, so the
+    first 500 characters were often only NOTICEs and the cause never reached
+    the report.
+    """
+    lines = [
+        line
+        for line in stderr.splitlines()
+        if re.search(r"\b(ERROR|DETAIL|HINT|CONTEXT):", line)
+    ]
+    return "\n".join(lines) if lines else stderr.strip()
 
 
 def _select_image(pg_major: int) -> str:
@@ -201,15 +217,31 @@ def _apply_migration(
     cwd: Path,
     timeout_seconds: float,
 ) -> None:
-    """Apply one migration via ``psql … -v ON_ERROR_STOP=1 -1 -f <file>``.
+    """Apply one migration via ``psql … -v ON_ERROR_STOP=1 -1 -c 'SET ROLE postgres' -f <file>``.
 
     The path is passed as a discrete ``-f <path>`` argv entry through
     ``run_tool`` (shell=False) — no shell interpolation of repo-controlled paths
     (T-08-08). Any non-zero / sentinel returncode raises
     :class:`MigrationApplyFailed`.
+
+    The migration runs as ``postgres``, the role Supabase applies a project's
+    migrations as, inside the same single transaction. Run as the connecting
+    superuser instead, an un-qualified ``ALTER DEFAULT PRIVILEGES`` changes that
+    role's defaults rather than ``postgres``'s, and objects end up owned by a
+    role no project migration ever runs as.
     """
     result = run_tool(
-        ["psql", dsn, "-v", "ON_ERROR_STOP=1", "-1", "-f", str(file)],
+        [
+            "psql",
+            dsn,
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-1",
+            "-c",
+            "SET ROLE postgres",
+            "-f",
+            str(file),
+        ],
         env=env,
         cwd=cwd,
         timeout_seconds=timeout_seconds,
@@ -279,6 +311,22 @@ begin
     return parts[1 : array_length(parts, 1) - 1];
 end
 $func$;
+
+-- The platform's storage grants: migrations run as `postgres`, which on Supabase
+-- can use the storage tables and create policies on them (it is a member of
+-- their owner, `supabase_storage_admin`).
+grant usage, create on schema storage to postgres;
+grant usage on schema storage to anon, authenticated, service_role;
+grant all on all tables in schema storage to postgres, anon, authenticated, service_role;
+do $grants$
+begin
+    if exists (select 1 from pg_roles where rolname = 'supabase_storage_admin') then
+        alter table storage.buckets owner to supabase_storage_admin;
+        alter table storage.objects owner to supabase_storage_admin;
+        grant supabase_storage_admin to postgres;
+    end if;
+end
+$grants$;
 """
 
 
